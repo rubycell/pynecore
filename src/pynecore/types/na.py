@@ -175,6 +175,9 @@ class NA(Generic[T]):
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
         return self
 
+    def __contains__(self, _: Any) -> bool:
+        return False
+
     def __getitem__(self, _: Any) -> NA[T]:
         return self
 

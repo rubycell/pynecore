@@ -477,6 +477,10 @@ def split(string: str, separator: str) -> list[str]:
     :param separator: Separator
     :return: Array of substrings
     """
+    # BUG FIX: Pine Script allows empty separator (splits into individual characters)
+    # Python's str.split() raises ValueError with empty separator
+    if separator == "":
+        return list(string)  # Split into individual characters
     return string.split(separator)
 
 

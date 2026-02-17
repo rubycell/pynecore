@@ -298,6 +298,23 @@ def set_xy(id: Label, x: int, y: int | float) -> None:
     id.y = y
 
 
+# Sprint 1 Fix: Missing function
+# noinspection PyShadowingBuiltins
+def set_xloc(id: Label, xloc: _xloc.XLoc) -> None:
+    """
+    Sets the x-location type of the label.
+    NOTE: This is a stub implementation that currently has no effect.
+
+    :param id: Label object
+    :param xloc: X-location type (bar_index or bar_time)
+    """
+    if isinstance(id, NA):
+        return
+    # TODO: Implement actual xloc behavior
+    # For now, this is a no-op stub
+    pass
+
+
 # noinspection PyShadowingBuiltins
 def set_yloc(id: Label, yloc: _yloc.YLoc) -> None:
     """

@@ -126,8 +126,10 @@ def _set_lib_syminfo_properties(syminfo: SymInfo, lib: ModuleType):
     if syminfo.type == 'crypto':
         decimals = 6 if syminfo.basecurrency == 'BTC' else 4  # TODO: is it correct?
         lib.syminfo._size_round_factor = 10 ** decimals
+        lib.syminfo.mincontract = 1.0 / (10 ** decimals)
     else:
         lib.syminfo._size_round_factor = 1
+        lib.syminfo.mincontract = 1.0
 
 
 def _reset_lib_vars(lib: ModuleType):
@@ -154,6 +156,7 @@ def _reset_lib_vars(lib: ModuleType):
     lib._datetime = datetime.fromtimestamp(0, UTC)
 
     lib._lib_semaphore = False
+    lib._plot_meta.clear()
 
     lib.barstate.isfirst = True
     lib.barstate.islast = False
@@ -166,7 +169,7 @@ class ScriptRunner:
 
     __slots__ = ('script_module', 'script', 'ohlcv_iter', 'syminfo', 'update_syminfo_every_run',
                  'bar_index', 'tz', 'plot_writer', 'strat_writer', 'trades_writer', 'last_bar_index',
-                 'equity_curve', 'first_price', 'last_price')
+                 'equity_curve', 'first_price', 'last_price', 'plot_meta_path', 'stats')
 
     def __init__(self, script_path: Path, ohlcv_iter: Iterable[OHLCV], syminfo: SymInfo, *,
                  plot_path: Path | None = None, strat_path: Path | None = None,
@@ -188,14 +191,6 @@ class ScriptRunner:
         :raises ImportError: If the 'main' function is not decorated with @script.[indicator|strategy|library]
         :raises OSError: If the plot file could not be opened
         """
-        # Import lib module to set syminfo properties before script import
-        from .. import lib
-
-        # Set syminfo properties BEFORE importing the script
-        # This ensures that timestamp() calls in default parameters use the correct timezone
-        _set_lib_syminfo_properties(syminfo, lib)
-
-        # Now import the script (default parameters will use correct timezone)
         self.script_module = import_script(script_path)
 
         if not hasattr(self.script_module.main, 'script'):
@@ -220,9 +215,12 @@ class ScriptRunner:
         self.first_price: float | None = None
         self.last_price: float | None = None
 
+        self.stats = None
+
         self.plot_writer = CSVWriter(
             plot_path, float_fmt=f".8g"
         ) if plot_path else None
+        self.plot_meta_path = plot_path.with_name(plot_path.stem + '_plot_meta.json') if plot_path else None
         self.strat_writer = CSVWriter(strat_path, headers=(
             "Metric",
             f"All {syminfo.currency}", "All %",
@@ -276,8 +274,9 @@ class ScriptRunner:
             if self.trades_writer:
                 self.trades_writer.open()
 
-        # Clear plot data
+        # Clear plot data and metadata
         lib._plot_data.clear()
+        lib._plot_meta.clear()
 
         # Trade counter
         trade_num = 0
@@ -286,21 +285,14 @@ class ScriptRunner:
         position = self.script.position
 
         try:
-            # Peek-ahead pattern: look one step ahead to detect the last bar accurately
-            ohlcv_iterator = iter(self.ohlcv_iter)
-            next_candle = next(ohlcv_iterator, None)
-
-            while next_candle is not None:
-                candle = next_candle
-                next_candle = next(ohlcv_iterator, None)
-
+            for candle in self.ohlcv_iter:
                 # Update syminfo lib properties if needed, other ScriptRunner instances may have changed them
                 if self.update_syminfo_every_run:
                     _set_lib_syminfo_properties(self.syminfo, lib)
                     self.tz = _parse_timezone(lib.syminfo.timezone)
 
-                # Accurate last bar detection - no more estimation needed
-                barstate.islast = (next_candle is None)
+                if self.bar_index == self.last_bar_index:
+                    barstate.islast = True
 
                 # Update lib properties
                 _set_lib_properties(candle, self.bar_index, self.tz, lib)
@@ -462,27 +454,23 @@ class ScriptRunner:
                                 f"{max(0, -pnl_percent):.2f}",
                             )
 
-                # Write strategy statistics
-                if self.strat_writer and position:
-                    try:
-                        # Open strat writer and write statistics
-                        self.strat_writer.open()
+                # Calculate strategy statistics (always, so optimize can access them)
+                if is_strat and position:
+                    self.stats = calculate_strategy_statistics(
+                        position,
+                        self.script.initial_capital,
+                        self.equity_curve if self.equity_curve else None,
+                        self.first_price,
+                        self.last_price
+                    )
 
-                        # Calculate comprehensive statistics
-                        stats = calculate_strategy_statistics(
-                            position,
-                            self.script.initial_capital,
-                            self.equity_curve if self.equity_curve else None,
-                            self.first_price,
-                            self.last_price
-                        )
-
-                        write_strategy_statistics_csv(stats, self.strat_writer)
-                        self.strat_writer.close()
-
-                    finally:
-                        # Close strat writer
-                        self.strat_writer.close()
+                    # Write to CSV only if writer exists
+                    if self.strat_writer:
+                        try:
+                            self.strat_writer.open()
+                            write_strategy_statistics_csv(self.stats, self.strat_writer)
+                        finally:
+                            self.strat_writer.close()
 
             # Close the plot writer
             if self.plot_writer:
@@ -490,6 +478,15 @@ class ScriptRunner:
             # Close the trade writer
             if self.trades_writer:
                 self.trades_writer.close()
+
+            # Write plot metadata JSON
+            if self.plot_meta_path and lib._plot_meta:
+                import json
+                try:
+                    with open(self.plot_meta_path, 'w') as f:
+                        json.dump(lib._plot_meta, f, indent=2)
+                except OSError:
+                    pass
 
             # Reset library variables
             _reset_lib_vars(lib)

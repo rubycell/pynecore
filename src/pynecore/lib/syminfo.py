@@ -30,6 +30,7 @@ mintick: float | NA[float] = NA(float)
 pricescale: int | NA[int] = NA(int)
 minmove: int = 1
 pointvalue: float | NA[float] = NA(float)
+mincontract: float = 1.0
 timezone: str | NA[str] = NA(str)
 country: str | NA[str] = NA(str)
 session: Session = regular

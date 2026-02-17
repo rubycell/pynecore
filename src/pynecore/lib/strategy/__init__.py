@@ -550,6 +550,12 @@ class Position:
         :param h: The high price
         :param l: The low price
         """
+        # Skip exit orders when there's no position to close.
+        # The exit order stays alive in the orderbook so it can trigger
+        # after an entry fills on the same bar (same-bar exit).
+        if order.order_type == _order_type_close and self.size == 0.0:
+            return
+
         # Save the original order size before any modifications
         filled_size = abs(order.size)
 
@@ -944,6 +950,11 @@ class Position:
         :param order: The order to check
         :return: True if the order should be filled immediately at open price
         """
+        # Skip exit orders when no position exists — they may trigger
+        # after an entry fills on the same bar (same-bar exit)
+        if order.order_type == _order_type_close and not self.open_trades:
+            return False
+
         # Check stop orders with gaps
         if order.stop is not None:
             # Long stop order (size > 0): triggers if open gaps above stop level
@@ -1079,44 +1090,6 @@ class Position:
         self.drawdown_summ = self.runup_summ = 0.0
         self.new_closed_trades.clear()
 
-        exit_orders = list(self.exit_orders.values())
-
-        # Skip exit order processing if there's no open position (TradingView behavior)
-        if not self.open_trades:
-            # Remove all exit orders when position is flat
-            for order in exit_orders:
-                self._remove_order(order)
-            exit_orders = []
-
-        # For exit orders, calculate limit/stop from entry price if ticks are specified
-        for order in exit_orders:
-            # Try to find the trade with matching entry_id
-            entry_price = None
-            for trade in self.open_trades:
-                if trade.entry_id == order.order_id:
-                    entry_price = trade.entry_price
-                    break
-
-            # If we found the entry price and have tick values, calculate the actual prices
-            if entry_price is not None:
-                # Determine direction from the order
-                direction = 1.0 if order.size < 0 else -1.0  # Exit order size is negative of position
-
-                # Calculate limit from profit_ticks if specified
-                if order.profit_ticks is not None and order.limit is None:
-                    order.limit = entry_price + direction * syminfo.mintick * order.profit_ticks
-                    order.limit = _price_round(order.limit, direction)
-
-                # Calculate stop from loss_ticks if specified
-                if order.loss_ticks is not None and order.stop is None:
-                    order.stop = entry_price - direction * syminfo.mintick * order.loss_ticks
-                    order.stop = _price_round(order.stop, -direction)
-
-                # Calculate trail_price from trail_points_ticks if specified
-                if order.trail_points_ticks is not None and order.trail_price is None:
-                    order.trail_price = entry_price + direction * syminfo.mintick * order.trail_points_ticks
-                    order.trail_price = _price_round(order.trail_price, direction)
-
         # Check for stop/limit orders that should be converted to market orders due to gaps
         # This must happen BEFORE processing market orders
         for order in self.orderbook.iter_orders():
@@ -1127,7 +1100,7 @@ class Position:
                 # Add to market orders dict
                 self.market_orders[order.order_id] = order
 
-        # Process Market orders
+        # Process Market orders (entries fill here at open price)
         for order in list(self.market_orders.values()):
             if order.limit is None and order.stop is None:
                 # We need to check pyramiding and flip quantity here for market orders :-/
@@ -1157,6 +1130,46 @@ class Position:
             # open → low → high → close
             else:
                 self.fill_order(order, fill_price, self.l, self.o)
+
+        # Clear stale exit orders if position is flat AFTER entries have filled.
+        # Preserve exit orders that have a matching pending entry order —
+        # they may trigger on the same bar the entry fills (same-bar exit).
+        exit_orders = list(self.exit_orders.values())
+        if not self.open_trades:
+            pending_entry_ids = set(self.entry_orders.keys())
+            for order in exit_orders:
+                if order.order_id not in pending_entry_ids:
+                    self._remove_order(order)
+            exit_orders = [o for o in exit_orders if not o.cancelled]
+
+        # For exit orders, calculate limit/stop from entry price if ticks are specified
+        for order in exit_orders:
+            # Try to find the trade with matching entry_id
+            entry_price = None
+            for trade in self.open_trades:
+                if trade.entry_id == order.order_id:
+                    entry_price = trade.entry_price
+                    break
+
+            # If we found the entry price and have tick values, calculate the actual prices
+            if entry_price is not None:
+                # Determine direction from the order
+                direction = 1.0 if order.size < 0 else -1.0  # Exit order size is negative of position
+
+                # Calculate limit from profit_ticks if specified
+                if order.profit_ticks is not None and order.limit is None:
+                    order.limit = entry_price + direction * syminfo.mintick * order.profit_ticks
+                    order.limit = _price_round(order.limit, direction)
+
+                # Calculate stop from loss_ticks if specified
+                if order.loss_ticks is not None and order.stop is None:
+                    order.stop = entry_price - direction * syminfo.mintick * order.loss_ticks
+                    order.stop = _price_round(order.stop, -direction)
+
+                # Calculate trail_price from trail_points_ticks if specified
+                if order.trail_points_ticks is not None and order.trail_price is None:
+                    order.trail_price = entry_price + direction * syminfo.mintick * order.trail_points_ticks
+                    order.trail_price = _price_round(order.trail_price, direction)
 
         # Process orders: open → high → low → close
         if ohlc:
@@ -1205,6 +1218,41 @@ class Position:
                     continue
                 if order.trail_triggered and order.stop is not None:
                     self._check_close(order, ohlc)
+
+        # Same-bar exit: after entries fill, check if exit orders should also
+        # trigger on the same bar. In TradingView, if an entry stop fills and
+        # price also hits the stoploss on the same bar, both execute on that bar.
+        if self.open_trades and self.exit_orders:
+            bar_idx = int(lib.bar_index)
+            for exit_order in list(self.exit_orders.values()):
+                if exit_order.cancelled:
+                    continue
+                # Find matching trade opened this bar
+                matching_trade = None
+                for trade in self.open_trades:
+                    if trade.entry_id == exit_order.order_id and trade.entry_bar_index == bar_idx:
+                        matching_trade = trade
+                        break
+                if matching_trade is None:
+                    continue
+                # Check stop trigger against bar's full range
+                if exit_order.stop is not None:
+                    if matching_trade.sign > 0 and self.l <= exit_order.stop:
+                        # Long exit: stoploss hit, fill at stop price
+                        self.fill_order(exit_order, exit_order.stop, self.h, exit_order.stop)
+                        continue
+                    elif matching_trade.sign < 0 and self.h >= exit_order.stop:
+                        # Short exit: stoploss hit, fill at stop price
+                        self.fill_order(exit_order, exit_order.stop, exit_order.stop, self.l)
+                        continue
+                # Check limit trigger against bar's full range
+                if exit_order.limit is not None:
+                    if matching_trade.sign > 0 and self.h >= exit_order.limit:
+                        self.fill_order(exit_order, exit_order.limit, exit_order.limit, self.l)
+                        continue
+                    elif matching_trade.sign < 0 and self.l <= exit_order.limit:
+                        self.fill_order(exit_order, exit_order.limit, self.h, exit_order.limit)
+                        continue
 
         # Calculate average entry price, unrealized P&L, drawdown and runup...
         if self.open_trades:
@@ -1320,15 +1368,19 @@ def _price_round(price: float | NA[float], direction: int | float) -> float | NA
 # noinspection PyShadowingBuiltins,PyProtectedMember
 def cancel(id: str):
     """
-    Cancels a pending or unfilled order with a specific identifier
+    Cancels/deactivates a pending entry order with the specified ID.
+    In TradingView, strategy.cancel() only cancels entry orders, not exit orders.
 
-    :param id: The identifier of the order to cancel
+    :param id: The identifier of the entry order to cancel
     """
     if lib._lib_semaphore:
         return
 
     position = lib._script.position
-    position._remove_order_by_id(id)
+    # Only cancel entry orders — TradingView's strategy.cancel() never touches exit orders
+    order = position.entry_orders.get(id)
+    if order:
+        position._remove_order(order)
 
 
 # noinspection PyProtectedMember
@@ -1845,6 +1897,18 @@ def max_drawdown() -> float | NA[float]:
 
 # noinspection PyProtectedMember
 @module_property
+def max_drawdown_percent() -> float | NA[float]:
+    position = lib._script.position
+    if position.max_drawdown == 0.0:
+        return 0.0
+    peak_equity = lib._script.initial_capital + position.netprofit + position.openprofit + position.max_drawdown
+    if peak_equity == 0.0:
+        return 0.0
+    return (position.max_drawdown / peak_equity) * 100.0
+
+
+# noinspection PyProtectedMember
+@module_property
 def max_runup() -> float | NA[float]:
     return lib._script.position.max_runup
 
@@ -1877,3 +1941,81 @@ def position_avg_price() -> float | NA[float]:
 @module_property
 def wintrades() -> int | NA[int]:
     return lib._script.position.wintrades
+
+
+# Sprint 1 Fix: Missing API stubs
+
+# noinspection PyProtectedMember
+@module_property
+def margin_liquidation_price() -> float | NA[float]:
+    """
+    Returns the margin liquidation price for the current position.
+    NOTE: This is a placeholder stub implementation.
+
+    :return: The margin liquidation price (currently returns NA)
+    """
+    # TODO: Implement actual margin liquidation price calculation
+    return NA(float)
+
+
+# noinspection PyProtectedMember
+def default_entry_qty(fill_price: float) -> float:
+    """
+    Returns the default number of contracts/shares/lots/units for an entry
+    at the given fill_price, based on the strategy's default_qty_type and
+    default_qty_value settings.
+
+    :param fill_price: The expected fill price of the entry order
+    :return: The default entry quantity
+    """
+    script = lib._script
+    position = script.position
+    default_qty_type = script.default_qty_type
+    default_qty_value = script.default_qty_value
+
+    if default_qty_type == fixed:
+        return default_qty_value
+
+    elif default_qty_type == percent_of_equity:
+        equity_percent = default_qty_value * 0.01
+        target_investment = position.equity * equity_percent
+        price = fill_price * syminfo.pointvalue
+
+        if script.commission_type == _commission.percent:
+            commission_multiplier = 1.0 + script.commission_value * 0.01
+            return target_investment / (price * commission_multiplier)
+        elif script.commission_type == _commission.cash_per_contract:
+            return target_investment / (price + script.commission_value)
+        elif script.commission_type == _commission.cash_per_order:
+            return max(0.0, (target_investment - script.commission_value) / price)
+        else:
+            return target_investment / price
+
+    elif default_qty_type == cash:
+        return default_qty_value / (fill_price * syminfo.pointvalue)
+
+    return 0.0
+
+
+def convert_to_account(qty: float) -> float:
+    """
+    Converts the quantity to account currency.
+    NOTE: This is a simplified stub implementation.
+
+    :param qty: The quantity to convert
+    :return: The quantity in account currency (currently 1:1 conversion)
+    """
+    # TODO: Implement actual currency conversion logic
+    return qty
+
+
+def convert_to_symbol(qty: float) -> float:
+    """
+    Converts the quantity to symbol currency.
+    NOTE: This is a simplified stub implementation.
+
+    :param qty: The quantity to convert
+    :return: The quantity in symbol currency (currently 1:1 conversion)
+    """
+    # TODO: Implement actual currency conversion logic
+    return qty

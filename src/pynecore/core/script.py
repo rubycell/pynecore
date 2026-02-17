@@ -1,4 +1,4 @@
-from typing import Any, Callable, TypeVar
+from typing import cast, Any, Callable, TypeVar
 import os
 import sys
 
@@ -54,7 +54,7 @@ _old_input_values: dict[str, Any] = {}
 inputs: dict[str | None, InputData] = {}
 
 
-# noinspection PyShadowingBuiltins,PyShadowingNames,PyDunderSlots,PyUnresolvedReferences
+# noinspection PyShadowingBuiltins,PyShadowingNames
 @dataclass(kw_only=True, slots=True)
 class Script:
     """
@@ -127,9 +127,10 @@ class Script:
             if isinstance(value, Color):
                 value = str(value)
             if isinstance(value, str):
-                # Escape newlines and backslashes for valid TOML
-                escaped = value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r')
-                return f'"{escaped}"'
+                # Use triple quotes for multiline strings in TOML
+                if '\n' in value or '\r' in value:
+                    return f'"""{value}"""'
+                return f'"{value}"'
             return str(value)
 
         lines = [
@@ -230,9 +231,11 @@ class Script:
         script_path = Path(sys._getframe(2).f_globals['__file__']).resolve()  # noqa F821
         toml_path = script_path.with_suffix('.toml')
 
-        # Load settings from toml file if exists
-        if toml_path.exists():
-            self.load(toml_path)
+        # Skip TOML loading in optimize mode (values are pre-populated externally)
+        if os.environ.get('PYNE_OPTIMIZE_MODE') != '1':
+            # Load settings from toml file if exists
+            if toml_path.exists():
+                self.load(toml_path)
 
         # Pyramiding must be at least 1
         if self.pyramiding <= 0:
@@ -256,7 +259,6 @@ class Script:
 
         return decorator
 
-    # noinspection DuplicatedCode
     @classmethod
     def indicator(
             cls,
@@ -294,7 +296,7 @@ class Script:
                               referenced by Series objects
         :param timeframe: Adds multi-timeframe functionality to simple scripts
         :param timeframe_gaps: Specifies how the indicator's values are displayed on chart bars
-                               when the `timeframe` is higher than the chart's timeframe.
+                               when the `timeframe` is higher than the chart's.
         :param explicit_plot_zorder: Specifies the order in which the script's plots, fills, and hlines are rendered
         :param max_lines_count: The number of last line drawings displayed on the chart
         :param max_labels_count: The number of last label drawings displayed
@@ -329,7 +331,6 @@ class Script:
 
         return script._decorate()
 
-    # noinspection DuplicatedCode
     @classmethod
     def strategy(
             cls,
@@ -355,8 +356,8 @@ class Script:
             commission_value: int | float = 0.0,
             process_orders_on_close=False,
             close_entries_rule='FIFO',
-            margin_long: int | float = 100.0,
-            margin_short: int | float = 100.0,
+            margin_long: int | float = 0.0,
+            margin_short: int | float = 0.0,
 
             explicit_plot_zorder=False,
             max_lines_count=50,
@@ -725,6 +726,41 @@ class _Input:
         return defval if _id not in _old_input_values else Color(_old_input_values[_id])
 
     @classmethod
+    def text_area(cls, defval: str = "", title: str | None = None, *,
+                  tooltip: str | None = None, confirm: bool | None = False,
+                  group: str | None = None, inline: bool | None = False,
+                  display: _display.Display | None = None,
+                  _id: str | None = None, **__) -> str:
+        """
+        Adds a multi-line text area input to your script's settings.
+        NOTE: This is a stub implementation that behaves like string input.
+
+        :param defval: The default value of the input
+        :param title: The title of the input
+        :param tooltip: The tooltip of the input
+        :param confirm: If True, the user will be asked to confirm the input
+        :param group: The group of the input
+        :param inline: If True, the input will be displayed inline
+        :param display: Controls where the script will display the input's information
+        :param _id: The unique identifier of the input, it is filled by the InputTransformer
+        :return: The input value from toml file or the default
+        """
+        # TODO: Implement multi-line text area rendering
+        # For now, treat it like a regular string input
+        inputs[_id] = InputData(
+            id=_id,
+            input_type='text_area',  # Use distinct type for future implementation
+            defval=defval,
+            title=title,
+            tooltip=tooltip,
+            inline=inline,
+            group=group,
+            confirm=confirm,
+            display=display,
+        )
+        return defval if _id not in _old_input_values else str(_old_input_values[_id])
+
+    @classmethod
     def source(cls, defval: str | Source, title: str | None = None, *,
                tooltip: str | None = None, inline: bool | None = False, group: str | None = None,
                confirm: bool | None = False, display: _display.Display | None = None,
@@ -757,7 +793,7 @@ class _Input:
             display=display,
         )
         # We actually return a string here, but the InputTransformer will add a `getattr()` call to get the
-        return defval if _id not in _old_input_values else _old_input_values[_id]
+        return cast(Series[float], defval if _id not in _old_input_values else _old_input_values[_id])
 
     @classmethod
     def enum(cls, defval: TEnum, title: str | None = None, *,
@@ -816,7 +852,7 @@ class _Input:
     session = string
     symbol = string
     timeframe = string
-    text_area = string
+    textarea = string
 
     # time() returns UNIX timestamp in milliseconds (int)
     time = _int

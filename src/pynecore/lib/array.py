@@ -226,11 +226,17 @@ def covariance(id1: list[Number], id2: list[Number], biased: bool = True) -> flo
     :return: Covariance between the elements in the two arrays
     """
     assert len(id1) == len(id2), "Input arrays must have the same length!"
-    mean1 = statistics.mean(id1)
-    mean2 = statistics.mean(id2)
-    length = len(id1)
+    # PRIORITY 2 FIX: Filter out NA values before calling statistics.mean()
+    # Collect pairs where both values are not NA
+    valid_pairs = [(v1, v2) for v1, v2 in zip(id1, id2) if not isinstance(v1, NA) and not isinstance(v2, NA)]
+    if not valid_pairs:
+        return 0.0
+    valid1, valid2 = zip(*valid_pairs)
+    mean1 = statistics.mean(valid1)
+    mean2 = statistics.mean(valid2)
+    length = len(valid_pairs)
     summ = 0.0
-    for v1, v2 in zip(id1, id2):
+    for v1, v2 in valid_pairs:
         summ += (v1 - mean1) * (v2 - mean2)
     return summ / ((length - 1) if not biased else length)
 
@@ -785,6 +791,70 @@ def new_string(size: int = 0, initial_value: str | NA = NA(str)) -> list[str | N
     return [initial_value] * size
 
 
+# Sprint 1 Fix: Add no-argument array constructors and missing new_table
+
+# noinspection PyShadowingNames
+@overload
+def new_box(size: int = 0) -> list[Box | NA[Box]]:
+    """
+    Creates a new array for storing box objects.
+
+    :param size: Size of the new array
+    :return: New array of the specified size
+    """
+    ...
+
+
+# noinspection PyShadowingNames
+def new_box(size: int = 0) -> list[Box | NA[Box]]:
+    """
+    Creates a new array for storing box objects.
+
+    :param size: Size of the new array (default: 0)
+    :return: New array of box objects
+    """
+    assert size >= 0, "Size must be >=0!"
+    return [NA(Box)] * size
+
+
+# noinspection PyShadowingNames
+@overload
+def new_line(size: int = 0) -> list[Line | NA[Line]]:
+    """
+    Creates a new array for storing line objects.
+
+    :param size: Size of the new array
+    :return: New array of the specified size
+    """
+    ...
+
+
+# noinspection PyShadowingNames
+def new_line(size: int = 0) -> list[Line | NA[Line]]:
+    """
+    Creates a new array for storing line objects.
+
+    :param size: Size of the new array (default: 0)
+    :return: New array of line objects
+    """
+    assert size >= 0, "Size must be >=0!"
+    return [NA(Line)] * size
+
+
+# noinspection PyShadowingNames
+def new_table(size: int = 0) -> list:
+    """
+    Creates a new array for storing table objects.
+    NOTE: This is a stub implementation as table support is not fully implemented.
+
+    :param size: Size of the new array (default: 0)
+    :return: New array for tables
+    """
+    assert size >= 0, "Size must be >=0!"
+    # TODO: Implement proper table type when table support is added
+    return [None] * size
+
+
 # noinspection PyShadowingBuiltins,PyShadowingNames
 def percentile_linear_interpolation(id: list[float], percentage: float) -> float:
     """
@@ -1042,12 +1112,23 @@ def standardize(id: list[float | int]) -> list[float | int]:
         # You can decide how you want to handle the empty list.
         return []
 
-    mean = statistics.mean(id)
-    stdev = math.sqrt(statistics.mean([(v - mean) ** 2 for v in id]))
-    z_scores = [(v - mean) / stdev for v in id]
+    # PRIORITY 2 FIX: Filter out NA values before calculations
+    valid_values = [v for v in id if not isinstance(v, NA)]
+    if not valid_values:
+        return [0.0] * n  # Return zeros if all values are NA
 
-    # If all values are integers, apply the thresholding to get -1, 0, or 1.
-    if all(isinstance(v, int) for v in id):
+    mean = statistics.mean(valid_values)
+    stdev = math.sqrt(statistics.mean([(v - mean) ** 2 for v in valid_values]))
+
+    # Handle zero standard deviation (all values are the same)
+    if stdev == 0:
+        return [0.0] * n
+
+    # Calculate z-scores, treating NA as 0
+    z_scores = [(v - mean) / stdev if not isinstance(v, NA) else 0.0 for v in id]
+
+    # If all valid values are integers, apply the thresholding to get -1, 0, or 1.
+    if all(isinstance(v, int) for v in valid_values):
         # Pine Script-style integer thresholding
         return [
             -1 if z < -1 else
@@ -1110,12 +1191,17 @@ def variance(id: list[Number], biased: bool = True) -> float:
     :param biased: If True, calculates the biased variance. If False, calculates the unbiased variance.
     :return: Variance of the elements in the array
     """
-    if not biased:
-        return statistics.variance(id)
+    # PRIORITY 2 FIX: Filter out NA values before calculations
+    valid_values = [v for v in id if not isinstance(v, NA)]
+    if not valid_values:
+        return 0.0
 
-    length = len(id)
-    mean = statistics.mean(id)
+    if not biased:
+        return statistics.variance(valid_values)
+
+    length = len(valid_values)
+    mean = statistics.mean(valid_values)
     summ = 0.0
-    for v in id:
+    for v in valid_values:
         summ += (v - mean) ** 2
     return summ / length

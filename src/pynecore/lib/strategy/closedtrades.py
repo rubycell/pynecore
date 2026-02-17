@@ -12,6 +12,93 @@ from ...core.callable_module import CallableModule
 
 class ClosedTradesModule(CallableModule):
     #
+    # Operator overloading for comparisons and arithmetic
+    #
+
+    def __gt__(self, other):
+        """Allow: strategy.closedtrades > 10 or strategy.closedtrades > strategy.closedtrades[1]"""
+        if isinstance(other, int):
+            return self() > other
+        elif isinstance(other, ClosedTradesModule):
+            return self() > other()
+        return NotImplemented
+
+    def __lt__(self, other):
+        """Allow: strategy.closedtrades < 5 or strategy.closedtrades < strategy.closedtrades[1]"""
+        if isinstance(other, int):
+            return self() < other
+        elif isinstance(other, ClosedTradesModule):
+            return self() < other()
+        return NotImplemented
+
+    def __ge__(self, other):
+        """Allow: strategy.closedtrades >= 10 or strategy.closedtrades >= strategy.closedtrades[1]"""
+        if isinstance(other, int):
+            return self() >= other
+        elif isinstance(other, ClosedTradesModule):
+            return self() >= other()
+        return NotImplemented
+
+    def __le__(self, other):
+        """Allow: strategy.closedtrades <= 5 or strategy.closedtrades <= strategy.closedtrades[1]"""
+        if isinstance(other, int):
+            return self() <= other
+        elif isinstance(other, ClosedTradesModule):
+            return self() <= other()
+        return NotImplemented
+
+    def __eq__(self, other):
+        """Allow: strategy.closedtrades == 0 or strategy.closedtrades == strategy.closedtrades[1]"""
+        if isinstance(other, int):
+            return self() == other
+        elif isinstance(other, ClosedTradesModule):
+            return self() == other()
+        return NotImplemented
+
+    def __ne__(self, other):
+        """Allow: strategy.closedtrades != 0 or strategy.closedtrades != strategy.closedtrades[1]"""
+        if isinstance(other, int):
+            return self() != other
+        elif isinstance(other, ClosedTradesModule):
+            return self() != other()
+        return NotImplemented
+
+    def __sub__(self, other):
+        """Allow: strategy.closedtrades - 1 or strategy.closedtrades - strategy.closedtrades[1]"""
+        if isinstance(other, int):
+            return self() - other
+        elif isinstance(other, ClosedTradesModule):
+            return self() - other()
+        return NotImplemented
+
+    def __add__(self, other):
+        """Allow: strategy.closedtrades + 1 or strategy.closedtrades + strategy.opentrades"""
+        if isinstance(other, int):
+            return self() + other
+        elif isinstance(other, ClosedTradesModule):
+            return self() + other()
+        elif hasattr(other, '__class__') and other.__class__.__name__ == 'OpenTradesModule':
+            # Handle OpenTradesModule without circular import
+            return self() + other()
+        return NotImplemented
+
+    def __rsub__(self, other):
+        """Allow: 10 - strategy.closedtrades or strategy.closedtrades[1] - strategy.closedtrades"""
+        if isinstance(other, int):
+            return other - self()
+        elif isinstance(other, ClosedTradesModule):
+            return other() - self()
+        return NotImplemented
+
+    def __radd__(self, other):
+        """Allow: 10 + strategy.closedtrades or strategy.closedtrades[1] + strategy.closedtrades"""
+        if isinstance(other, int):
+            return other + self()
+        elif isinstance(other, ClosedTradesModule):
+            return other() + self()
+        return NotImplemented
+
+    #
     # Functions
     #
     # noinspection PyProtectedMember

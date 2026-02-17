@@ -11,6 +11,107 @@ from ...core.callable_module import CallableModule
 
 class OpenTradesModule(CallableModule):
     #
+    # Operator overloading for comparisons and arithmetic
+    #
+
+    def __gt__(self, other):
+        """Allow: strategy.opentrades > 10 or strategy.opentrades > strategy.opentrades[1]"""
+        if isinstance(other, int):
+            return self() > other
+        elif isinstance(other, OpenTradesModule):
+            return self() > other()
+        return NotImplemented
+
+    def __lt__(self, other):
+        """Allow: strategy.opentrades < 5"""
+        if isinstance(other, int):
+            return self() < other
+        elif isinstance(other, OpenTradesModule):
+            return self() < other()
+        return NotImplemented
+
+    def __ge__(self, other):
+        """Allow: strategy.opentrades >= 10"""
+        if isinstance(other, int):
+            return self() >= other
+        elif isinstance(other, OpenTradesModule):
+            return self() >= other()
+        return NotImplemented
+
+    def __le__(self, other):
+        """Allow: strategy.opentrades <= 5"""
+        if isinstance(other, int):
+            return self() <= other
+        elif isinstance(other, OpenTradesModule):
+            return self() <= other()
+        return NotImplemented
+
+    def __eq__(self, other):
+        """Allow: strategy.opentrades == 0"""
+        if isinstance(other, int):
+            return self() == other
+        elif isinstance(other, OpenTradesModule):
+            return self() == other()
+        return NotImplemented
+
+    def __ne__(self, other):
+        """Allow: strategy.opentrades != 0"""
+        if isinstance(other, int):
+            return self() != other
+        elif isinstance(other, OpenTradesModule):
+            return self() != other()
+        return NotImplemented
+
+    def __sub__(self, other):
+        """Allow: strategy.opentrades - 1"""
+        if isinstance(other, int):
+            return self() - other
+        elif isinstance(other, OpenTradesModule):
+            return self() - other()
+        return NotImplemented
+
+    def __add__(self, other):
+        """Allow: strategy.opentrades + 1"""
+        if isinstance(other, int):
+            return self() + other
+        elif isinstance(other, OpenTradesModule):
+            return self() + other()
+        return NotImplemented
+
+    def __rsub__(self, other):
+        """Allow: 10 - strategy.opentrades"""
+        if isinstance(other, int):
+            return other - self()
+        return NotImplemented
+
+    def __radd__(self, other):
+        """Allow: 10 + strategy.opentrades"""
+        if isinstance(other, int):
+            return other + self()
+        return NotImplemented
+
+    #
+    # Sprint 1 Fix: Missing property
+    #
+
+    @property
+    def capital_held(self) -> float:
+        """
+        Returns the capital held in open positions.
+        NOTE: This is a simplified implementation.
+
+        :return: The capital held in open positions
+        """
+        # noinspection PyProtectedMember
+        if lib._script is None or lib._script.position is None:
+            return 0.0
+        position = lib._script.position
+        total = 0.0
+        for trade in position.open_trades:
+            total += abs(trade.size) * trade.entry_price
+        return total
+
+    #
     # Functions
     #
 

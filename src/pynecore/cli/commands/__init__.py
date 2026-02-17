@@ -9,16 +9,9 @@ from ..utils.error_hook import setup_global_error_logging
 from ...providers import available_providers
 
 # Import commands
-from . import run, data, compile, benchmark
+from . import run, data, compile, benchmark, optimize
 
-__all__ = ['run', 'data', 'compile', 'benchmark']
-
-# Conditional import for private TradingView test command
-_tv_path = Path(__file__).parent / "tv.py"
-if _tv_path.exists() and _tv_path.is_symlink():
-    from . import tv
-
-    __all__.append('tv')
+__all__ = ['run', 'data', 'compile', 'benchmark', 'optimize']
 
 
 @app.callback()
@@ -53,7 +46,7 @@ def setup(
     """
     if ctx.resilient_parsing:
         return
-
+    
     # If no subcommand is provided, show complete help like --help
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
@@ -190,7 +183,7 @@ def main(
             with OHLCVWriter(demo_file) as writer:
                 current_price = base_price
 
-                for i in range(2000):
+                for i in range(20000):
                     timestamp = int((start_time + timedelta(days=i)).timestamp())
 
                     # Random walk with slight upward bias

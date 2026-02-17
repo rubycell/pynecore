@@ -23,6 +23,8 @@ def contains(id: dict, key: Any) -> bool:
     :param id: The map to check.
     :param key: The key to check for.
     """
+    if isinstance(key, NA):
+        return False
     return key in id
 
 
@@ -44,7 +46,12 @@ def get(id: dict[TKey, TValue], key: TKey) -> TValue:
     :param id: The map to get the value from.
     :param key: The key to get the value from.
     """
-    return id[key]
+    if isinstance(key, NA):
+        return NA(None)
+    try:
+        return id[key]
+    except KeyError:
+        return NA(None)
 
 
 # noinspection PyShadowingBuiltins

@@ -92,8 +92,11 @@ _datetime: datetime = datetime.fromtimestamp(0, UTC)
 # Script settings from `script.indicator`, `script.strategy` or `script.library`
 _script: script | None = None
 
-# Stores data to polot
+# Stores data to plot
 _plot_data: dict[str, Any] = {}
+
+# Stores visual metadata for plot/plotchar/plotshape (title -> metadata dict)
+_plot_meta: dict[str, dict[str, Any]] = {}
 
 # Lib semaphore - to prevent lib`s main function to do things it must not (plot, strategy things, etc.)
 _lib_semaphore = False
@@ -216,7 +219,32 @@ def timestamp(year: int | float, month: int | float, day: int | float, hour: int
 
 ### Plotting ###
 
-# TODO: implement creating plot metadata to be able to plot in a different module
+
+def _resolve_enum_name(value, module) -> str | None:
+    """Reverse-lookup an IntEnum value to its module-level constant name."""
+    if value is None:
+        return None
+    for attr_name in dir(module):
+        if attr_name.startswith('_'):
+            continue
+        attr = getattr(module, attr_name, None)
+        if attr is value:
+            return attr_name
+    return str(int(value))
+
+
+def _serialize_color(c) -> str | None:
+    """Serialize a Color object to hex string."""
+    from ..types.color import Color
+    from ..types.na import NA
+    if c is None or isinstance(c, NA):
+        return None
+    if not isinstance(c, Color):
+        return None
+    if c.a == 255:
+        return f"#{c.r:02X}{c.g:02X}{c.b:02X}"
+    return f"#{c.r:02X}{c.g:02X}{c.b:02X}{c.a:02X}"
+
 
 def barcolor(*_, **__):
     ...
@@ -242,12 +270,80 @@ def plotcandle(*_, **__):
     ...
 
 
-def plotchar(series: Any, title: str | None = None, *_, **__):
+def plotchar(series: Any, title: str | None = None, char: str | None = None,
+             location: Any = None, color: Any = None, offset: int = 0,
+             text: str | None = None, textcolor: Any = None,
+             editable: bool = True, size: Any = None,
+             display: Any = None, force_overlay: bool = None, **__):
+    from . import location as location_module, size as size_module, display as display_module
+
+    effective_title = title if title is not None else "Plot"
+    if effective_title not in _plot_meta:
+        meta = {"type": "plotchar"}
+        if char is not None:
+            meta["char"] = str(char)
+        loc_name = _resolve_enum_name(location, location_module)
+        if loc_name is not None:
+            meta["location"] = loc_name
+        color_hex = _serialize_color(color)
+        if color_hex is not None:
+            meta["color"] = color_hex
+        size_name = _resolve_enum_name(size, size_module)
+        if size_name is not None:
+            meta["size"] = size_name
+        if text is not None:
+            meta["text"] = str(text)
+        textcolor_hex = _serialize_color(textcolor)
+        if textcolor_hex is not None:
+            meta["textcolor"] = textcolor_hex
+        if offset != 0:
+            meta["offset"] = offset
+        if display is not None:
+            display_name = _resolve_enum_name(display, display_module)
+            if display_name is not None:
+                meta["display"] = display_name
+        _plot_meta[effective_title] = meta
+
     plot(series, title)
 
 
-def plotshape(*_, **__):
-    ...
+def plotshape(series: Any = None, title: str | None = None, style: Any = None,
+              location: Any = None, color: Any = None, offset: int = 0,
+              text: str | None = None, textcolor: Any = None,
+              editable: bool = True, size: Any = None,
+              display: Any = None, show_last: int | None = None,
+              force_overlay: bool = None, **__):
+    from . import shape as shape_module, location as location_module, size as size_module, display as display_module
+
+    effective_title = title if title is not None else "Plot"
+    if effective_title not in _plot_meta:
+        meta = {"type": "plotshape"}
+        style_name = _resolve_enum_name(style, shape_module)
+        if style_name is not None:
+            meta["style"] = style_name
+        loc_name = _resolve_enum_name(location, location_module)
+        if loc_name is not None:
+            meta["location"] = loc_name
+        color_hex = _serialize_color(color)
+        if color_hex is not None:
+            meta["color"] = color_hex
+        size_name = _resolve_enum_name(size, size_module)
+        if size_name is not None:
+            meta["size"] = size_name
+        if text is not None:
+            meta["text"] = str(text)
+        textcolor_hex = _serialize_color(textcolor)
+        if textcolor_hex is not None:
+            meta["textcolor"] = textcolor_hex
+        if offset != 0:
+            meta["offset"] = offset
+        if display is not None:
+            display_name = _resolve_enum_name(display, display_module)
+            if display_name is not None:
+                meta["display"] = display_name
+        _plot_meta[effective_title] = meta
+
+    plot(series, title)
 
 
 ### Alert ###
