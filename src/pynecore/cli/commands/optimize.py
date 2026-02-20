@@ -1,7 +1,7 @@
 """
 Parameter optimization command for PyneCore.
 Runs a strategy with all combinations of specified parameter values (grid search)
-and ranks results by a chosen metric.
+and ranks results by a chosen metric. Supports parallel execution via --workers.
 """
 
 import csv
@@ -9,9 +9,11 @@ import gc
 import json
 import os
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, fields as dataclass_fields
 from datetime import datetime
 from itertools import product
+from multiprocessing import cpu_count
 from pathlib import Path
 from typing import Any
 
@@ -70,9 +72,12 @@ def parse_param_specs(params_dict: dict[str, Any]) -> list[ParamSpec]:
     Supports:
     - Range dict: {"min": 5, "max": 20, "step": 1}
     - Explicit list: [true, false] or ["ema", "sma"]
+    - Keys starting with "_" are skipped (metadata like _meta)
     """
     specs: list[ParamSpec] = []
     for name, spec in params_dict.items():
+        if name.startswith("_"):
+            continue
         if isinstance(spec, list):
             if len(spec) == 0:
                 raise ValueError(f"Parameter '{name}': empty list")
@@ -126,10 +131,10 @@ def generate_combinations(specs: list[ParamSpec]) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Single-run helper
+# Single-run helper (used by both sequential and parallel paths)
 # ---------------------------------------------------------------------------
 
-def run_single_backtest(
+def _run_backtest(
     script_path: Path,
     reader: OHLCVReader,
     syminfo: SymInfo,
@@ -137,10 +142,10 @@ def run_single_backtest(
     end_ts: int,
     size: int,
     params: dict[str, Any],
-) -> StrategyStatistics | None:
+) -> tuple[StrategyStatistics | None, str | None]:
     """Run one backtest with the given parameter overrides.
 
-    Returns StrategyStatistics on success, None on error.
+    Returns (stats, None) on success or (None, error_message) on failure.
     """
     from pynecore.core import script as script_module
     from pynecore.core import function_isolation
@@ -175,10 +180,63 @@ def run_single_backtest(
             trade_path=None,
         )
         runner.run()
-        return runner.stats
+        return (runner.stats, None)
     except Exception as e:
-        console.print(f"[yellow]Warning: Run failed for {params}: {e}[/yellow]")
-        return None
+        return (None, f"Run failed for {params}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Parallel worker functions
+# ---------------------------------------------------------------------------
+
+# Per-worker globals (set by _worker_init, used by _worker_run)
+_w_script_path: Path | None = None
+_w_reader: OHLCVReader | None = None
+_w_syminfo: SymInfo | None = None
+_w_start_ts: int = 0
+_w_end_ts: int = 0
+_w_size: int = 0
+
+
+def _worker_init(
+    script_path_str: str,
+    data_path_str: str,
+    syminfo_toml_str: str,
+    start_ts: int,
+    end_ts: int,
+    size: int,
+    lib_dir_str: str | None,
+) -> None:
+    """Initialize per-worker state. Called once per worker process."""
+    global _w_script_path, _w_reader, _w_syminfo, _w_start_ts, _w_end_ts, _w_size
+
+    _w_script_path = Path(script_path_str)
+    _w_reader = OHLCVReader(Path(data_path_str))
+    _w_reader.__enter__()
+    _w_syminfo = SymInfo.load_toml(Path(syminfo_toml_str))
+    _w_start_ts = start_ts
+    _w_end_ts = end_ts
+    _w_size = size
+
+    os.environ["PYNE_OPTIMIZE_MODE"] = "1"
+    os.environ["PYNE_SAVE_SCRIPT_TOML"] = "0"
+
+    if lib_dir_str:
+        sys.path.insert(0, lib_dir_str)
+
+
+def _worker_run(
+    params: dict[str, Any],
+) -> tuple[dict[str, Any], StrategyStatistics | None, str | None]:
+    """Run a single backtest in a worker process.
+
+    Returns (params, stats, error_message).
+    """
+    stats, error = _run_backtest(
+        _w_script_path, _w_reader, _w_syminfo,
+        _w_start_ts, _w_end_ts, _w_size, params,
+    )
+    return (params, stats, error)
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +338,10 @@ def optimize(
         help="CSV output path for all results",
     ),
     save_best: bool = Option(False, "--save-best", help="Save best params as .toml"),
+    workers: int = Option(
+        0, "--workers", "-w",
+        help="Parallel workers (0=auto/all cores, 1=sequential)",
+    ),
     time_from: datetime | None = Option(
         None, "--from", "-f",
         formats=["%Y-%m-%d", "%Y-%m-%d %H:%M:%S"],
@@ -304,6 +366,12 @@ def optimize(
         "slow_length": {"min": 20, "max": 50, "step": 5},
         "use_filter": [true, false]
     }
+
+    \b
+    Parallel execution (use all CPU cores):
+        pyne optimize script.py data.ohlcv params.json -w 0
+    Sequential execution:
+        pyne optimize script.py data.ohlcv params.json -w 1
     """
 
     # --- Resolve script path ---
@@ -365,86 +433,123 @@ def optimize(
     param_names = [s.name for s in specs]
     total_combos = len(combinations)
 
+    # --- Resolve worker count ---
+    num_workers = workers if workers > 0 else (cpu_count() or 1)
+    num_workers = min(num_workers, total_combos)
+
+    # --- Load symbol info ---
+    syminfo_toml = data.with_suffix(".toml")
+    try:
+        syminfo = SymInfo.load_toml(syminfo_toml)
+    except FileNotFoundError:
+        secho(f"Symbol info file '{syminfo_toml}' not found!",
+              fg="red", err=True)
+        raise Exit(1)
+
+    # --- Pre-compute data parameters ---
+    with OHLCVReader(data) as reader:
+        start_ts = (reader.start_timestamp if not time_from
+                    else int(time_from.replace(tzinfo=None).timestamp()))
+        end_ts = (reader.end_timestamp if not time_to
+                  else int(time_to.replace(tzinfo=None).timestamp()))
+        size = reader.get_size(start_ts, end_ts)
+
     # --- Print summary ---
     secho(f"\nOptimizing: {script.name}", fg="cyan")
     secho(f"Data:       {data.name}", fg="cyan")
     secho(f"Metric:     {metric} ({metric_attr})", fg="cyan")
+    secho(f"Workers:    {num_workers}", fg="cyan")
     secho(f"Parameters: {len(specs)}", fg="cyan")
     for spec in specs:
         secho(f"  {spec.name}: {len(spec.values)} values "
               f"({spec.values[0]} .. {spec.values[-1]})", fg="cyan")
     secho(f"Total combinations: {total_combos}\n", fg="cyan")
 
-    # --- Load symbol info ---
-    try:
-        syminfo = SymInfo.load_toml(data.with_suffix(".toml"))
-    except FileNotFoundError:
-        secho(f"Symbol info file '{data.with_suffix('.toml')}' not found!",
-              fg="red", err=True)
-        raise Exit(1)
+    # --- Lib directory ---
+    lib_dir = app_state.scripts_dir / "lib"
+    lib_dir_str = str(lib_dir) if lib_dir.exists() and lib_dir.is_dir() else None
 
-    # --- Set optimize-mode environment ---
+    # --- Set optimize-mode environment (for sequential path) ---
     saved_env: dict[str, str | None] = {}
     for key in ("PYNE_OPTIMIZE_MODE", "PYNE_SAVE_SCRIPT_TOML"):
         saved_env[key] = os.environ.get(key)
-    os.environ["PYNE_OPTIMIZE_MODE"] = "1"
-    os.environ["PYNE_SAVE_SCRIPT_TOML"] = "0"
-
-    # --- Add lib directory to path ---
-    lib_dir = app_state.scripts_dir / "lib"
-    lib_path_added = False
-    if lib_dir.exists() and lib_dir.is_dir():
-        sys.path.insert(0, str(lib_dir))
-        lib_path_added = True
 
     # --- Run optimization ---
     results: list[tuple[dict[str, Any], StrategyStatistics]] = []
     failed_count = 0
 
     try:
-        with OHLCVReader(data) as reader:
-            if not time_from:
-                start_ts = reader.start_timestamp
+        with Progress(
+            SpinnerColumn(finished_text="[green]OK"),
+            TextColumn("{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("[cyan]{task.percentage:>3.0f}%"),
+            RateColumn(),
+        ) as progress:
+            task = progress.add_task("Optimizing...", total=total_combos)
+
+            if num_workers > 1:
+                # --- Parallel execution ---
+                with ProcessPoolExecutor(
+                    max_workers=num_workers,
+                    initializer=_worker_init,
+                    initargs=(
+                        str(script), str(data), str(syminfo_toml),
+                        start_ts, end_ts, size, lib_dir_str,
+                    ),
+                ) as pool:
+                    futures = [
+                        pool.submit(_worker_run, combo)
+                        for combo in combinations
+                    ]
+                    for future in as_completed(futures):
+                        combo_params, stats, error = future.result()
+                        if stats is not None:
+                            results.append((combo_params, stats))
+                        else:
+                            failed_count += 1
+                            if error:
+                                console.print(
+                                    f"[yellow]Warning: {error}[/yellow]"
+                                )
+                        progress.update(task, advance=1)
+
+                        if len(results) % 50 == 0:
+                            gc.collect()
             else:
-                start_ts = int(time_from.replace(tzinfo=None).timestamp())
-            if not time_to:
-                end_ts = reader.end_timestamp
-            else:
-                end_ts = int(time_to.replace(tzinfo=None).timestamp())
+                # --- Sequential execution ---
+                os.environ["PYNE_OPTIMIZE_MODE"] = "1"
+                os.environ["PYNE_SAVE_SCRIPT_TOML"] = "0"
 
-            size = reader.get_size(start_ts, end_ts)
+                if lib_dir_str:
+                    sys.path.insert(0, lib_dir_str)
 
-            with Progress(
-                SpinnerColumn(finished_text="[green]OK"),
-                TextColumn("{task.description}"),
-                BarColumn(),
-                MofNCompleteColumn(),
-                TextColumn("[cyan]{task.percentage:>3.0f}%"),
-                RateColumn(),
-            ) as progress:
-                task = progress.add_task("Optimizing...", total=total_combos)
+                with OHLCVReader(data) as reader:
+                    for combo in combinations:
+                        stats, error = _run_backtest(
+                            script_path=script,
+                            reader=reader,
+                            syminfo=syminfo,
+                            start_ts=start_ts,
+                            end_ts=end_ts,
+                            size=size,
+                            params=combo,
+                        )
 
-                for combo in combinations:
-                    stats = run_single_backtest(
-                        script_path=script,
-                        reader=reader,
-                        syminfo=syminfo,
-                        start_ts=start_ts,
-                        end_ts=end_ts,
-                        size=size,
-                        params=combo,
-                    )
+                        if stats is not None:
+                            results.append((combo, stats))
+                        else:
+                            failed_count += 1
+                            if error:
+                                console.print(
+                                    f"[yellow]Warning: {error}[/yellow]"
+                                )
 
-                    if stats is not None:
-                        results.append((combo, stats))
-                    else:
-                        failed_count += 1
+                        progress.update(task, advance=1)
 
-                    progress.update(task, advance=1)
-
-                    # Periodic GC to prevent memory buildup
-                    if len(results) % 50 == 0:
-                        gc.collect()
+                        if len(results) % 50 == 0:
+                            gc.collect()
 
     finally:
         # Restore environment
@@ -454,8 +559,8 @@ def optimize(
             else:
                 os.environ[key] = val
 
-        if lib_path_added and str(lib_dir) in sys.path:
-            sys.path.remove(str(lib_dir))
+        if lib_dir_str and lib_dir_str in sys.path:
+            sys.path.remove(lib_dir_str)
 
     # --- Check results ---
     if not results:

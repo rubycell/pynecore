@@ -174,7 +174,10 @@ class Script:
                     continue
                 if value is not None:
                     # We use ':` to not confuse with real values
-                    lines.append(f"# {key.rjust(10)}: {_format_value(value)}")
+                    formatted = _format_value(value)
+                    # Ensure multiline values have # on every line
+                    formatted = formatted.replace('\n', '\n# ')
+                    lines.append(f"# {key.rjust(10)}: {formatted}")
 
             lines.append("# Change here to modify the input value")
 

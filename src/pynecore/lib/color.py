@@ -60,7 +60,7 @@ def t(color: Color) -> int:
     :param color: Color
     :return: The transparency of the color, 0-100 (0: not transparent, 100: invisible)
     """
-    return color.a
+    return color.t
 
 
 # noinspection PyShadowingNames
@@ -71,6 +71,9 @@ def new(color: Color | str, transp: float = 0) -> Color:
     :param color: A color object or a string in "#RRGGBB" or "#RRGGBBAA" format
     :param transp: Transparency percentage (0-100, 0: not transparent, 100: invisible)
     """
+    from pynecore.types.na import NA
+    if isinstance(color, NA):
+        return NA(Color)
     if isinstance(color, str):
         color = Color(color)
     color.t = transp

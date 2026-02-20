@@ -77,6 +77,9 @@ class Color:
 
         :param transp: Transparency percentage (0-100)
         """
+        from pynecore.types.na import NA
+        if isinstance(transp, NA):
+            transp = 0  # Default to fully opaque when NA
         if not (0 <= transp <= 100):
             raise ValueError("Transparency must be between 0 and 100")
         self.value = (self.value & 0xFFFFFF00) | int((1 - transp / 100.0) * 255)
@@ -90,8 +93,14 @@ class Color:
         :param g: Green component (0-255)
         :param b: Blue component (0-255)
         :param transp: Transparency percentage (0-100, 0: not transparent, 100: invisible)
-        :return: Color object
+        :return: Color object, or na if any parameter is na
         """
+        from pynecore.types.na import NA
+        if isinstance(r, NA) or isinstance(g, NA) or isinstance(b, NA):
+            return NA(cls)
+        if isinstance(transp, NA):
+            transp = 0
+        r, g, b = int(r), int(g), int(b)
         if not (0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
             raise ValueError("RGB values must be between 0 and 255")
         return cls(f'#{r:02X}{g:02X}{b:02X}{int((1 - transp / 100.0) * 255):02X}')

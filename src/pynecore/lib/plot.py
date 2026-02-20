@@ -25,6 +25,10 @@ class PlotModule(CallableModule):
     style_stepline = PlotEnum()
     style_stepline_diamond = PlotEnum()
 
+    linestyle_solid = PlotEnum()
+    linestyle_dashed = PlotEnum()
+    linestyle_dotted = PlotEnum()
+
     #
     # Functions
     #

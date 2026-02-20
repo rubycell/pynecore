@@ -16,6 +16,15 @@ def pine_range(from_num: int | float, to_num: int | float, step_num: int | float
     to_val = to_num[0] if isinstance(to_num, Series) else to_num
     step_val = step_num[0] if isinstance(step_num, Series) else step_num if step_num is not None else None
 
+    # Pine Script: for loop with NA bounds simply doesn't execute
+    if from_val is None or to_val is None:
+        return
+    try:
+        from_val + 0
+        to_val + 0
+    except TypeError:
+        return
+
     # Determine direction based on from_val and to_val
     direction = 1 if from_val <= to_val else -1
 

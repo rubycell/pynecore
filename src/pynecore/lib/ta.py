@@ -62,6 +62,7 @@ __all__ = [
     "percentile_linear_interpolation",
     "percentile_nearest_rank",
     "percentrank",
+    "pivot_point_levels",
     "pivothigh",
     "pivotlow",
     "pvi",
@@ -1924,3 +1925,111 @@ def wvad() -> float | NA[float] | Series[float]:
     :return: Weighted Volume Accumulation/Distribution
     """
     return (close - open) / (high - low) * volume
+
+
+def pivot_point_levels(type_: str, mode: bool) -> list:
+    """
+    Calculate pivot point levels based on the specified type.
+
+    Returns an array of 11 float values: [P, R1, S1, R2, S2, R3, S3, R4, S4, R5, S5]
+
+    :param type_: Pivot type: "Traditional", "Fibonacci", "Woodie", "Classic", "DM", "Camarilla"
+    :param mode: When true, triggers recalculation using accumulated period OHLC
+    :return: Array of 11 pivot point levels
+    """
+    cur_high: Persistent[float] = high
+    cur_low: Persistent[float] = low
+    cur_open: Persistent[float] = open
+    p_high: Persistent[float] = NA(float)
+    p_low: Persistent[float] = NA(float)
+    p_close: Persistent[float] = NA(float)
+    p_open: Persistent[float] = NA(float)
+
+    if mode and not isinstance(mode, NA):
+        p_high = cur_high
+        p_low = cur_low
+        p_close = close[1] if bar_index > 0 else NA(float)
+        p_open = cur_open
+        cur_high = high
+        cur_low = low
+        cur_open = open
+    else:
+        cur_high = builtins.max(cur_high, high)
+        cur_low = builtins.min(cur_low, low)
+
+    na_val = NA(float)
+    levels = [na_val] * 11
+
+    if isinstance(p_high, NA) or isinstance(p_low, NA) or isinstance(p_close, NA):
+        return levels
+
+    h, l, c = float(p_high), float(p_low), float(p_close)
+    o = float(p_open) if not isinstance(p_open, NA) else c
+    range_ = h - l
+
+    if type_ == "Traditional":
+        p = (h + l + c) / 3
+        levels[0] = p
+        levels[1] = 2 * p - l
+        levels[2] = 2 * p - h
+        levels[3] = p + range_
+        levels[4] = p - range_
+        levels[5] = h + 2 * (p - l)
+        levels[6] = l - 2 * (h - p)
+    elif type_ == "Fibonacci":
+        p = (h + l + c) / 3
+        levels[0] = p
+        levels[1] = p + 0.382 * range_
+        levels[2] = p - 0.382 * range_
+        levels[3] = p + 0.618 * range_
+        levels[4] = p - 0.618 * range_
+        levels[5] = p + range_
+        levels[6] = p - range_
+    elif type_ == "Woodie":
+        p = (h + l + 2 * c) / 4
+        levels[0] = p
+        levels[1] = 2 * p - l
+        levels[2] = 2 * p - h
+        levels[3] = p + range_
+        levels[4] = p - range_
+        r3 = h + 2 * (p - l)
+        s3 = l - 2 * (h - p)
+        levels[5] = r3
+        levels[6] = s3
+        levels[7] = r3 + range_
+        levels[8] = s3 - range_
+    elif type_ == "Classic":
+        p = (h + l + c) / 3
+        levels[0] = p
+        levels[1] = 2 * p - l
+        levels[2] = 2 * p - h
+        levels[3] = p + range_
+        levels[4] = p - range_
+        levels[5] = p + 2 * range_
+        levels[6] = p - 2 * range_
+        levels[7] = p + 3 * range_
+        levels[8] = p - 3 * range_
+    elif type_ == "DM":
+        if c == o:
+            x = h + l + 2 * c
+        elif c > o:
+            x = 2 * h + l + c
+        else:
+            x = h + 2 * l + c
+        p = x / 4
+        levels[0] = p
+        levels[1] = x / 2 - l
+        levels[2] = x / 2 - h
+    elif type_ == "Camarilla":
+        p = (h + l + c) / 3
+        levels[0] = p
+        levels[1] = c + 1.1 / 12 * range_
+        levels[2] = c - 1.1 / 12 * range_
+        levels[3] = c + 1.1 / 6 * range_
+        levels[4] = c - 1.1 / 6 * range_
+        levels[5] = c + 1.1 / 4 * range_
+        levels[6] = c - 1.1 / 4 * range_
+        levels[7] = c + 1.1 / 2 * range_
+        levels[8] = c - 1.1 / 2 * range_
+
+    return levels

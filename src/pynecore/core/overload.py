@@ -2,7 +2,7 @@ from typing import (TypeVar, Callable, get_type_hints, overload as typing_overlo
                     Any, Type, Union, get_args, get_origin, cast)
 from inspect import signature
 from collections import defaultdict
-from types import FunctionType
+from types import FunctionType, UnionType
 
 from .function_isolation import isolate_function
 from ..types.na import NA
@@ -51,7 +51,7 @@ def _check_type(value: Any, expected_type: Type) -> bool:
 
         # For Union types containing basic types, NA is also acceptable
         origin = get_origin(expected_type)
-        if origin in (Union, type(None) | type):
+        if origin is Union or origin is UnionType:
             args = get_args(expected_type)
             # If any of the Union members is a basic type, accept NA
             if any(arg in (int, float, str, bool) for arg in args):
@@ -68,7 +68,7 @@ def _check_type(value: Any, expected_type: Type) -> bool:
 
     # Handle Union types
     origin = get_origin(expected_type)
-    if origin in (Union, type(None) | type):
+    if origin is Union or origin is UnionType:
         return any(_check_type(value, t) for t in get_args(expected_type))
 
     if hasattr(expected_type, '__instancecheck__'):

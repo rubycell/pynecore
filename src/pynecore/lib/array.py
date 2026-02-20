@@ -299,9 +299,11 @@ def get(id: list[T] | SequenceView[T], index: int) -> T:
 
     :param id: Input array
     :param index: Index of the element to return
-    :return: Element at the specified index in the array
+    :return: Element at the specified index, or na if index is na
     """
-    return cast(T, id[index])
+    if isinstance(index, NA):
+        return NA(object)
+    return cast(T, id[int(index)])
 
 
 # noinspection PyShadowingBuiltins
@@ -390,8 +392,10 @@ def max(id: list[Number]) -> Number:
     Returns the maximum value in the array.
 
     :param id: Input array
-    :return: Maximum value in the array
+    :return: Maximum value in the array, or na if empty
     """
+    if len(id) == 0:
+        return NA(float)
     return builtins.max(id)
 
 
@@ -401,8 +405,10 @@ def median(id: list[Number]) -> float:
     Returns the median value of the elements in the array.
 
     :param id: Input array
-    :return: Median value of the elements in the array
+    :return: Median value of the elements in the array, or na if empty
     """
+    if len(id) == 0:
+        return NA(float)
     return statistics.median(id)
 
 
@@ -412,8 +418,10 @@ def min(id: list[Number]) -> float:
     Returns the minimum value in the array.
 
     :param id: Input array
-    :return: Minimum value in the array
+    :return: Minimum value in the array, or na if empty
     """
+    if len(id) == 0:
+        return NA(float)
     return builtins.min(id)
 
 
@@ -954,8 +962,10 @@ def pop(id: list[T]) -> T:
     Removes the last element from the array and returns it.
 
     :param id: Input array
-    :return: Last element from the array
+    :return: Last element from the array, or na if empty
     """
+    if not id:
+        return None
     return id.pop()
 
 
@@ -1012,7 +1022,11 @@ def set(id: list[T] | SequenceView[T], index: int, value: T) -> None:
     :param index: Index of the element to set
     :param value: Value to set
     """
-    id[index] = value
+    if isinstance(index, NA):
+        return
+    index = int(index)
+    if 0 <= index < len(id):
+        id[index] = value
 
 
 # noinspection PyShadowingBuiltins

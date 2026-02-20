@@ -49,6 +49,16 @@ class NA(Generic[T]):
         """
         return ""
 
+    def __format__(self, format_spec: str) -> str:
+        """
+        Support format() and f-strings with format specs (e.g., '#.00%', '{0, number, currency}').
+        Pine Script's str.tostring(na, fmt) returns 'NaN', so we return 'NaN' when a format spec
+        is provided, and '' (matching __str__) when no spec.
+        """
+        if format_spec:
+            return "NaN"
+        return ""
+
     def __hash__(self) -> int:
         """
         Return a hash value for the NA value.
