@@ -462,6 +462,17 @@ class Position:
         if order.is_market_order:
             self.market_orders[order.order_id] = order
 
+        # Market close orders (from strategy.close()) must NOT replace pending
+        # stop/limit exit orders (from strategy.exit()) in exit_orders.
+        # In TradingView, strategy.close() creates a market order that fills on
+        # the next bar's open, while pending exit orders (SL/TP) remain active
+        # for the remaining position. Only non-market exit orders (with limit/stop)
+        # should replace existing exit orders for the same entry.
+        if order.order_type == _order_type_close and order.is_market_order:
+            # Market close: only store in market_orders (already done above).
+            # Don't touch exit_orders or the orderbook — preserve pending SL/TP.
+            return
+
         # Check if an order with this ID already exists and remove it first
         if order.order_type == _order_type_close:
             existing_order = self.exit_orders.get(order.order_id)
@@ -1113,9 +1124,11 @@ class Position:
                         # Pyramiding limit reached - don't add the order
                         self._remove_order(order)
                         continue
-                elif self.size != 0.0:
+                elif self.size != 0.0 and order.order_type != _order_type_close:
                     # TradingView calculates the flip quantity 1st order processing
                     # then open a new one in the opposite direction.
+                    # Only apply to entry/normal orders, NOT close orders (strategy.close/exit).
+                    # Close orders should close only the specified qty, not flip the position.
                     order.size -= self.size  # Subtract because position.size has opposite sign
 
             # Apply slippage to market orders

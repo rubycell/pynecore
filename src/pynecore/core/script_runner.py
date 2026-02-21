@@ -278,8 +278,8 @@ class ScriptRunner:
         lib._plot_data.clear()
         lib._plot_meta.clear()
 
-        # Trade counter
-        trade_num = 0
+        # Buffer for collecting trades to sort by entry time before writing
+        trade_buffer: list[tuple] = []  # (entry_time, entry_bar_index, trade_data)
 
         # Position shortcut
         position = self.script.position
@@ -337,10 +337,43 @@ class ScriptRunner:
                 elif position:
                     yield candle, lib._plot_data, position.new_closed_trades
 
-                # Save trade data if we have a writer
+                # Buffer trade data for sorting by entry time
                 if is_strat and self.trades_writer and position:
                     for trade in position.new_closed_trades:
-                        trade_num += 1  # Start from 1
+                        trade_buffer.append((trade.entry_time, trade.entry_bar_index, trade))
+
+                # Clear plot data
+                lib._plot_data.clear()
+
+                # Track equity curve for strategies
+                if is_strat and position:
+                    current_equity = float(position.equity) if position.equity else self.script.initial_capital
+                    self.equity_curve.append(current_equity)
+
+                # Call the progress callback
+                if on_progress and lib._datetime is not None:
+                    on_progress(lib._datetime.replace(tzinfo=None))
+
+                # Update bar index
+                self.bar_index += 1
+                # It is no longer the first bar
+                barstate.isfirst = False
+
+            if on_progress:
+                on_progress(datetime.max)
+
+        except GeneratorExit:
+            pass
+        finally:  # Python reference counter will close this even if the iterator is not exhausted
+            if is_strat and position:
+                # Write all trades sorted by entry time
+                if self.trades_writer:
+                    # Sort closed trades by entry_time, then entry_bar_index
+                    trade_buffer.sort(key=lambda t: (t[0], t[1]))
+
+                    trade_num = 0
+                    for _entry_time, _entry_bar_index, trade in trade_buffer:
+                        trade_num += 1
                         self.trades_writer.write(
                             trade_num,
                             trade.entry_bar_index,
@@ -376,35 +409,10 @@ class ScriptRunner:
                             f"{trade.max_drawdown_percent:.2f}",
                         )
 
-                # Clear plot data
-                lib._plot_data.clear()
-
-                # Track equity curve for strategies
-                if is_strat and position:
-                    current_equity = float(position.equity) if position.equity else self.script.initial_capital
-                    self.equity_curve.append(current_equity)
-
-                # Call the progress callback
-                if on_progress and lib._datetime is not None:
-                    on_progress(lib._datetime.replace(tzinfo=None))
-
-                # Update bar index
-                self.bar_index += 1
-                # It is no longer the first bar
-                barstate.isfirst = False
-
-            if on_progress:
-                on_progress(datetime.max)
-
-        except GeneratorExit:
-            pass
-        finally:  # Python reference counter will close this even if the iterator is not exhausted
-            if is_strat and position:
-                # Export remaining open trades before closing
-                if self.trades_writer and position.open_trades:
-                    for trade in position.open_trades:
-                        trade_num += 1  # Continue numbering from closed trades
-                        # Export the entry part
+                    # Export remaining open trades sorted by entry time
+                    open_trades_sorted = sorted(position.open_trades, key=lambda t: (t.entry_time, t.entry_bar_index))
+                    for trade in open_trades_sorted:
+                        trade_num += 1
                         self.trades_writer.write(
                             trade_num,
                             trade.entry_bar_index,
@@ -413,24 +421,18 @@ class ScriptRunner:
                             string.format_time(trade.entry_time),  # type: ignore
                             trade.entry_price,
                             abs(trade.size),
-                            0.0,  # No profit yet for open trades
-                            "0.00",  # No profit percent yet
-                            0.0,  # No cumulative profit change
-                            "0.00",  # No cumulative profit percent change
-                            0.0,  # No max runup yet
-                            "0.00",  # No max runup percent yet
-                            0.0,  # No max drawdown yet
-                            "0.00",  # No max drawdown percent yet
+                            0.0,
+                            "0.00",
+                            0.0,
+                            "0.00",
+                            0.0,
+                            "0.00",
+                            0.0,
+                            "0.00",
                         )
 
-                        # Export the exit part with "Open" signal (TradingView compatibility)
-                        # This simulates automatic closing at the end of backtest
-                        # Use the last price from the iteration
                         exit_price = self.last_price
-
                         if exit_price is not None:
-                            # Calculate profit/loss using the same formula as Position._fill_order
-                            # For closing, size is negative of the position
                             closing_size = -trade.size
                             pnl = -closing_size * (exit_price - trade.entry_price)
                             pnl_percent = (pnl / (trade.entry_price * abs(trade.size))) * 100 \
@@ -438,19 +440,19 @@ class ScriptRunner:
 
                             self.trades_writer.write(
                                 trade_num,
-                                self.bar_index - 1,  # Last bar index
+                                self.bar_index - 1,
                                 "Exit long" if trade.size > 0 else "Exit short",
-                                "Open",  # TradingView uses "Open" signal for automatic closes
+                                "Open",
                                 string.format_time(lib._time),  # type: ignore
                                 exit_price,
                                 abs(trade.size),
                                 pnl,
                                 f"{pnl_percent:.2f}",
-                                pnl,  # Same as profit for last trade
+                                pnl,
                                 f"{pnl_percent:.2f}",
-                                max(0.0, pnl),  # Runup
+                                max(0.0, pnl),
                                 f"{max(0, pnl_percent):.2f}",
-                                max(0.0, -pnl),  # Drawdown
+                                max(0.0, -pnl),
                                 f"{max(0, -pnl_percent):.2f}",
                             )
 
