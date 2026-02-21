@@ -663,6 +663,9 @@ class Position:
                         self.size = 0.0
                     self.sign = 0.0 if self.size == 0.0 else 1.0 if self.size > 0.0 else -1.0
                     trade.size += size
+                    # Handle floating point residuals in individual trade size
+                    if _size_round(trade.size) == 0.0:
+                        trade.size = 0.0
                     order.size -= size
 
                     # Cancel exit orders for closed trades (TradingView behavior)
