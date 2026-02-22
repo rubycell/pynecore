@@ -1504,7 +1504,7 @@ def stdev(source: float, length: int, biased=True) -> float | NA[float]:
     """
     try:
         return math.sqrt(variance(source, length, biased))
-    except TypeError:
+    except (TypeError, ValueError):
         return NA(float)
 
 
@@ -1759,7 +1759,7 @@ def variance(source: Series[float],
         squares = sum_sq / (length - 1)
         var = squares - (length / (length - 1)) * mean_val * mean_val
 
-    return var
+    return max(var, 0.0)
 
 
 def valuewhen(condition: bool, source: float, occurrence: int) -> float | NA[float]:

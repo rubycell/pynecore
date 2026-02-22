@@ -152,7 +152,8 @@ class Trade:
     """
 
     __slots__ = (
-        "size", "sign", "entry_id", "entry_bar_index", "entry_time", "entry_price", "entry_comment", "entry_equity",
+        "size", "original_size", "sign",
+        "entry_id", "entry_bar_index", "entry_time", "entry_price", "entry_comment", "entry_equity",
         "exit_id", "exit_bar_index", "exit_time", "exit_price", "exit_comment", "exit_equity",
         "commission", "max_drawdown", "max_drawdown_percent", "max_runup", "max_runup_percent",
         "profit", "profit_percent", "cum_profit", "cum_profit_percent",
@@ -163,6 +164,7 @@ class Trade:
     def __init__(self, *, size: float, entry_id: str, entry_bar_index: int, entry_time: int, entry_price: float,
                  commission: float, entry_comment: str, entry_equity: float):
         self.size: float = size
+        self.original_size: float = size  # Preserved through partial closes
         self.sign = 0.0 if size == 0.0 else 1.0 if size > 0.0 else -1.0
 
         self.entry_id: str = entry_id
@@ -373,6 +375,8 @@ class Position:
         'size', 'sign', 'avg_price', 'cum_profit',
         'entry_equity', 'max_equity', 'min_equity',
         'drawdown_summ', 'runup_summ', 'max_drawdown', 'max_runup',
+        'equity_max_drawdown', 'equity_max_drawdown_percent', 'peak_equity',
+        'real_max_drawdown', 'real_max_drawdown_percent',
         'entry_summ', 'open_commission',
         'risk_allowed_direction', 'risk_max_cons_loss_days', 'risk_max_cons_loss_days_alert',
         'risk_max_drawdown_value', 'risk_max_drawdown_type', 'risk_max_drawdown_alert',
@@ -423,6 +427,11 @@ class Position:
         self.runup_summ: float = 0.0
         self.max_drawdown: float = 0.0
         self.max_runup: float = 0.0
+        self.equity_max_drawdown: float = 0.0
+        self.equity_max_drawdown_percent: float = 0.0
+        self.peak_equity: float = 0.0  # Initialized to initial_capital on first bar
+        self.real_max_drawdown: float = 0.0  # Max sum of unrealized losses from losing open trades
+        self.real_max_drawdown_percent: float = 0.0
         self.entry_summ: float = 0.0
         self.open_commission: float = 0.0
 
@@ -1310,10 +1319,58 @@ class Position:
                 self.drawdown_summ += drawdown
                 self.runup_summ += runup
 
+        # Real max drawdown: max sum of unrealized losses from losing open trades
+        if self.open_trades:
+            open_loss = 0.0
+            total_cost = 0.0
+            for trade in self.open_trades:
+                if trade.profit < 0:
+                    open_loss += trade.profit
+                    total_cost += abs(trade.size) * trade.entry_price
+            if open_loss < 0:
+                current_dd = -open_loss
+                current_dd_pct = (current_dd / total_cost) * 100.0 if total_cost != 0 else 0.0
+                self.real_max_drawdown = max(self.real_max_drawdown, current_dd)
+                self.real_max_drawdown_percent = max(self.real_max_drawdown_percent, current_dd_pct)
+
         # Calculate max drawdown and runup
         if self.drawdown_summ or self.runup_summ:
             self.max_drawdown = max(self.max_drawdown, self.max_equity - self.entry_equity + self.drawdown_summ)
             self.max_runup = max(self.max_runup, self.entry_equity - self.min_equity + self.runup_summ)
+
+        # Equity max drawdown: worst-case open P&L using bar low (longs) / high (shorts)
+        initial_capital = lib._script.initial_capital
+        commission_type = lib._script.commission_type
+        commission_value = lib._script.commission_value
+
+        # Peak equity tracks close-based equity (realized + unrealized at close)
+        close_equity = initial_capital + self.netprofit + self.openprofit
+        self.peak_equity = max(self.peak_equity, close_equity)
+
+        # Worst-case open P&L: what if every open trade hit its worst price this bar
+        worst_case_open_pnl = 0.0
+        if self.open_trades:
+            for trade in self.open_trades:
+                worst_price = self.l if trade.size > 0 else self.h
+                raw_pnl = (worst_price - trade.entry_price) * trade.size
+                # Commission cost (entry side already paid, estimate exit side)
+                if commission_type == _commission.percent:
+                    comm_cost = abs(trade.size) * trade.entry_price * commission_value * 0.01
+                elif commission_type == _commission.cash_per_contract:
+                    comm_cost = abs(trade.size) * commission_value
+                elif commission_type == _commission.cash_per_order:
+                    comm_cost = commission_value
+                else:
+                    comm_cost = 0.0
+                worst_case_open_pnl += raw_pnl - comm_cost
+
+        realized_equity = initial_capital + self.netprofit
+        worst_equity = realized_equity + worst_case_open_pnl
+        drawdown_from_peak = self.peak_equity - worst_equity
+        if drawdown_from_peak > 0:
+            self.equity_max_drawdown = max(self.equity_max_drawdown, drawdown_from_peak)
+            dd_pct = (drawdown_from_peak / self.peak_equity) * 100.0 if self.peak_equity != 0 else 0.0
+            self.equity_max_drawdown_percent = max(self.equity_max_drawdown_percent, dd_pct)
 
         # Cumulative stats
         if self.new_closed_trades:
@@ -1939,6 +1996,18 @@ def netprofit() -> float | NA[float]:
 @module_property
 def openprofit() -> float | NA[float]:
     return lib._script.position.openprofit
+
+
+# noinspection PyProtectedMember
+@module_property
+def openprofit_percent() -> float | NA[float]:
+    pos = lib._script.position
+    if pos.size == 0:
+        return 0.0
+    cost = pos.avg_price * abs(pos.size)
+    if cost == 0:
+        return 0.0
+    return (pos.openprofit / cost) * 100.0
 
 
 # noinspection PyProtectedMember

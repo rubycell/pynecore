@@ -368,6 +368,23 @@ class ScriptRunner:
             if is_strat and position:
                 # Write all trades sorted by entry time
                 if self.trades_writer:
+                    # Rounding helpers — same rules as internal processing
+                    pricescale = lib.syminfo.pricescale
+                    size_rf = lib.syminfo._size_round_factor
+
+                    def rp(price: float) -> float:
+                        """Round price to pricescale"""
+                        return round(price * pricescale) / pricescale
+
+                    def rs(qty: float) -> float:
+                        """Round size to size_round_factor (floors like _size_round)"""
+                        qrf = int(abs(qty) * size_rf * 10.0) * 0.1
+                        return int(qrf) / size_rf
+
+                    def rm(value: float) -> float:
+                        """Round monetary value to size_round_factor precision"""
+                        return round(value * size_rf) / size_rf
+
                     # Sort closed trades by entry_time, then entry_bar_index
                     trade_buffer.sort(key=lambda t: (t[0], t[1]))
 
@@ -380,15 +397,15 @@ class ScriptRunner:
                             "Entry long" if trade.size > 0 else "Entry short",
                             trade.entry_comment if trade.entry_comment else trade.entry_id,
                             string.format_time(trade.entry_time),  # type: ignore
-                            trade.entry_price,
-                            abs(trade.size),
-                            trade.profit,
+                            rp(trade.entry_price),
+                            rs(abs(trade.original_size)),
+                            rm(trade.profit),
                             f"{trade.profit_percent:.2f}",
-                            trade.cum_profit,
+                            rm(trade.cum_profit),
                             f"{trade.cum_profit_percent:.2f}",
-                            trade.max_runup,
+                            rm(trade.max_runup),
                             f"{trade.max_runup_percent:.2f}",
-                            trade.max_drawdown,
+                            rm(trade.max_drawdown),
                             f"{trade.max_drawdown_percent:.2f}",
                         )
                         self.trades_writer.write(
@@ -397,15 +414,15 @@ class ScriptRunner:
                             "Exit long" if trade.size > 0 else "Exit short",
                             trade.exit_comment if trade.exit_comment else trade.exit_id,
                             string.format_time(trade.exit_time),  # type: ignore
-                            trade.exit_price,
-                            abs(trade.size),
-                            trade.profit,
+                            rp(trade.exit_price),
+                            rs(abs(trade.size)),
+                            rm(trade.profit),
                             f"{trade.profit_percent:.2f}",
-                            trade.cum_profit,
+                            rm(trade.cum_profit),
                             f"{trade.cum_profit_percent:.2f}",
-                            trade.max_runup,
+                            rm(trade.max_runup),
                             f"{trade.max_runup_percent:.2f}",
-                            trade.max_drawdown,
+                            rm(trade.max_drawdown),
                             f"{trade.max_drawdown_percent:.2f}",
                         )
 
@@ -419,8 +436,8 @@ class ScriptRunner:
                             "Entry long" if trade.size > 0 else "Entry short",
                             trade.entry_id,
                             string.format_time(trade.entry_time),  # type: ignore
-                            trade.entry_price,
-                            abs(trade.size),
+                            rp(trade.entry_price),
+                            rs(abs(trade.original_size)),
                             0.0,
                             "0.00",
                             0.0,
@@ -444,15 +461,15 @@ class ScriptRunner:
                                 "Exit long" if trade.size > 0 else "Exit short",
                                 "Open",
                                 string.format_time(lib._time),  # type: ignore
-                                exit_price,
-                                abs(trade.size),
-                                pnl,
+                                rp(exit_price),
+                                rs(abs(trade.size)),
+                                rm(pnl),
                                 f"{pnl_percent:.2f}",
-                                pnl,
+                                rm(pnl),
                                 f"{pnl_percent:.2f}",
-                                max(0.0, pnl),
+                                rm(max(0.0, pnl)),
                                 f"{max(0, pnl_percent):.2f}",
-                                max(0.0, -pnl),
+                                rm(max(0.0, -pnl)),
                                 f"{max(0, -pnl_percent):.2f}",
                             )
 
