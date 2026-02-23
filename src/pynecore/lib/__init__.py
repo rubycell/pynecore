@@ -106,9 +106,12 @@ _lib_semaphore = False
 #
 
 if TYPE_CHECKING:
-    from hline import hline
-    from plot import plot
-    from alert import alert
+    from .hline import HLineModule
+    from .plot import PlotModule
+    from .alert import AlertModule
+    hline: HLineModule  # type: ignore[no-redef]
+    plot: PlotModule  # type: ignore[no-redef]
+    alert: AlertModule  # type: ignore[no-redef]
 
 
 #
@@ -719,7 +722,9 @@ def time_close(timeframe: str | None = None, session: str | None = None, timezon
     :return: UNIX time in milliseconds of bar close or NA if bar is outside session or invalid parameters
     """
     if timeframe is None:
-        return _time
+        # Return bar close time = bar open time + timeframe duration
+        tf_seconds = timeframe_module.in_seconds(timeframe_module.period())
+        return _time + (tf_seconds * 1000)
 
     # Get resampler for the requested timeframe
     try:

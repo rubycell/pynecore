@@ -34,8 +34,10 @@ __all__ = [
 #
 
 if TYPE_CHECKING:
-    from closedtrades import closedtrades
-    from opentrades import opentrades
+    from .opentrades import OpenTradesModule
+    from .closedtrades import ClosedTradesModule
+    opentrades: OpenTradesModule  # type: ignore[no-redef]
+    closedtrades: ClosedTradesModule  # type: ignore[no-redef]
 
 
 #
