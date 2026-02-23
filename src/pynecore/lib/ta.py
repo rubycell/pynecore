@@ -1707,11 +1707,15 @@ def variance(source: Series[float],
         return NA(float)
 
     count: Persistent[int] = 0
+    _buf: Persistent[list] = []
 
     sum_val: Persistent[float] = 0.0
     sum_val_c: Persistent[float] = 0.0
     sum_sq: Persistent[float] = 0.0
     sum_sq_c: Persistent[float] = 0.0
+
+    # Store current value in ring buffer
+    _buf.append(float(source))
 
     # Always add new value with Kahan summation
     y = source - sum_val_c
@@ -1733,8 +1737,8 @@ def variance(source: Series[float],
     else:
         count += 1
 
-        # Remove old value with Kahan summation
-        old_value = source[length]
+        # Remove old value from ring buffer with Kahan summation
+        old_value = _buf[-length - 1]
         y = -old_value - sum_val_c
         t = sum_val + y
         sum_val_c = (t - sum_val) - y  # noqa - it is persistent
@@ -1759,7 +1763,7 @@ def variance(source: Series[float],
         squares = sum_sq / (length - 1)
         var = squares - (length / (length - 1)) * mean_val * mean_val
 
-    return max(var, 0.0)
+    return builtins.max(var, 0.0)
 
 
 def valuewhen(condition: bool, source: float, occurrence: int) -> float | NA[float]:

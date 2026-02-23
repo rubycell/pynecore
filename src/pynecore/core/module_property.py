@@ -1,21 +1,15 @@
 from __future__ import annotations
-from typing import TypeVar, overload, Protocol, Any
+from typing import TypeVar, Callable
 
 T = TypeVar('T')
-T_co = TypeVar('T_co', covariant=True)
 
 
-class ModuleProperyProtocol(Protocol[T_co]):
-    @overload
-    def __call__(self) -> T_co: ...
-
-    @overload
-    def __call__(self, *args: Any, **kwargs: Any) -> T_co: ...
-
-
-def module_property(func) -> ModuleProperyProtocol[T] | T:
+def module_property(func: Callable[..., T]) -> T:
     """
     Decorator for Pine-style hybrid property/functions.
+    At runtime, returns the function with a marker attribute.
+    For type checking, pretends to return the function's return type
+    so Pylance sees timeframe.multiplier as int, not a function.
     """
     setattr(func, '__module_property__', True)
-    return func
+    return func  # type: ignore[return-value]
