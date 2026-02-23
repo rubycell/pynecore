@@ -28,7 +28,10 @@ class CallableModule:
 
     def _snapshot(self):
         """Capture current value into history buffer. Called before main() each bar."""
-        self._history.append(self())
+        try:
+            self._history.append(self())
+        except TypeError:
+            pass  # Skip modules that require arguments (e.g. PlotModule, AlertModule)
 
     def _reset_history(self):
         """Clear history buffer. Called at the start of each run."""
