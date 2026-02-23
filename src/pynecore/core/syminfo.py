@@ -33,6 +33,11 @@ class SymInfo:
     pricescale: int
     minmove: int = 1
     pointvalue: float
+    country: str = ''
+    mincontract: float = 1.0
+    root: str | None = None
+    sector: str | None = None
+    industry: str | None = None
     opening_hours: list[SymInfoInterval]
     session_starts: list[SymInfoSession]
     session_ends: list[SymInfoSession]
@@ -111,6 +116,11 @@ class SymInfo:
             pricescale=symbol['pricescale'],
             minmove=symbol.get('minmove', 1),
             pointvalue=symbol['pointvalue'],
+            country=symbol.get('country', ''),
+            mincontract=symbol.get('mincontract', 1.0),
+            root=symbol.get('root'),
+            sector=symbol.get('sector'),
+            industry=symbol.get('industry'),
             opening_hours=opening_hours,
             session_starts=session_starts,
             session_ends=session_ends,
@@ -156,6 +166,7 @@ class SymInfo:
         # Basic fields
         for key in ['prefix', 'description', 'ticker', 'currency', 'basecurrency',
                     'period', 'type', 'mintick', 'pricescale', 'minmove', 'pointvalue',
+                    'country', 'mincontract', 'root', 'sector', 'industry',
                     'timezone', 'volumetype', 'avg_spread', 'taker_fee', 'maker_fee',
                     'target_price_average', 'target_price_high', 'target_price_low', 'target_price_date']:
             lines.append(format_field(key, getattr(self, key)))

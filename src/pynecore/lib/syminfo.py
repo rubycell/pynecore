@@ -6,8 +6,9 @@ from .session import regular
 from ..core.syminfo import SymInfoSession, SymInfoInterval
 
 __all__ = [
-    "prefix", "description", "ticker", "root", "tickerid", "currency", "basecurrency", "period", "type", "volumetype",
-    "mintick", "pricescale", "minmove", "pointvalue", "timezone",
+    "prefix", "description", "ticker", "root", "tickerid", "main_tickerid",
+    "currency", "basecurrency", "period", "type", "volumetype",
+    "mintick", "pricescale", "minmove", "pointvalue", "mincontract", "timezone",
     "country", "session", "sector", "industry",
     "target_price_average", "target_price_high", "target_price_low", "target_price_date"
 ]
@@ -21,6 +22,7 @@ description: str | NA[str] = NA(str)
 ticker: str | NA[str] = NA(str)
 root: str | NA[str] = NA(str)
 tickerid: str | NA[str] = NA(str)
+main_tickerid: str | NA[str] = NA(str)
 currency: str | NA[str] = NA(str)
 basecurrency: str | NA[str] = NA(str)
 period: str | NA[str] = NA(str)

@@ -35,9 +35,14 @@ _dispatchers: dict[str, Callable] = {}  # Store dispatchers separately
 
 def _check_type(value: Any, expected_type: Type) -> bool:
     """Cached type checking for better performance with Pine Script compatibility"""
-    # Direct type match
-    if isinstance(value, expected_type):
-        return True
+    # Direct type match (guard against TypeError from subscripted generics like Series[float])
+    try:
+        if isinstance(value, expected_type):
+            return True
+    except TypeError:
+        # Subscripted generics (e.g. Series[float]) raise TypeError in isinstance()
+        # Fall through to generic origin check below
+        pass
 
     # Pine Script-like int to float conversion
     if expected_type is float and isinstance(value, int):
@@ -66,10 +71,14 @@ def _check_type(value: Any, expected_type: Type) -> bool:
             na_type = type(na_type)
         return na_type is expected_type
 
-    # Handle Union types
+    # Handle Union types and generic types
     origin = get_origin(expected_type)
     if origin is Union or origin is UnionType:
         return any(_check_type(value, t) for t in get_args(expected_type))
+
+    # Handle generic types like Series[float] — check against origin class
+    if origin is not None:
+        return isinstance(value, origin)
 
     if hasattr(expected_type, '__instancecheck__'):
         return expected_type.__instancecheck__(value)

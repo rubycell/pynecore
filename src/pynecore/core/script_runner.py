@@ -116,8 +116,12 @@ def _set_lib_syminfo_properties(syminfo: SymInfo, lib: ModuleType):
             except AttributeError:
                 pass
 
-    lib.syminfo.root = syminfo.ticker
-    lib.syminfo.ticker = syminfo.prefix + ':' + syminfo.ticker
+    # Derived fields: root and tickerid
+    lib.syminfo.root = syminfo.root if syminfo.root else syminfo.ticker
+    ticker_full = syminfo.prefix + ':' + syminfo.ticker
+    lib.syminfo.tickerid = ticker_full
+    lib.syminfo.main_tickerid = ticker_full
+    lib.syminfo.ticker = ticker_full
 
     lib.syminfo._opening_hours = syminfo.opening_hours
     lib.syminfo._session_starts = syminfo.session_starts
@@ -129,7 +133,7 @@ def _set_lib_syminfo_properties(syminfo: SymInfo, lib: ModuleType):
         lib.syminfo.mincontract = 1.0 / (10 ** decimals)
     else:
         lib.syminfo._size_round_factor = 1
-        lib.syminfo.mincontract = 1.0
+        lib.syminfo.mincontract = syminfo.mincontract
 
 
 def _reset_lib_vars(lib: ModuleType):
@@ -248,8 +252,17 @@ class ScriptRunner:
         from ..lib import _parse_timezone, barstate, string
         from pynecore.core import function_isolation
         from . import script
+        from .callable_module import CallableModule
 
         is_strat = self.script.script_type == script_type.strategy
+
+        # Collect all CallableModule instances for [N] history snapshotting
+        _callable_modules: list[CallableModule] = [
+            obj for obj in sys.modules.values()
+            if isinstance(obj, CallableModule)
+        ]
+        for cm in _callable_modules:
+            cm._reset_history()
 
         # Reset bar_index
         self.bar_index = 0
@@ -307,6 +320,10 @@ class ScriptRunner:
                 # Process limit orders
                 if is_strat and position:
                     position.process_orders()
+
+                # Snapshot all CallableModule values for [N] history access
+                for cm in _callable_modules:
+                    cm._snapshot()
 
                 # Execute registered library main functions before main script
                 lib._lib_semaphore = True

@@ -32,18 +32,12 @@ def alert(
         freq: AlertEnum = AlertModule.freq_once_per_bar
 ) -> None:
     """
-    Display alert message. Uses rich formatting if available, falls back to print.
+    Alert function - no-op in backtesting mode.
 
     :param message: Alert message to display
     :param freq: Alert frequency (currently ignored)
     """
-    try:
-        # Try to use typer for nice colored output
-        import typer
-        typer.secho(f"🚨 ALERT: {message}", fg=typer.colors.BRIGHT_YELLOW, bold=True)
-    except ImportError:
-        # Fallback to simple print
-        print(f"🚨 ALERT: {message}")
+    pass
     
 
 #

@@ -53,7 +53,7 @@ __all__ = [
 
     # Module properties
     'dayofmonth', 'dayofweek', 'hour', 'minute', 'month', 'second', 'weekofyear', 'year',
-    'time', 'time_close', 'na',
+    'time', 'time_close', 'na', 'NA',
 ]
 
 #

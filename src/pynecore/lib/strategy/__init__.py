@@ -600,7 +600,7 @@ class Position:
                     delete = True
 
                     size = order.size if abs(order.size) <= abs(trade.size) else -trade.size
-                    pnl = -size * (price - trade.entry_price)
+                    pnl = -size * (price - trade.entry_price) * syminfo.pointvalue
 
                     # Copy and modify actual trade, because it can be partially filled
                     closed_trade = copy(trade)
@@ -617,8 +617,8 @@ class Position:
                         closed_trade.max_runup *= (1 - size_ratio)
 
                     # P/L from high/low to calculate drawdown and runup
-                    hprofit = (-size * (h - closed_trade.entry_price) - closed_trade.commission)
-                    lprofit = (-size * (l - closed_trade.entry_price) - closed_trade.commission)
+                    hprofit = (-size * (h - closed_trade.entry_price) * syminfo.pointvalue - closed_trade.commission)
+                    lprofit = (-size * (l - closed_trade.entry_price) * syminfo.pointvalue - closed_trade.commission)
 
                     # Drawdown and runup
                     drawdown = -min(hprofit, lprofit, 0.0)
@@ -665,7 +665,7 @@ class Position:
                         closed_trade.profit -= closed_trade.commission
 
                     # Profit percent
-                    entry_value = abs(closed_trade.size) * closed_trade.entry_price
+                    entry_value = abs(closed_trade.size) * closed_trade.entry_price * syminfo.pointvalue
                     try:
                         # Use closed_trade.profit which includes commission, not pnl which doesn't
                         closed_trade.profit_percent = (closed_trade.profit / entry_value) * 100.0
@@ -715,7 +715,7 @@ class Position:
                         self.avg_price = self.entry_summ / abs(self.size)
 
                         # Unrealized P&L
-                        self.openprofit = self.size * (self.c - self.avg_price)
+                        self.openprofit = self.size * (self.c - self.avg_price) * syminfo.pointvalue
                     else:
                         # If position has just closed
                         self.avg_price = na_float
@@ -799,7 +799,7 @@ class Position:
             except ZeroDivisionError:
                 self.avg_price = na_float
             # Unrealized P&L
-            self.openprofit = self.size * (self.c - self.avg_price)
+            self.openprofit = self.size * (self.c - self.avg_price) * syminfo.pointvalue
             # Commission summ
             self.open_commission += commission
 
@@ -1282,16 +1282,16 @@ class Position:
         # Calculate average entry price, unrealized P&L, drawdown and runup...
         if self.open_trades:
             # Unrealized P&L
-            self.openprofit = self.size * (self.c - self.avg_price)
+            self.openprofit = self.size * (self.c - self.avg_price) * syminfo.pointvalue
 
             # Calculate open drawdowns and runups
             for trade in self.open_trades:
                 # Profit of trade
-                trade.profit = trade.size * (self.c - trade.entry_price) - 2 * trade.commission
+                trade.profit = trade.size * (self.c - trade.entry_price) * syminfo.pointvalue - 2 * trade.commission
 
                 # P/L from high/low to calculate drawdown and runup
-                hprofit = trade.size * (self.h - self.avg_price) - trade.commission
-                lprofit = trade.size * (self.l - self.avg_price) - trade.commission
+                hprofit = trade.size * (self.h - self.avg_price) * syminfo.pointvalue - trade.commission
+                lprofit = trade.size * (self.l - self.avg_price) * syminfo.pointvalue - trade.commission
                 # Drawdown
                 drawdown = -min(hprofit, lprofit, 0.0)
                 trade.max_drawdown = max(drawdown, trade.max_drawdown)
@@ -1301,7 +1301,7 @@ class Position:
 
                 # Calculate percentage values for drawdown and runup
                 # This part is missing in the original code
-                trade_value = abs(trade.size) * trade.entry_price
+                trade_value = abs(trade.size) * trade.entry_price * syminfo.pointvalue
                 if trade_value > 0:
                     # Calculate drawdown percentage
                     trade.max_drawdown_percent = max(
@@ -1326,7 +1326,7 @@ class Position:
             for trade in self.open_trades:
                 if trade.profit < 0:
                     open_loss += trade.profit
-                    total_cost += abs(trade.size) * trade.entry_price
+                    total_cost += abs(trade.size) * trade.entry_price * syminfo.pointvalue
             if open_loss < 0:
                 current_dd = -open_loss
                 current_dd_pct = (current_dd / total_cost) * 100.0 if total_cost != 0 else 0.0
@@ -1352,7 +1352,7 @@ class Position:
         if self.open_trades:
             for trade in self.open_trades:
                 worst_price = self.l if trade.size > 0 else self.h
-                raw_pnl = (worst_price - trade.entry_price) * trade.size
+                raw_pnl = (worst_price - trade.entry_price) * trade.size * syminfo.pointvalue
                 # Commission cost (entry side already paid, estimate exit side)
                 if commission_type == _commission.percent:
                     comm_cost = abs(trade.size) * trade.entry_price * commission_value * 0.01
@@ -2004,7 +2004,7 @@ def openprofit_percent() -> float | NA[float]:
     pos = lib._script.position
     if pos.size == 0:
         return 0.0
-    cost = pos.avg_price * abs(pos.size)
+    cost = pos.avg_price * abs(pos.size) * syminfo.pointvalue
     if cost == 0:
         return 0.0
     return (pos.openprofit / cost) * 100.0
