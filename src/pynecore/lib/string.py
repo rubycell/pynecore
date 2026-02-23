@@ -326,6 +326,10 @@ def format(formatString: str, *args: Any) -> str:
                                       precision=parts[2])
             return _format_number(safe_convert.safe_float(value))
 
+        if len(parts) >= 2 and parts[1] == 'date':
+            fmt = parts[2] if len(parts) >= 3 else None
+            return format_time(int(value), fmt)
+
         return _format_value(value)
 
     # Validate and balance curly braces
