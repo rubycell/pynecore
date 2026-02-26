@@ -1,3 +1,4 @@
+import os
 from copy import copy as _copy
 
 from ..core.overload import overload
@@ -6,6 +7,8 @@ from ..types.chart import ChartPoint
 from ..types.label import LabelStyleEnum, Label
 from ..types.na import NA
 from ..lib import xloc as _xloc, yloc as _yloc, color as _color, size as _size, text as _text, font as _font
+
+_OPTIMIZE_MODE = os.environ.get("PYNE_OPTIMIZE_MODE") == "1"
 
 _registry: list[Label] = []
 
@@ -58,6 +61,8 @@ def new(point: ChartPoint, text: str = "", xloc: _xloc.XLoc = _xloc.bar_index,
     :param text_formatting: The formatting of the displayed text
     :return: A label object
     """
+    if _OPTIMIZE_MODE:
+        return NA(Label)
     # Extract coordinates from ChartPoint based on xloc
     if xloc == _xloc.bar_time:
         x, y = point.time, point.price
@@ -110,6 +115,8 @@ def new(x: int, y: int | float, text: str = "", xloc: _xloc.XLoc = _xloc.bar_ind
     :param text_formatting: The formatting of the displayed text
     :return: A label object
     """
+    if _OPTIMIZE_MODE:
+        return NA(Label)
     label_obj = Label(
         x=x,
         y=y,

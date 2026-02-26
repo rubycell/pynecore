@@ -1,3 +1,4 @@
+import os
 from copy import copy as _copy
 
 from ..core.overload import overload
@@ -6,6 +7,8 @@ from ..types.chart import ChartPoint
 from ..types.line import LineEnum, Line
 from ..types.na import NA
 from ..lib import xloc as _xloc, extend as _extend, color as _color
+
+_OPTIMIZE_MODE = os.environ.get("PYNE_OPTIMIZE_MODE") == "1"
 
 _registry: list[Line] = []
 
@@ -35,6 +38,8 @@ def new(first_point: ChartPoint, second_point: ChartPoint, xloc: _xloc.XLoc = _x
     :param force_overlay: If true, the drawing will display on the main chart pane
     :return: A line object
     """
+    if _OPTIMIZE_MODE:
+        return NA(Line)
     # Extract coordinates from ChartPoint objects based on xloc
     from ..lib import xloc as xloc_lib
 
@@ -83,6 +88,8 @@ def new(x1: int, y1: float, x2: int, y2: float,
     :param force_overlay: If true, the drawing will display on the main chart pane
     :return: A line object
     """
+    if _OPTIMIZE_MODE:
+        return NA(Line)
     line_obj = Line(
         x1=x1,
         y1=y1,

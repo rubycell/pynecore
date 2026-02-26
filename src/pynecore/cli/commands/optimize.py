@@ -130,6 +130,22 @@ def generate_combinations(specs: list[ParamSpec]) -> list[dict[str, Any]]:
     return [dict(zip(names, combo)) for combo in product(*value_lists)]
 
 
+def parse_chunk(chunk_str: str) -> tuple[int, int]:
+    """Parse 'N/M' -> (chunk_num, total_chunks). Validates 1 <= N <= M."""
+    parts = chunk_str.split("/")
+    if len(parts) != 2:
+        raise ValueError(f"Invalid chunk format '{chunk_str}', expected 'N/M' (e.g. '2/4')")
+    try:
+        n, m = int(parts[0]), int(parts[1])
+    except ValueError:
+        raise ValueError(f"Invalid chunk format '{chunk_str}', N and M must be integers")
+    if m < 1:
+        raise ValueError(f"Total chunks M must be >= 1, got {m}")
+    if n < 1 or n > m:
+        raise ValueError(f"Chunk number N must be 1..{m}, got {n}")
+    return n, m
+
+
 # ---------------------------------------------------------------------------
 # Single-run helper (used by both sequential and parallel paths)
 # ---------------------------------------------------------------------------
@@ -269,6 +285,104 @@ def write_results_csv(
             writer.writerow(row)
 
 
+# ---------------------------------------------------------------------------
+# Incremental CSV + Resume helpers
+# ---------------------------------------------------------------------------
+
+def _load_completed_keys(
+    csv_path: Path,
+    param_names: list[str],
+) -> tuple[set[tuple[str, ...]], list[list[str]], list[str]]:
+    """Load completed parameter combos from a partial CSV.
+
+    Returns (completed_keys, existing_rows, fieldnames).
+    completed_keys: set of param-value tuples already done.
+    existing_rows: raw CSV rows (list of values) for later merge.
+    fieldnames: header from the CSV file.
+    """
+    completed: set[tuple[str, ...]] = set()
+    existing_rows: list[list[str]] = []
+    fieldnames: list[str] = []
+
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
+        return completed, existing_rows, fieldnames
+
+    try:
+        with open(csv_path, "r", newline="") as f:
+            reader = csv.reader(f)
+            fieldnames = next(reader, [])
+            if not fieldnames:
+                return completed, existing_rows, fieldnames
+            # Find param column indices
+            param_indices = []
+            for name in param_names:
+                try:
+                    param_indices.append(fieldnames.index(name))
+                except ValueError:
+                    # Header doesn't match — can't resume
+                    return set(), [], []
+            for row in reader:
+                if len(row) < len(fieldnames):
+                    continue
+                key = tuple(row[i] for i in param_indices)
+                completed.add(key)
+                existing_rows.append(row)
+    except Exception:
+        return set(), [], []
+
+    return completed, existing_rows, fieldnames
+
+
+def _combo_to_key(
+    combo: dict[str, Any],
+    param_names: list[str],
+) -> tuple[str, ...]:
+    """Convert a parameter combo to a hashable string tuple for comparison."""
+    return tuple(str(combo.get(name, "")) for name in param_names)
+
+
+def _sort_and_rewrite_csv(
+    csv_path: Path,
+    metric_attr: str,
+    is_minimize: bool,
+) -> int:
+    """Read CSV, sort by metric column, rewrite in-place. Returns row count."""
+    rows: list[list[str]] = []
+    header: list[str] = []
+
+    with open(csv_path, "r", newline="") as f:
+        reader = csv.reader(f)
+        header = next(reader, [])
+        if not header:
+            return 0
+        for row in reader:
+            rows.append(row)
+
+    if not rows:
+        return 0
+
+    # Find metric column index
+    try:
+        metric_idx = header.index(metric_attr)
+    except ValueError:
+        return len(rows)  # Can't sort, leave as-is
+
+    def sort_key(row):
+        try:
+            return float(row[metric_idx])
+        except (ValueError, TypeError, IndexError):
+            return 0.0
+
+    rows.sort(key=sort_key, reverse=not is_minimize)
+
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(rows)
+
+    return len(rows)
+
+
 def write_best_toml(best_params: dict[str, Any], output_path: Path) -> None:
     """Write the best parameter set as a TOML snippet."""
     lines = [
@@ -352,6 +466,10 @@ def optimize(
         formats=["%Y-%m-%d", "%Y-%m-%d %H:%M:%S"],
         help="End date (UTC)",
     ),
+    chunk: str | None = Option(
+        None, "--chunk", "-c",
+        help="Run chunk N/M of the grid, e.g. '2/4' runs the 2nd quarter",
+    ),
 ):
     """
     Optimize strategy parameters via grid search.
@@ -430,6 +548,10 @@ def optimize(
         raise Exit(1)
 
     combinations = generate_combinations(specs)
+    chunk_num, total_chunks = 0, 0
+    if chunk:
+        chunk_num, total_chunks = parse_chunk(chunk)
+        combinations = combinations[chunk_num - 1::total_chunks]
     param_names = [s.name for s in specs]
     total_combos = len(combinations)
 
@@ -463,6 +585,8 @@ def optimize(
     for spec in specs:
         secho(f"  {spec.name}: {len(spec.values)} values "
               f"({spec.values[0]} .. {spec.values[-1]})", fg="cyan")
+    if chunk:
+        secho(f"Chunk:      {chunk_num}/{total_chunks} ({total_combos} combinations)", fg="cyan")
     secho(f"Total combinations: {total_combos}\n", fg="cyan")
 
     # --- Lib directory ---
@@ -473,6 +597,53 @@ def optimize(
     saved_env: dict[str, str | None] = {}
     for key in ("PYNE_OPTIMIZE_MODE", "PYNE_SAVE_SCRIPT_TOML"):
         saved_env[key] = os.environ.get(key)
+
+    # --- Resolve CSV path early (needed for resume check) ---
+    if chunk and not output:
+        csv_path = app_state.output_dir / f"{script.stem}_optimize_chunk{chunk_num}of{total_chunks}.csv"
+    else:
+        csv_path = output or (app_state.output_dir / f"{script.stem}_optimize.csv")
+
+    # --- Resume support: check for partial results ---
+    stat_fields = [f.name for f in dataclass_fields(StrategyStatistics)]
+    completed_keys, existing_rows, _ = _load_completed_keys(
+        csv_path, param_names,
+    )
+    resumed_count = len(completed_keys)
+
+    if resumed_count > 0:
+        combinations = [
+            c for c in combinations
+            if _combo_to_key(c, param_names) not in completed_keys
+        ]
+        console.print(
+            f"[green]Resuming: {resumed_count} already completed, "
+            f"{len(combinations)} remaining of {total_combos} total[/green]\n"
+        )
+
+    remaining_count = len(combinations)
+    if remaining_count == 0:
+        console.print("[green]All combinations already completed![/green]")
+        # Re-sort and display existing results
+        _sort_and_rewrite_csv(csv_path, metric_attr, metric in MINIMIZE_METRICS)
+        console.print(f"[green]Results at: {csv_path}[/green]")
+        return
+
+    # Adjust worker count for remaining work
+    num_workers = min(num_workers, remaining_count)
+
+    # --- Open CSV for incremental writing ---
+    csv_header = param_names + stat_fields
+    write_header = resumed_count == 0
+    csv_file = open(
+        csv_path,
+        "a" if resumed_count > 0 else "w",
+        newline="",
+    )
+    csv_writer = csv.writer(csv_file)
+    if write_header:
+        csv_writer.writerow(csv_header)
+        csv_file.flush()
 
     # --- Run optimization ---
     results: list[tuple[dict[str, Any], StrategyStatistics]] = []
@@ -487,7 +658,12 @@ def optimize(
             TextColumn("[cyan]{task.percentage:>3.0f}%"),
             RateColumn(),
         ) as progress:
-            task = progress.add_task("Optimizing...", total=total_combos)
+            desc = (
+                f"Optimizing ({resumed_count} resumed)..."
+                if resumed_count > 0
+                else "Optimizing..."
+            )
+            task = progress.add_task(desc, total=remaining_count)
 
             if num_workers > 1:
                 # --- Parallel execution ---
@@ -507,6 +683,11 @@ def optimize(
                         combo_params, stats, error = future.result()
                         if stats is not None:
                             results.append((combo_params, stats))
+                            # Incremental CSV write
+                            row = [combo_params.get(n, "") for n in param_names]
+                            row += [getattr(stats, f) for f in stat_fields]
+                            csv_writer.writerow(row)
+                            csv_file.flush()
                         else:
                             failed_count += 1
                             if error:
@@ -539,6 +720,11 @@ def optimize(
 
                         if stats is not None:
                             results.append((combo, stats))
+                            # Incremental CSV write
+                            row = [combo.get(n, "") for n in param_names]
+                            row += [getattr(stats, f) for f in stat_fields]
+                            csv_writer.writerow(row)
+                            csv_file.flush()
                         else:
                             failed_count += 1
                             if error:
@@ -552,6 +738,8 @@ def optimize(
                             gc.collect()
 
     finally:
+        csv_file.close()
+
         # Restore environment
         for key, val in saved_env.items():
             if val is None:
@@ -563,12 +751,16 @@ def optimize(
             sys.path.remove(lib_dir_str)
 
     # --- Check results ---
-    if not results:
+    total_successful = len(results) + resumed_count
+    if total_successful == 0:
         secho("\nNo successful runs. Cannot produce results.", fg="red", err=True)
         raise Exit(1)
 
-    # --- Sort results ---
+    # --- Sort the full CSV (resumed + new results) ---
     is_minimize = metric in MINIMIZE_METRICS
+    _sort_and_rewrite_csv(csv_path, metric_attr, is_minimize)
+
+    # --- Sort in-memory results for display ---
     results.sort(
         key=lambda r: get_metric_value(r[1], metric_attr),
         reverse=not is_minimize,
@@ -610,12 +802,10 @@ def optimize(
         console.print(f"\n[yellow]{failed_count} combination(s) failed.[/yellow]")
 
     console.print(
-        f"\n[dim]Total: {len(results)} successful / {total_combos} combinations[/dim]"
+        f"\n[dim]Total: {total_successful} successful / {total_combos} combinations"
+        f"{f' ({resumed_count} resumed)' if resumed_count > 0 else ''}[/dim]"
     )
 
-    # --- Write CSV output ---
-    csv_path = output or (app_state.output_dir / f"{script.stem}_optimize.csv")
-    write_results_csv(results, param_names, csv_path)
     console.print(f"[green]Results saved to: {csv_path}[/green]")
 
     # --- Write best TOML ---

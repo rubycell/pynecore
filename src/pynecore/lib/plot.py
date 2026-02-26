@@ -1,8 +1,11 @@
 from typing import Any
+import os
 import sys
 
 from ..core.callable_module import CallableModule
 from ..types.plot import PlotEnum, Plot
+
+_OPTIMIZE_MODE = os.environ.get("PYNE_OPTIMIZE_MODE") == "1"
 
 
 #
@@ -66,6 +69,8 @@ def plot(series: Any, title: str | None = None, color: Any = None,
     :param force_overlay: If true, force display on the main chart pane
     :return: A Plot object, can be used to reference the plot in other functions
     """
+    if _OPTIMIZE_MODE:
+        return Plot()
     from .. import lib
     if lib._lib_semaphore:
         return Plot()

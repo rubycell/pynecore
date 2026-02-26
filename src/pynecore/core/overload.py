@@ -31,6 +31,7 @@ class Implementation:
 _registry: dict[str, list[Implementation]] = defaultdict(list)
 _implementations: dict[str, Implementation] = {}  # Store implementations separately
 _dispatchers: dict[str, Callable] = {}  # Store dispatchers separately
+_dispatch_cache: dict[tuple, Callable] = {}  # Cache: (qualname, arg_types, nargs) -> func
 
 
 def _check_type(value: Any, expected_type: Type) -> bool:
@@ -132,10 +133,17 @@ def overload(func: Callable[..., T]) -> Callable[..., T]:
         def dispatcher(*args: Any, **kwargs: Any) -> Any:
             # Quick path: try direct positional args match first
             if not kwargs:
+                # Check dispatch cache first
+                cache_key = (qualname, tuple(type(a) for a in args), len(args))
+                cached = _dispatch_cache.get(cache_key)
+                if cached is not None:
+                    return isolate_function(cached, '__overloaded__', __scope_id__)(*args)
+
                 for impl in _registry[qualname]:
                     if len(args) == len(impl.param_types):
                         if all(_check_type(arg, type_)
                                for arg, (_, type_) in zip(args, impl.param_types)):
+                            _dispatch_cache[cache_key] = impl.func  # Cache the resolved function
                             return isolate_function(impl.func, '__overloaded__', __scope_id__)(*args)
 
             # Slower path: handle mixed args/kwargs

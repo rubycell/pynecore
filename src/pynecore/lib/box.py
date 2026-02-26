@@ -1,3 +1,4 @@
+import os
 from copy import copy as _copy
 
 from ..core.overload import overload
@@ -8,6 +9,8 @@ from ..types.na import NA
 from ..types.chart import ChartPoint
 from ..lib import (color as _color, extend as _extend, xloc as _xloc, size as _size, line as _line,
                    text as _text, font as _font)
+
+_OPTIMIZE_MODE = os.environ.get("PYNE_OPTIMIZE_MODE") == "1"
 
 _registry: list[Box] = []
 
@@ -43,6 +46,8 @@ def new(top_left: ChartPoint, bottom_right: ChartPoint, border_color: _color.Col
     :param text_formatting: The formatting of the displayed text
     :return: A box object
     """
+    if _OPTIMIZE_MODE:
+        return NA(Box)
     # Extract coordinates from ChartPoint objects based on xloc
     if xloc == _xloc.bar_time:
         left, top = top_left.time, top_left.price
@@ -112,6 +117,8 @@ def new(left: int, top: float, right: int, bottom: float,
     :param text_formatting: The formatting of the displayed text
     :return: A box object
     """
+    if _OPTIMIZE_MODE:
+        return NA(Box)
     box = Box(
         left=left,
         top=top,

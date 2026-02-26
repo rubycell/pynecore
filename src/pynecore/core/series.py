@@ -10,6 +10,9 @@ __all__ = ['SeriesImpl', 'inline_series']
 
 T = TypeVar('T')
 
+# Module-level NA singleton to avoid creating new NA() on every out-of-bounds access
+_NA_SINGLETON = NA()
+
 
 class SeriesImpl(Generic[T]):
     """
@@ -133,11 +136,11 @@ class SeriesImpl(Generic[T]):
         :param value: The new data to be added.
         :return: The same value that was added (for chaining or inline usage).
         """
-        # Optimize attribute lookup by using local variable
-        lib = SeriesImpl._lib
+        # Cache bar_index lookup in local var
+        bar_index = SeriesImpl._lib.bar_index
 
         # Set data instead of adding a new one if the bar index is the same
-        if self._last_bar_index == lib.bar_index:
+        if self._last_bar_index == bar_index:
             return self.set(value)
 
         if self._size < self._capacity:
@@ -156,7 +159,7 @@ class SeriesImpl(Generic[T]):
             self._buffer[pos] = value
 
         # Store the last bar index to prevent adding more than one value per bar
-        self._last_bar_index = lib.bar_index
+        self._last_bar_index = bar_index
 
         return value
 
@@ -168,7 +171,7 @@ class SeriesImpl(Generic[T]):
         :return: The value that was set, or na if buffer is empty.
         """
         if self._size == 0:
-            return cast(NA[T], NA())
+            return _NA_SINGLETON  # type: ignore
 
         pos = self._write_pos - 1
         if pos < 0:
@@ -185,22 +188,25 @@ class SeriesImpl(Generic[T]):
         :raises IndexError: If index is out of range or negative
         :raises TypeError: If key is not int or slice
         """
-        if isinstance(key, float):
-            key = int(key)
-
-        if isinstance(key, int):
-            # Original integer indexing behavior
-            if key < 0:
-                raise IndexError("Negative indices not supported!")
+        # Fast path: integer index (vast majority of calls)
+        if key.__class__ is int:
             if key >= self._size:
-                return cast(NA[T], NA())
+                return _NA_SINGLETON  # type: ignore
             pos = self._write_pos - 1 - key
             if pos < 0:
                 pos += self._capacity
-            result = self._buffer[pos]
-            return cast(T | NA[T], result)
+            return self._buffer[pos]  # type: ignore
 
-        elif isinstance(key, slice):
+        if isinstance(key, float):
+            key = int(key)
+            if key >= self._size:
+                return _NA_SINGLETON  # type: ignore
+            pos = self._write_pos - 1 - key
+            if pos < 0:
+                pos += self._capacity
+            return self._buffer[pos]  # type: ignore
+
+        if isinstance(key, slice):
             # Handle slice notation
             start = 0 if key.start is None else key.start
             stop = self._size if key.stop is None else key.stop

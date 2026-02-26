@@ -7,6 +7,8 @@ from pathlib import Path
 from .string import format as _format
 from .. import lib
 
+_OPTIMIZE_MODE = os.environ.get("PYNE_OPTIMIZE_MODE") == "1"
+
 # Try to import rich, but don't fail if not available
 try:
     import rich
@@ -174,6 +176,8 @@ def info(formatString: str, *args: Any, **kwargs: Any) -> None:
     :param args: Arguments to format the message
     :param kwargs: Additional arguments (unused)
     """
+    if _OPTIMIZE_MODE:
+        return
     logger.info(formatString, *args)
 
 
@@ -186,6 +190,8 @@ def warning(formatString: str, *args: Any, **kwargs: Any) -> None:
     :param args: Arguments to format the message
     :param kwargs: Additional arguments (unused)
     """
+    if _OPTIMIZE_MODE:
+        return
     logger.warning(formatString, *args)
 
 
@@ -198,4 +204,6 @@ def error(formatString: str, *args: Any, **kwargs: Any) -> None:
     :param args: Arguments to format the message
     :param kwargs: Additional arguments (unused)
     """
+    if _OPTIMIZE_MODE:
+        return
     logger.error(formatString, *args)

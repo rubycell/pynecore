@@ -1,7 +1,7 @@
 from ..core.callable_module import CallableModule
-from ..types.hline import HLineEnum, HLine
-from . import color as _color, display as _display
-
+from ..types.hline import HLine, HLineEnum
+from . import color as _color
+from . import display as _display
 
 class HLineModule(CallableModule):
     style_solid = HLineEnum()

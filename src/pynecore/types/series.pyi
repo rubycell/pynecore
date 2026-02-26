@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import os
-from typing import TypeVar, Generic, Any, Union, Protocol, TypeAlias, Self
+from typing import Any, Generic, Protocol, Self, TypeAlias, TypeVar
+
 from .na import NA
 
 T = TypeVar('T')
@@ -19,9 +21,9 @@ if os.environ.get("TYPECHECKER") == "pycharm":
         """
 
     # The type definition that allows both uses
-    Series: TypeAlias = Union[T_co, _SeriesType[T_co]]
+    Series: TypeAlias = T_co | _SeriesType[T_co]
     # The persistent version of the Series type
-    PersistentSeries: TypeAlias = Union[T_co, _SeriesType[T_co]]
+    PersistentSeries: TypeAlias = T_co | _SeriesType[T_co]
 
 
 # Pyright is more strict and requires a more complex implementation, this does not work in PyCharm,
@@ -42,7 +44,6 @@ else:
             Initialize the Series with a value.
             :param value: The initial value of the Series.
             """
-            ...
 
         def __getitem__(self, index: int) -> T:
             ...

@@ -1,9 +1,7 @@
 from typing import Any
 
 from ..core.callable_module import CallableModule
-from ..types.plot import Plot
-from ..types.plot import PlotEnum
-
+from ..types.plot import Plot, PlotEnum
 
 class PlotModule(CallableModule):
     style_area: PlotEnum

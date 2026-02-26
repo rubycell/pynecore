@@ -1,7 +1,6 @@
 from ..core.callable_module import CallableModule
 from ..types.alert import AlertEnum
 
-
 class AlertModule(CallableModule):
     freq_all = AlertEnum()
     freq_once_per_bar = AlertEnum()
