@@ -808,13 +808,6 @@ def optimize(
 
     console.print(f"[green]Results saved to: {csv_path}[/green]")
 
-    # --- Print calculation cache statistics ---
-    try:
-        from pynecore.core.overload import print_cache_stats
-        print_cache_stats()
-    except Exception:
-        pass
-
     # --- Write best TOML ---
     if save_best and results:
         best_params = results[0][0]

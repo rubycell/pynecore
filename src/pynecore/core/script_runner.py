@@ -1,1 +1,540 @@
-/home/mike/workspace/github/pinescript/pynecore/runtime_patches/core/script_runner.py
+from typing import Iterable, Iterator, Callable, TYPE_CHECKING, Any
+from types import ModuleType
+import sys
+from pathlib import Path
+from datetime import datetime, UTC
+
+from pynecore.types.ohlcv import OHLCV
+from pynecore.core.syminfo import SymInfo
+from pynecore.core.csv_file import CSVWriter
+from pynecore.core.strategy_stats import calculate_strategy_statistics, write_strategy_statistics_csv
+
+from pynecore.types import script_type
+
+if TYPE_CHECKING:
+    from zoneinfo import ZoneInfo  # noqa
+    from pynecore.core.script import script
+    from pynecore.lib.strategy import Trade  # noqa
+
+__all__ = [
+    'import_script',
+    'ScriptRunner',
+]
+
+
+def import_script(script_path: Path) -> ModuleType:
+    """
+    Import the script
+    """
+    from importlib import import_module
+    import re
+    # Import hook only before importing the script, to make import hook being used only for Pyne scripts
+    # (this makes 1st run faster, than if it would be a top-level import)
+    from . import import_hook  # noqa
+
+    # Check for @pyne magic doc comment before importing (prevents import errors)
+    # Without this user may get strange errors which are very hard to debug
+    try:
+        with open(script_path, 'r') as f:
+            # Read only the first few lines to check for docstring
+            content = f.read(1024)  # Read first 1KB, should be enough for docstring check
+
+        # Check if file starts with a docstring containing @pyne
+        if not re.search(r'^(""".*?@pyne.*?"""|\'\'\'.*?@pyne.*?\'\'\')',
+                         content, re.DOTALL | re.MULTILINE):
+            raise ImportError(
+                f"Script '{script_path}' must have a magic doc comment containing "
+                f"'@pyne' at the beginning of the file!"
+            )
+    except (OSError, IOError) as e:
+        raise ImportError(f"Could not read script file '{script_path}': {e}")
+
+    # Add script's directory to Python path temporarily
+    sys.path.insert(0, str(script_path.parent))
+    try:
+        # This will use the import system, including our hook
+        module = import_module(script_path.stem)
+    finally:
+        # Remove the directory from path
+        sys.path.pop(0)
+
+    if not hasattr(module, 'main'):
+        raise ImportError(f"Script '{script_path}' must have a 'main' function to run!")
+
+    return module
+
+
+def _round_price(price: float, lib: ModuleType):
+    """
+    Round price to the nearest tick
+    """
+    if TYPE_CHECKING:  # This is needed for the type checker to work
+        from .. import lib
+    syminfo = lib.syminfo
+    scaled = round(price * syminfo.pricescale)
+    return scaled / syminfo.pricescale
+
+
+# noinspection PyShadowingNames
+def _set_lib_properties(ohlcv: OHLCV, bar_index: int, tz: 'ZoneInfo', lib: ModuleType):
+    """
+    Set lib properties from OHLCV
+    """
+    if TYPE_CHECKING:  # This is needed for the type checker to work
+        from .. import lib
+
+    lib.bar_index = lib.last_bar_index = bar_index
+
+    lib.open = _round_price(ohlcv.open, lib)
+    lib.high = _round_price(ohlcv.high, lib)
+    lib.low = _round_price(ohlcv.low, lib)
+    lib.close = _round_price(ohlcv.close, lib)
+
+    lib.volume = ohlcv.volume
+
+    lib.hl2 = (lib.high + lib.low) / 2.0
+    lib.hlc3 = (lib.high + lib.low + lib.close) / 3.0
+    lib.ohlc4 = (lib.open + lib.high + lib.low + lib.close) / 4.0
+    lib.hlcc4 = (lib.high + lib.low + 2 * lib.close) / 4.0
+
+    dt = lib._datetime = datetime.fromtimestamp(ohlcv.timestamp, UTC).astimezone(tz)
+    lib._time = lib.last_bar_time = int(dt.timestamp() * 1000)  # PineScript representation of time
+
+
+def _set_lib_syminfo_properties(syminfo: SymInfo, lib: ModuleType):
+    """
+    Set syminfo library properties from this object
+    """
+    if TYPE_CHECKING:  # This is needed for the type checker to work
+        from .. import lib
+
+    for slot_name in syminfo.__slots__:  # type: ignore
+        value = getattr(syminfo, slot_name)
+        if value is not None:
+            try:
+                setattr(lib.syminfo, slot_name, value)
+            except AttributeError:
+                pass
+
+    # Derived fields: root and tickerid
+    lib.syminfo.root = syminfo.root if syminfo.root else syminfo.ticker
+    ticker_full = syminfo.prefix + ':' + syminfo.ticker
+    lib.syminfo.tickerid = ticker_full
+    lib.syminfo.main_tickerid = ticker_full
+    lib.syminfo.ticker = ticker_full
+
+    lib.syminfo._opening_hours = syminfo.opening_hours
+    lib.syminfo._session_starts = syminfo.session_starts
+    lib.syminfo._session_ends = syminfo.session_ends
+
+    if syminfo.type == 'crypto':
+        decimals = 6 if syminfo.basecurrency == 'BTC' else 4  # TODO: is it correct?
+        lib.syminfo._size_round_factor = 10 ** decimals
+        lib.syminfo.mincontract = 1.0 / (10 ** decimals)
+    else:
+        lib.syminfo._size_round_factor = 1
+        lib.syminfo.mincontract = syminfo.mincontract
+
+
+def _reset_lib_vars(lib: ModuleType):
+    """
+    Reset lib variables to be able to run other scripts
+    :param lib:
+    :return:
+    """
+    if TYPE_CHECKING:  # This is needed for the type checker to work
+        from .. import lib
+    from ..types.source import Source
+
+    lib.open = Source("open")
+    lib.high = Source("high")
+    lib.low = Source("low")
+    lib.close = Source("close")
+    lib.volume = Source("volume")
+    lib.hl2 = Source("hl2")
+    lib.hlc3 = Source("hlc3")
+    lib.ohlc4 = Source("ohlc4")
+    lib.hlcc4 = Source("hlcc4")
+
+    lib._time = 0
+    lib._datetime = datetime.fromtimestamp(0, UTC)
+
+    lib._lib_semaphore = False
+    lib._plot_meta.clear()
+
+    lib.barstate.isfirst = True
+    lib.barstate.islast = False
+
+
+class ScriptRunner:
+    """
+    Script runner
+    """
+
+    __slots__ = ('script_module', 'script', 'ohlcv_iter', 'syminfo', 'update_syminfo_every_run',
+                 'bar_index', 'tz', 'plot_writer', 'strat_writer', 'trades_writer', 'last_bar_index',
+                 'equity_curve', 'first_price', 'last_price', 'plot_meta_path', 'stats')
+
+    def __init__(self, script_path: Path, ohlcv_iter: Iterable[OHLCV], syminfo: SymInfo, *,
+                 plot_path: Path | None = None, strat_path: Path | None = None,
+                 trade_path: Path | None = None,
+                 update_syminfo_every_run: bool = False, last_bar_index=0):
+        """
+        Initialize the script runner
+
+        :param script_path: The path to the script to run
+        :param ohlcv_iter: Iterator of OHLCV data
+        :param syminfo: Symbol information
+        :param plot_path: Path to save the plot data
+        :param strat_path: Path to save the strategy results
+        :param trade_path: Path to save the trade data of the strategy
+        :param update_syminfo_every_run: If it is needed to update the syminfo lib in every run,
+                                         needed for parallel script executions
+        :param last_bar_index: Last bar index, the index of the last bar of the historical data
+        :raises ImportError: If the script does not have a 'main' function
+        :raises ImportError: If the 'main' function is not decorated with @script.[indicator|strategy|library]
+        :raises OSError: If the plot file could not be opened
+        """
+        self.script_module = import_script(script_path)
+
+        if not hasattr(self.script_module.main, 'script'):
+            raise ImportError(f"The 'main' function must be decorated with "
+                              f"@script.[indicator|strategy|library] to run!")
+
+        self.script: script = self.script_module.main.script
+
+        # noinspection PyProtectedMember
+        from ..lib import _parse_timezone
+
+        self.ohlcv_iter = ohlcv_iter
+        self.syminfo = syminfo
+        self.update_syminfo_every_run = update_syminfo_every_run
+        self.last_bar_index = last_bar_index
+        self.bar_index = 0
+
+        self.tz = _parse_timezone(syminfo.timezone)
+
+        # Initialize tracking variables for statistics
+        self.equity_curve: list[float] = []
+        self.first_price: float | None = None
+        self.last_price: float | None = None
+
+        self.stats = None
+
+        self.plot_writer = CSVWriter(
+            plot_path, float_fmt=f".8g"
+        ) if plot_path else None
+        self.plot_meta_path = plot_path.with_name(plot_path.stem + '_plot_meta.json') if plot_path else None
+        self.strat_writer = CSVWriter(strat_path, headers=(
+            "Metric",
+            f"All {syminfo.currency}", "All %",
+            f"Long {syminfo.currency}", "Long %",
+            f"Short {syminfo.currency}", "Short %",
+        )) if strat_path else None
+        self.trades_writer = CSVWriter(trade_path, headers=(
+            "Trade #", "Bar Index", "Type", "Signal", "Date/Time", f"Price {syminfo.currency}",
+            "Contracts", f"Profit {syminfo.currency}", "Profit %", f"Cumulative profit {syminfo.currency}",
+            "Cumulative profit %", f"Run-up {syminfo.currency}", "Run-up %", f"Drawdown {syminfo.currency}",
+            "Drawdown %",
+        )) if trade_path else None
+
+    # noinspection PyProtectedMember
+    def run_iter(self, on_progress: Callable[[datetime], None] | None = None) \
+            -> Iterator[tuple[OHLCV, dict[str, Any]] | tuple[OHLCV, dict[str, Any], list['Trade']]]:
+        """
+        Run the script on the data
+
+        :param on_progress: Callback to call on every iteration
+        :return: Return a dictionary with all data the sctipt plotted
+        :raises AssertionError: If the 'main' function does not return a dictionary
+        """
+        from .. import lib
+        from ..lib import _parse_timezone, barstate, string
+        from pynecore.core import function_isolation
+        from . import script
+        from .callable_module import CallableModule
+
+        is_strat = self.script.script_type == script_type.strategy
+
+        # Collect all CallableModule instances for [N] history snapshotting
+        _callable_modules: list[CallableModule] = [
+            obj for obj in sys.modules.values()
+            if isinstance(obj, CallableModule)
+        ]
+        for cm in _callable_modules:
+            cm._reset_history()
+
+        # Reset bar_index
+        self.bar_index = 0
+        # Reset function isolation
+        function_isolation.reset()
+
+        # Set script data
+        lib._script = self.script  # Store script object in lib
+
+        # Update syminfo lib properties if needed
+        if not self.update_syminfo_every_run:
+            _set_lib_syminfo_properties(self.syminfo, lib)
+            self.tz = _parse_timezone(lib.syminfo.timezone)
+
+        # Open plot writer if we have one
+        if self.plot_writer:
+            self.plot_writer.open()
+
+        # If the script is a strategy, we open strategy output files too
+        if is_strat:
+            # Open trade writer if we have one
+            if self.trades_writer:
+                self.trades_writer.open()
+
+        # Clear plot data and metadata
+        lib._plot_data.clear()
+        lib._plot_meta.clear()
+
+        # Buffer for collecting trades to sort by entry time before writing
+        trade_buffer: list[tuple] = []  # (entry_time, entry_bar_index, trade_data)
+
+        # Position shortcut
+        position = self.script.position
+
+        try:
+            for candle in self.ohlcv_iter:
+                # Update syminfo lib properties if needed, other ScriptRunner instances may have changed them
+                if self.update_syminfo_every_run:
+                    _set_lib_syminfo_properties(self.syminfo, lib)
+                    self.tz = _parse_timezone(lib.syminfo.timezone)
+
+                if self.bar_index == self.last_bar_index:
+                    barstate.islast = True
+
+                # Update lib properties
+                _set_lib_properties(candle, self.bar_index, self.tz, lib)
+
+                # Store first price for buy & hold calculation
+                if self.first_price is None:
+                    self.first_price = lib.close  # type: ignore
+
+                # Update last price
+                self.last_price = lib.close  # type: ignore
+
+                # Process limit orders
+                if is_strat and position:
+                    position.process_orders()
+
+                # Snapshot all CallableModule values for [N] history access
+                for cm in _callable_modules:
+                    cm._snapshot()
+
+                # Execute registered library main functions before main script
+                lib._lib_semaphore = True
+                for library_title, main_func in script._registered_libraries:
+                    main_func()
+                lib._lib_semaphore = False
+
+                # Run the script
+                res = self.script_module.main()
+
+                # Update plot data with the results
+                if res is not None:
+                    assert isinstance(res, dict), "The 'main' function must return a dictionary!"
+                    lib._plot_data.update(res)
+
+                # Write plot data to CSV if we have a writer
+                if self.plot_writer and lib._plot_data:
+                    # Create a new dictionary combining extra_fields (if any) with plot data
+                    extra_fields = {} if candle.extra_fields is None else dict(candle.extra_fields)
+                    extra_fields.update(lib._plot_data)
+                    # Create a new OHLCV instance with updated extra_fields
+                    updated_candle = candle._replace(extra_fields=extra_fields)
+                    self.plot_writer.write_ohlcv(updated_candle)
+
+                # Yield plot data to be able to process in a subclass
+                if not is_strat:
+                    yield candle, lib._plot_data
+                elif position:
+                    yield candle, lib._plot_data, position.new_closed_trades
+
+                # Buffer trade data for sorting by entry time
+                if is_strat and self.trades_writer and position:
+                    for trade in position.new_closed_trades:
+                        trade_buffer.append((trade.entry_time, trade.entry_bar_index, trade))
+
+                # Clear plot data
+                lib._plot_data.clear()
+
+                # Track equity curve for strategies
+                if is_strat and position:
+                    current_equity = float(position.equity) if position.equity else self.script.initial_capital
+                    self.equity_curve.append(current_equity)
+
+                # Call the progress callback
+                if on_progress and lib._datetime is not None:
+                    on_progress(lib._datetime.replace(tzinfo=None))
+
+                # Update bar index
+                self.bar_index += 1
+                # It is no longer the first bar
+                barstate.isfirst = False
+
+            if on_progress:
+                on_progress(datetime.max)
+
+        except GeneratorExit:
+            pass
+        finally:  # Python reference counter will close this even if the iterator is not exhausted
+            if is_strat and position:
+                # Write all trades sorted by entry time
+                if self.trades_writer:
+                    # Rounding helpers — same rules as internal processing
+                    pricescale = lib.syminfo.pricescale
+                    size_rf = lib.syminfo._size_round_factor
+
+                    def rp(price: float) -> float:
+                        """Round price to pricescale"""
+                        return round(price * pricescale) / pricescale
+
+                    def rs(qty: float) -> float:
+                        """Round size to size_round_factor (floors like _size_round)"""
+                        qrf = int(abs(qty) * size_rf * 10.0) * 0.1
+                        return int(qrf) / size_rf
+
+                    def rm(value: float) -> float:
+                        """Round monetary value to size_round_factor precision"""
+                        return round(value * size_rf) / size_rf
+
+                    # Sort closed trades by entry_time, then entry_bar_index
+                    trade_buffer.sort(key=lambda t: (t[0], t[1]))
+
+                    trade_num = 0
+                    for _entry_time, _entry_bar_index, trade in trade_buffer:
+                        trade_num += 1
+                        self.trades_writer.write(
+                            trade_num,
+                            trade.entry_bar_index,
+                            "Entry long" if trade.size > 0 else "Entry short",
+                            trade.entry_comment if trade.entry_comment else trade.entry_id,
+                            string.format_time(trade.entry_time),  # type: ignore
+                            rp(trade.entry_price),
+                            rs(abs(trade.original_size)),
+                            rm(trade.profit),
+                            f"{trade.profit_percent:.2f}",
+                            rm(trade.cum_profit),
+                            f"{trade.cum_profit_percent:.2f}",
+                            rm(trade.max_runup),
+                            f"{trade.max_runup_percent:.2f}",
+                            rm(trade.max_drawdown),
+                            f"{trade.max_drawdown_percent:.2f}",
+                        )
+                        self.trades_writer.write(
+                            trade_num,
+                            trade.exit_bar_index,
+                            "Exit long" if trade.size > 0 else "Exit short",
+                            trade.exit_comment if trade.exit_comment else trade.exit_id,
+                            string.format_time(trade.exit_time),  # type: ignore
+                            rp(trade.exit_price),
+                            rs(abs(trade.size)),
+                            rm(trade.profit),
+                            f"{trade.profit_percent:.2f}",
+                            rm(trade.cum_profit),
+                            f"{trade.cum_profit_percent:.2f}",
+                            rm(trade.max_runup),
+                            f"{trade.max_runup_percent:.2f}",
+                            rm(trade.max_drawdown),
+                            f"{trade.max_drawdown_percent:.2f}",
+                        )
+
+                    # Export remaining open trades sorted by entry time
+                    open_trades_sorted = sorted(position.open_trades, key=lambda t: (t.entry_time, t.entry_bar_index))
+                    for trade in open_trades_sorted:
+                        trade_num += 1
+                        self.trades_writer.write(
+                            trade_num,
+                            trade.entry_bar_index,
+                            "Entry long" if trade.size > 0 else "Entry short",
+                            trade.entry_id,
+                            string.format_time(trade.entry_time),  # type: ignore
+                            rp(trade.entry_price),
+                            rs(abs(trade.original_size)),
+                            0.0,
+                            "0.00",
+                            0.0,
+                            "0.00",
+                            0.0,
+                            "0.00",
+                            0.0,
+                            "0.00",
+                        )
+
+                        exit_price = self.last_price
+                        if exit_price is not None:
+                            closing_size = -trade.size
+                            pnl = -closing_size * (exit_price - trade.entry_price)
+                            pnl_percent = (pnl / (trade.entry_price * abs(trade.size))) * 100 \
+                                if trade.entry_price != 0 else 0
+
+                            self.trades_writer.write(
+                                trade_num,
+                                self.bar_index - 1,
+                                "Exit long" if trade.size > 0 else "Exit short",
+                                "Open",
+                                string.format_time(lib._time),  # type: ignore
+                                rp(exit_price),
+                                rs(abs(trade.size)),
+                                rm(pnl),
+                                f"{pnl_percent:.2f}",
+                                rm(pnl),
+                                f"{pnl_percent:.2f}",
+                                rm(max(0.0, pnl)),
+                                f"{max(0, pnl_percent):.2f}",
+                                rm(max(0.0, -pnl)),
+                                f"{max(0, -pnl_percent):.2f}",
+                            )
+
+                # Calculate strategy statistics (always, so optimize can access them)
+                if is_strat and position:
+                    self.stats = calculate_strategy_statistics(
+                        position,
+                        self.script.initial_capital,
+                        self.equity_curve if self.equity_curve else None,
+                        self.first_price,
+                        self.last_price
+                    )
+
+                    # Write to CSV only if writer exists
+                    if self.strat_writer:
+                        try:
+                            self.strat_writer.open()
+                            write_strategy_statistics_csv(self.stats, self.strat_writer)
+                        finally:
+                            self.strat_writer.close()
+
+            # Close the plot writer
+            if self.plot_writer:
+                self.plot_writer.close()
+            # Close the trade writer
+            if self.trades_writer:
+                self.trades_writer.close()
+
+            # Write plot metadata JSON
+            if self.plot_meta_path and lib._plot_meta:
+                import json
+                try:
+                    with open(self.plot_meta_path, 'w') as f:
+                        json.dump(lib._plot_meta, f, indent=2)
+                except OSError:
+                    pass
+
+            # Reset library variables
+            _reset_lib_vars(lib)
+            # Reset function isolation
+            function_isolation.reset()
+
+    def run(self, on_progress: Callable[[datetime], None] | None = None):
+        """
+        Run the script on the data
+
+        :param on_progress: Callback to call on every iteration
+        :raises AssertionError: If the 'main' function does not return a dictionary
+        """
+        for _ in self.run_iter(on_progress=on_progress):
+            pass
