@@ -1,8 +1,11 @@
 from typing import Iterable, Iterator, Callable, TYPE_CHECKING, Any
 from types import ModuleType
+import os
 import sys
 from pathlib import Path
 from datetime import datetime, UTC
+
+_OPTIMIZE_MODE = os.environ.get("PYNE_OPTIMIZE_MODE") == "1"
 
 from pynecore.types.ohlcv import OHLCV
 from pynecore.core.syminfo import SymInfo
@@ -297,18 +300,31 @@ class ScriptRunner:
         # Position shortcut
         position = self.script.position
 
+        # Cache frequently accessed attributes as locals for loop performance
+        _bar_index = self.bar_index
+        _last_bar_index = self.last_bar_index
+        _tz = self.tz
+        _main_func = self.script_module.main
+        _registered_libraries = script._registered_libraries
+        _plot_data = lib._plot_data
+        _plot_writer = self.plot_writer
+        _trades_writer = self.trades_writer
+        _update_syminfo = self.update_syminfo_every_run
+        _equity_curve = self.equity_curve
+        _initial_capital = self.script.initial_capital
+
         try:
             for candle in self.ohlcv_iter:
                 # Update syminfo lib properties if needed, other ScriptRunner instances may have changed them
-                if self.update_syminfo_every_run:
+                if _update_syminfo:
                     _set_lib_syminfo_properties(self.syminfo, lib)
-                    self.tz = _parse_timezone(lib.syminfo.timezone)
+                    _tz = _parse_timezone(lib.syminfo.timezone)
 
-                if self.bar_index == self.last_bar_index:
+                if _bar_index == _last_bar_index:
                     barstate.islast = True
 
                 # Update lib properties
-                _set_lib_properties(candle, self.bar_index, self.tz, lib)
+                _set_lib_properties(candle, _bar_index, _tz, lib)
 
                 # Store first price for buy & hold calculation
                 if self.first_price is None:
@@ -327,52 +343,52 @@ class ScriptRunner:
 
                 # Execute registered library main functions before main script
                 lib._lib_semaphore = True
-                for library_title, main_func in script._registered_libraries:
+                for library_title, main_func in _registered_libraries:
                     main_func()
                 lib._lib_semaphore = False
 
                 # Run the script
-                res = self.script_module.main()
+                res = _main_func()
 
                 # Update plot data with the results
                 if res is not None:
                     assert isinstance(res, dict), "The 'main' function must return a dictionary!"
-                    lib._plot_data.update(res)
+                    _plot_data.update(res)
 
-                # Write plot data to CSV if we have a writer
-                if self.plot_writer and lib._plot_data:
+                # Write plot data to CSV if we have a writer (skip in optimize mode)
+                if not _OPTIMIZE_MODE and _plot_writer and _plot_data:
                     # Create a new dictionary combining extra_fields (if any) with plot data
                     extra_fields = {} if candle.extra_fields is None else dict(candle.extra_fields)
-                    extra_fields.update(lib._plot_data)
+                    extra_fields.update(_plot_data)
                     # Create a new OHLCV instance with updated extra_fields
                     updated_candle = candle._replace(extra_fields=extra_fields)
-                    self.plot_writer.write_ohlcv(updated_candle)
+                    _plot_writer.write_ohlcv(updated_candle)
 
                 # Yield plot data to be able to process in a subclass
                 if not is_strat:
-                    yield candle, lib._plot_data
+                    yield candle, _plot_data
                 elif position:
-                    yield candle, lib._plot_data, position.new_closed_trades
+                    yield candle, _plot_data, position.new_closed_trades
 
                 # Buffer trade data for sorting by entry time
-                if is_strat and self.trades_writer and position:
+                if is_strat and _trades_writer and position:
                     for trade in position.new_closed_trades:
                         trade_buffer.append((trade.entry_time, trade.entry_bar_index, trade))
 
                 # Clear plot data
-                lib._plot_data.clear()
+                _plot_data.clear()
 
                 # Track equity curve for strategies
                 if is_strat and position:
-                    current_equity = float(position.equity) if position.equity else self.script.initial_capital
-                    self.equity_curve.append(current_equity)
+                    current_equity = float(position.equity) if position.equity else _initial_capital
+                    _equity_curve.append(current_equity)
 
                 # Call the progress callback
                 if on_progress and lib._datetime is not None:
                     on_progress(lib._datetime.replace(tzinfo=None))
 
                 # Update bar index
-                self.bar_index += 1
+                _bar_index += 1
                 # It is no longer the first bar
                 barstate.isfirst = False
 
@@ -382,6 +398,9 @@ class ScriptRunner:
         except GeneratorExit:
             pass
         finally:  # Python reference counter will close this even if the iterator is not exhausted
+            # Sync cached locals back to instance
+            self.bar_index = _bar_index
+            self.tz = _tz
             if is_strat and position:
                 # Write all trades sorted by entry time
                 if self.trades_writer:

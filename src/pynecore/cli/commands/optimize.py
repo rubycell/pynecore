@@ -222,6 +222,7 @@ def _worker_init(
     end_ts: int,
     size: int,
     lib_dir_str: str | None,
+    cache_path: str | None = None,
 ) -> None:
     """Initialize per-worker state. Called once per worker process."""
     global _w_script_path, _w_reader, _w_syminfo, _w_start_ts, _w_end_ts, _w_size
@@ -239,6 +240,12 @@ def _worker_init(
 
     if lib_dir_str:
         sys.path.insert(0, lib_dir_str)
+
+    if cache_path:
+        import pickle
+        from pynecore.core import _var_cache
+        with open(cache_path, 'rb') as f:
+            _var_cache._data = pickle.load(f)
 
 
 def _worker_run(
@@ -666,18 +673,100 @@ def optimize(
             task = progress.add_task(desc, total=remaining_count)
 
             if num_workers > 1:
-                # --- Parallel execution ---
+                # --- Parallel execution with variable cache ---
+                os.environ["PYNE_OPTIMIZE_MODE"] = "1"
+                os.environ["PYNE_SAVE_SCRIPT_TOML"] = "0"
+                if lib_dir_str:
+                    sys.path.insert(0, lib_dir_str)
+
+                # --- Variable cache probe run ---
+                import pickle
+                import tempfile
+                from importlib import import_module
+                from pynecore.core import script as script_module
+                from pynecore.core import function_isolation, _var_cache
+                from pynecore.core import import_hook  # noqa: ensure AST transformers run
+
+                cache_path = None
+                worker_combos = combinations
+
+                # Quick-import to read cache metadata
+                module_name = script.stem
+                script_module._old_input_values.clear()
+                for name, value in combinations[0].items():
+                    script_module._old_input_values[name] = value
+                    script_module._old_input_values[name + "__global__"] = value
+                if module_name in sys.modules:
+                    del sys.modules[module_name]
+                script_module._registered_libraries.clear()
+                function_isolation.reset()
+                sys.path.insert(0, str(script.parent))
+                try:
+                    probe_mod = import_module(module_name)
+                finally:
+                    if str(script.parent) in sys.path:
+                        sys.path.remove(str(script.parent))
+
+                num_slots = getattr(probe_mod, '__num_cache_slots__', 0)
+                var_deps = getattr(probe_mod, '__var_deps__', {})
+
+                if num_slots > 0:
+                    optimized_params = set(param_names)
+                    _var_cache._build = [None] * num_slots
+                    cacheable_count = 0
+                    for slot, deps in var_deps.items():
+                        if not (deps & optimized_params):
+                            _var_cache._build[slot] = []
+                            cacheable_count += 1
+
+                    if cacheable_count > 0:
+                        console.print(
+                            f"[dim]Variable cache: {cacheable_count}/{num_slots} "
+                            f"slots cacheable, running probe...[/dim]"
+                        )
+                        # Run probe combo
+                        with OHLCVReader(data) as probe_reader:
+                            probe_stats, probe_error = _run_backtest(
+                                script, probe_reader, syminfo,
+                                start_ts, end_ts, size, combinations[0],
+                            )
+
+                        if probe_stats and not probe_error:
+                            # Serialize cache to temp file for workers
+                            cache_fd, cache_path = tempfile.mkstemp(suffix='.pkl')
+                            os.close(cache_fd)
+                            with open(cache_path, 'wb') as f:
+                                pickle.dump(_var_cache._build, f, protocol=5)
+
+                            # Record probe result
+                            results.append((combinations[0], probe_stats))
+                            row = [combinations[0].get(n, "") for n in param_names]
+                            row += [getattr(probe_stats, f) for f in stat_fields]
+                            csv_writer.writerow(row)
+                            csv_file.flush()
+                            worker_combos = combinations[1:]
+                            progress.update(task, advance=1)
+                            console.print(
+                                f"[dim]Variable cache: probe done, "
+                                f"cache size {os.path.getsize(cache_path) / 1024:.0f}KB[/dim]"
+                            )
+
+                # Clean up main process cache state
+                _var_cache._build = None
+                _var_cache._data = None
+
                 with ProcessPoolExecutor(
                     max_workers=num_workers,
                     initializer=_worker_init,
                     initargs=(
                         str(script), str(data), str(syminfo_toml),
                         start_ts, end_ts, size, lib_dir_str,
+                        cache_path,
                     ),
                 ) as pool:
                     futures = [
                         pool.submit(_worker_run, combo)
-                        for combo in combinations
+                        for combo in worker_combos
                     ]
                     for future in as_completed(futures):
                         combo_params, stats, error = future.result()
@@ -698,6 +787,14 @@ def optimize(
 
                         if len(results) % 50 == 0:
                             gc.collect()
+
+                # Clean up cache temp file
+                if cache_path:
+                    try:
+                        os.unlink(cache_path)
+                    except OSError:
+                        pass
+
             else:
                 # --- Sequential execution ---
                 os.environ["PYNE_OPTIMIZE_MODE"] = "1"

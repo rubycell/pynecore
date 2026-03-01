@@ -31,6 +31,8 @@ class Implementation:
 _registry: dict[str, list[Implementation]] = defaultdict(list)
 _implementations: dict[str, Implementation] = {}  # Store implementations separately
 _dispatchers: dict[str, Callable] = {}  # Store dispatchers separately
+_dispatch_cache: dict[tuple, Callable] = {}  # Cache: (qualname, arg_types, nargs) -> func
+
 
 
 def _check_type(value: Any, expected_type: Type) -> bool:
@@ -132,11 +134,35 @@ def overload(func: Callable[..., T]) -> Callable[..., T]:
         def dispatcher(*args: Any, **kwargs: Any) -> Any:
             # Quick path: try direct positional args match first
             if not kwargs:
-                for impl in _registry[qualname]:
-                    if len(args) == len(impl.param_types):
-                        if all(_check_type(arg, type_)
-                               for arg, (_, type_) in zip(args, impl.param_types)):
-                            return isolate_function(impl.func, '__overloaded__', __scope_id__)(*args)
+                nargs = len(args)
+
+                # --- Type dispatch cache ---
+                dispatch_key = (qualname, tuple(type(a) for a in args), nargs)
+                cached_func = _dispatch_cache.get(dispatch_key)
+
+                if cached_func is None:
+                    # Find best match: prefer exact param count, then fewest surplus params
+                    best_impl = None
+                    best_nparams = 999
+                    for impl in _registry[qualname]:
+                        nparams = len(impl.param_types)
+                        if nparams < nargs:
+                            continue  # Too few params
+                        if nparams >= best_nparams and best_impl is not None:
+                            continue  # Already have a better match
+                        if all(_check_type(args[i], impl.param_types[i][1])
+                               for i in range(nargs)):
+                            best_impl = impl
+                            best_nparams = nparams
+                            if nparams == nargs:
+                                break  # Exact match, no need to look further
+
+                    if best_impl is not None:
+                        _dispatch_cache[dispatch_key] = best_impl.func
+                        cached_func = best_impl.func
+
+                if cached_func is not None:
+                    return isolate_function(cached_func, '__overloaded__', __scope_id__)(*args)
 
             # Slower path: handle mixed args/kwargs
             for impl in _registry[qualname]:

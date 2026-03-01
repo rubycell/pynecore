@@ -12,9 +12,7 @@ _function_cache: dict[str | tuple, FunctionType] = {}
 
 
 def reset():
-    """
-    Reset all function instances
-    """
+    """Reset all function instances between optimize runs."""
     _function_cache.clear()
 
 
@@ -32,6 +30,7 @@ def isolate_function(
     :param call_counter: The current call counter value for this call_id
     :return: The new function instance if there are any persistent or series globals otherwise the original function
     """
+
     # If there is no call ID, return the function as is
     if call_id is None:
         return func  # type: ignore
@@ -40,16 +39,17 @@ def isolate_function(
     if isinstance(func, type):
         return func  # type: ignore
 
-    # If it is a classmethod (bound method where __self__ is a class), return it as is
-    if hasattr(func, '__self__') and isinstance(func.__self__, type):
-        return func  # type: ignore
-
     # Check if this is an Exported proxy and unwrap it
     if isinstance(func, Exported):
         unwrapped_func = func.__fn__
         if unwrapped_func is None:
             raise ValueError("Exported proxy has not been initialized with a function yet")
         func = unwrapped_func
+
+    # If it is a classmethod (bound method where __self__ is a class), return it as is
+    # Skip for FunctionType which never has __self__ (saves 541K hasattr calls)
+    if func.__class__ is not FunctionType and hasattr(func, '__self__') and isinstance(func.__self__, type):
+        return func  # type: ignore
 
     # If it is an overloaded function, returned by the dispatcher
     is_overloaded = call_id == '__overloaded__?'
@@ -65,102 +65,100 @@ def isolate_function(
     if is_overloaded:
         del _function_cache[call_id_key]
 
-    try:
-        # If a function is cached we can just call it
-        isolated_function = _function_cache[call_id_key]
+    # --- Get or create isolated function ---
+    isolated_function = _function_cache.get(call_id_key)
 
-        if closure_argument_count == -1:  # If closures have been converted to  arguments, no closure is needed
-            # We need to create new instance in every run only if the function is inside the main function
-            # Create a new function with original closure and isolated globals
-            isolated_function = FunctionType(
-                func.__code__,
-                isolated_function.__globals__,
-                func.__name__,
-                func.__defaults__,
-                func.__closure__
-            )
+    if isolated_function is not None:
+        # Cache hit: reuse isolated function (possibly rebuild if code/defaults changed)
+        if closure_argument_count == -1:
+            # Only recreate if code/defaults changed (different overload) or closure exists
+            if (func.__code__ is not isolated_function.__code__
+                    or func.__defaults__ is not isolated_function.__defaults__
+                    or func.__closure__ is not None):
+                isolated_function = FunctionType(
+                    func.__code__,
+                    isolated_function.__globals__,
+                    func.__name__,
+                    func.__defaults__,
+                    func.__closure__
+                )
+    else:
+        # Cache miss: create new isolated function
 
-        return isolated_function
-    except KeyError:
-        pass
+        # Builtin objects have no __globals__ attribute
+        try:
+            func_globals = func.__globals__
+        except AttributeError:  # This is a builtin function (it should be filtered in the transformer)
+            return func  # type: ignore
 
-    # Builtin objects have no __globals__ attribute
-    try:
-        new_globals = dict(func.__globals__)
-    except AttributeError:  # This is a builtin function (it should be filtered in the transformer)
-        return func  # type: ignore
+        # Full dict copy required by FunctionType(), but we optimize what we copy into it
+        new_globals = dict(func_globals)
 
-    # BUG FIX: Ensure all imported modules are preserved in isolated globals
-    # This fixes parameter default values that reference modules (e.g., position.middle_center)
-    # The issue occurs when @method functions have parameters like:
-    #   def toTable(position: str = position.middle_center)
-    # where 'position' is both a parameter name AND a module name used in the default value.
-    # Without this fix, the module reference is lost in the isolated globals, causing NameError.
-    import types
-    for key, value in func.__globals__.items():
-        if isinstance(value, types.ModuleType):  # Preserve all module imports
-            new_globals[key] = value
+        # The qualified name of the function, this name is used in the globals registry by transformer
+        qualname = func.__qualname__.replace('<locals>.', '')
 
-    # The qualified name of the function, this name is used in the globals registry by transformer
-    qualname = func.__qualname__.replace('<locals>.', '')
+        # If globals are registered, we can use them
+        registry_found = False
+        try:
+            persistent_vars = new_globals['__persistent_function_vars__']
+            registry_found = True
+        except KeyError:
+            persistent_vars = {}
+        try:
+            series_vars = new_globals['__series_function_vars__']
+            registry_found = True
+        except KeyError:
+            series_vars = {}
 
-    # If globals are registered, we can use them
-    registry_found = False
-    try:
-        persistent_vars = new_globals['__persistent_function_vars__']
-        registry_found = True
-    except KeyError:
-        persistent_vars = {}
-    try:
-        series_vars = new_globals['__series_function_vars__']
-        registry_found = True
-    except KeyError:
-        series_vars = {}
-
-    try:
-        for key in persistent_vars[qualname]:
-            old_value = new_globals[key]
-            if isinstance(old_value, (dict, list)):
-                new_globals[key] = old_value.copy()
-            elif is_dataclass(old_value):
-                new_globals[key] = dataclass_replace(old_value)  # type: ignore
-            else:
-                new_globals[key] = copy(old_value)
-    except KeyError:
-        pass
-    try:
-        for key in series_vars[qualname]:
-            old_value = new_globals[key]
-            new_globals[key] = SeriesImpl(old_value._max_bars_back)  # noqa
-    except KeyError:
-        pass
-
-    # Fallback, if globals are not registered
-    if not registry_found:
-        # Create new globals with isolated persistent and series
-        for key in new_globals.keys():
-            if key.startswith('__persistent_') and not key.endswith('_vars__'):
+        try:
+            for key in persistent_vars[qualname]:
                 old_value = new_globals[key]
-                if isinstance(old_value, (dict, list)):
-                    new_globals[key] = old_value.copy()
+                if isinstance(old_value, (int, float, str, bool, tuple, type(None))):
+                    pass  # No copy needed — immutable, already in new_globals from dict()
+                elif isinstance(old_value, (dict, list)):
+                    new_globals[key] = old_value.copy()  # Shallow copy
                 elif is_dataclass(old_value):
                     new_globals[key] = dataclass_replace(old_value)  # type: ignore
                 else:
                     new_globals[key] = copy(old_value)
-            elif key.startswith('__series_') and not key.endswith('_vars__'):
+        except KeyError:
+            pass
+        try:
+            for key in series_vars[qualname]:
                 old_value = new_globals[key]
-                new_globals[key] = type(old_value)(old_value._max_bars_back)  # noqa
+                new_globals[key] = SeriesImpl(old_value._max_bars_back)  # noqa
+        except KeyError:
+            pass
 
-    new_globals['__scope_id__'] = call_id_key
+        # Fallback, if globals are not registered
+        if not registry_found:
+            # Create new globals with isolated persistent and series
+            for key in new_globals.keys():
+                if key.startswith('__persistent_') and not key.endswith('_vars__'):
+                    old_value = new_globals[key]
+                    if isinstance(old_value, (int, float, str, bool, tuple, type(None))):
+                        pass  # No copy needed — immutable
+                    elif isinstance(old_value, (dict, list)):
+                        new_globals[key] = old_value.copy()
+                    elif is_dataclass(old_value):
+                        new_globals[key] = dataclass_replace(old_value)  # type: ignore
+                    else:
+                        new_globals[key] = copy(old_value)
+                elif key.startswith('__series_') and not key.endswith('_vars__'):
+                    old_value = new_globals[key]
+                    new_globals[key] = type(old_value)(old_value._max_bars_back)  # noqa
 
-    # Create a new function with new closure and globals
-    isolated_function = FunctionType(
-        func.__code__,
-        new_globals,
-        func.__name__,
-        func.__defaults__,
-        func.__closure__
-    )
+        new_globals['__scope_id__'] = call_id_key
 
-    _function_cache[call_id_key] = isolated_function
+        # Create a new function with new closure and globals
+        isolated_function = FunctionType(
+            func.__code__,
+            new_globals,
+            func.__name__,
+            func.__defaults__,
+            func.__closure__
+        )
+
+        _function_cache[call_id_key] = isolated_function
+
     return isolated_function
