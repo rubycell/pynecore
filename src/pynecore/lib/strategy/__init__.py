@@ -655,8 +655,8 @@ class Position:
                     else:
                         # Calculate exit commission based on commission type
                         if commission_type == _commission.percent:
-                            # For percentage commission, multiply by exit price
-                            commission = abs(size) * price * commission_value * 0.01
+                            # For percentage commission, multiply by exit price and point value
+                            commission = abs(size) * price * syminfo.pointvalue * commission_value * 0.01
                         else:
                             # For other types (shouldn't reach here normally)
                             commission = abs(size) * commission_value
@@ -759,7 +759,7 @@ class Position:
                 if commission_type == _commission.cash_per_order:
                     commission = commission_value
                 elif commission_type == _commission.percent:
-                    commission = abs(order.size) * commission_value * 0.01
+                    commission = abs(order.size) * price * syminfo.pointvalue * commission_value * 0.01
                 elif commission_type == _commission.cash_per_contract:
                     commission = abs(order.size) * commission_value
                 else:  # Should not be here!
@@ -1357,7 +1357,7 @@ class Position:
                 raw_pnl = (worst_price - trade.entry_price) * trade.size * syminfo.pointvalue
                 # Commission cost (entry side already paid, estimate exit side)
                 if commission_type == _commission.percent:
-                    comm_cost = abs(trade.size) * trade.entry_price * commission_value * 0.01
+                    comm_cost = abs(trade.size) * trade.entry_price * syminfo.pointvalue * commission_value * 0.01
                 elif commission_type == _commission.cash_per_contract:
                     comm_cost = abs(trade.size) * commission_value
                 elif commission_type == _commission.cash_per_order:
