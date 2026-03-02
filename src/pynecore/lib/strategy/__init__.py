@@ -386,7 +386,8 @@ class Position:
         'risk_max_intraday_loss_value', 'risk_max_intraday_loss_type', 'risk_max_intraday_loss_alert',
         'risk_max_position_size',
         'risk_cons_loss_days', 'risk_last_day_index', 'risk_last_day_equity',
-        'risk_intraday_filled_orders', 'risk_intraday_start_equity', 'risk_halt_trading'
+        'risk_intraday_filled_orders', 'risk_intraday_start_equity', 'risk_halt_trading',
+        '_slippage_ticks',
     )
 
     def __init__(self):
@@ -458,6 +459,9 @@ class Position:
         self.risk_intraday_filled_orders: int = 0
         self.risk_intraday_start_equity: float = 0.0
         self.risk_halt_trading: bool = False
+
+        # Slippage cache (set per bar in process_orders)
+        self._slippage_ticks: int = 0
 
     @property
     def equity(self) -> float | NA[float]:
@@ -1007,6 +1011,8 @@ class Position:
         # Long stop order (size > 0) triggers when price rises to stop level
         if order.size > 0 and order.stop <= self.h:
             p = max(order.stop, self.o)
+            if self._slippage_ticks > 0:
+                p += syminfo.mintick * self._slippage_ticks * order.sign
             self.fill_order(order, p, p, self.l)
             return True
         return False
@@ -1044,6 +1050,8 @@ class Position:
         # Short stop order (size < 0) triggers when price falls to stop level
         if order.size < 0 and order.stop >= self.l:
             p = min(self.o, order.stop)
+            if self._slippage_ticks > 0:
+                p += syminfo.mintick * self._slippage_ticks * order.sign
             self.fill_order(order, p, self.h, p)
             return True
         return False
@@ -1080,11 +1088,17 @@ class Position:
             return False
         # open → high → low → close
         if ohlc and order.stop <= self.c:
-            self.fill_order(order, order.stop, order.stop, self.l)
+            p = order.stop
+            if self._slippage_ticks > 0:
+                p += syminfo.mintick * self._slippage_ticks * order.sign
+            self.fill_order(order, p, p, self.l)
             return True
         # open → low → high → close
         elif order.stop >= self.c:
-            self.fill_order(order, order.stop, self.h, order.stop)
+            p = order.stop
+            if self._slippage_ticks > 0:
+                p += syminfo.mintick * self._slippage_ticks * order.sign
+            self.fill_order(order, p, self.h, p)
             return True
         return False
 
@@ -1108,6 +1122,7 @@ class Position:
 
         # Get script reference for slippage
         script = lib._script
+        self._slippage_ticks = script.slippage
 
         # If the order is open → high → low → close or open → low → high → close
         ohlc = self.h - self.o < self.o - self.l
@@ -1265,12 +1280,18 @@ class Position:
                 # Check stop trigger against bar's full range
                 if exit_order.stop is not None:
                     if matching_trade.sign > 0 and self.l <= exit_order.stop:
-                        # Long exit: stoploss hit, fill at stop price
-                        self.fill_order(exit_order, exit_order.stop, self.h, exit_order.stop)
+                        # Long exit: stoploss hit, fill at stop price with slippage
+                        fill_price = exit_order.stop
+                        if self._slippage_ticks > 0:
+                            fill_price += syminfo.mintick * self._slippage_ticks * exit_order.sign
+                        self.fill_order(exit_order, fill_price, self.h, fill_price)
                         continue
                     elif matching_trade.sign < 0 and self.h >= exit_order.stop:
-                        # Short exit: stoploss hit, fill at stop price
-                        self.fill_order(exit_order, exit_order.stop, exit_order.stop, self.l)
+                        # Short exit: stoploss hit, fill at stop price with slippage
+                        fill_price = exit_order.stop
+                        if self._slippage_ticks > 0:
+                            fill_price += syminfo.mintick * self._slippage_ticks * exit_order.sign
+                        self.fill_order(exit_order, fill_price, fill_price, self.l)
                         continue
                 # Check limit trigger against bar's full range
                 if exit_order.limit is not None:

@@ -461,7 +461,7 @@ def optimize(
     save_best: bool = Option(False, "--save-best", help="Save best params as .toml"),
     workers: int = Option(
         0, "--workers", "-w",
-        help="Parallel workers (0=auto/all cores, 1=sequential)",
+        help="Parallel workers (0=auto/half cores, 1=sequential)",
     ),
     time_from: datetime | None = Option(
         None, "--from", "-f",
@@ -563,7 +563,7 @@ def optimize(
     total_combos = len(combinations)
 
     # --- Resolve worker count ---
-    num_workers = workers if workers > 0 else (cpu_count() or 1)
+    num_workers = workers if workers > 0 else max((cpu_count() or 1) // 2, 1)
     num_workers = min(num_workers, total_combos)
 
     # --- Load symbol info ---
