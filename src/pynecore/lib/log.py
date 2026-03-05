@@ -16,6 +16,9 @@ except ImportError:
 
 __all__ = 'info', 'warning', 'error', 'logger'
 
+# Logging is silent by default for performance. Set PYNE_LOG=1 to enable.
+_LOG_ENABLED = os.environ.get("PYNE_LOG", "") == "1"
+
 if os.environ.get("PYNE_NO_COLOR_LOG", "") == "1":
     rich = None
 
@@ -174,7 +177,8 @@ def info(formatString: str, *args: Any, **kwargs: Any) -> None:
     :param args: Arguments to format the message
     :param kwargs: Additional arguments (unused)
     """
-    logger.info(formatString, *args)
+    if _LOG_ENABLED:
+        logger.info(formatString, *args)
 
 
 # noinspection PyPep8Naming,PyUnusedLocal
@@ -186,7 +190,8 @@ def warning(formatString: str, *args: Any, **kwargs: Any) -> None:
     :param args: Arguments to format the message
     :param kwargs: Additional arguments (unused)
     """
-    logger.warning(formatString, *args)
+    if _LOG_ENABLED:
+        logger.warning(formatString, *args)
 
 
 # noinspection PyPep8Naming,PyUnusedLocal
@@ -198,4 +203,5 @@ def error(formatString: str, *args: Any, **kwargs: Any) -> None:
     :param args: Arguments to format the message
     :param kwargs: Additional arguments (unused)
     """
-    logger.error(formatString, *args)
+    if _LOG_ENABLED:
+        logger.error(formatString, *args)
