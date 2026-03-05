@@ -130,6 +130,53 @@ def generate_combinations(specs: list[ParamSpec]) -> list[dict[str, Any]]:
     return [dict(zip(names, combo)) for combo in product(*value_lists)]
 
 
+def generate_explicit_combinations(specs: list[ParamSpec]) -> list[dict[str, Any]]:
+    """Generate combinations by column-wise zip (explicit mode).
+
+    All multi-value param lists must have the same length N.
+    Single-value params (fixed) expand to that value for all N combos.
+    Combo i uses index i from each multi-value list.
+
+    Raises ValueError if multi-value lists have inconsistent lengths.
+    """
+    if not specs:
+        return [{}]
+
+    # Separate fixed (single-value) from variable (multi-value) params
+    fixed_params: list[tuple[str, Any]] = []
+    variable_params: list[tuple[str, tuple[Any, ...]]] = []
+
+    for spec in specs:
+        if len(spec.values) == 1:
+            fixed_params.append((spec.name, spec.values[0]))
+        else:
+            variable_params.append((spec.name, spec.values))
+
+    # If no variable params, return single combo with all fixed values
+    if not variable_params:
+        return [{name: value for name, value in fixed_params}]
+
+    # Validate: all variable param lists must have same length
+    combo_count = len(variable_params[0][1])
+    for name, values in variable_params[1:]:
+        if len(values) != combo_count:
+            raise ValueError(
+                f"Explicit mode: param '{name}' has {len(values)} values, "
+                f"but '{variable_params[0][0]}' has {combo_count}. "
+                f"All multi-value param lists must have the same length."
+            )
+
+    # Build N combos by zipping columns
+    combinations = []
+    for i in range(combo_count):
+        combo = {name: value for name, value in fixed_params}
+        for name, values in variable_params:
+            combo[name] = values[i]
+        combinations.append(combo)
+
+    return combinations
+
+
 def parse_chunk(chunk_str: str) -> tuple[int, int]:
     """Parse 'N/M' -> (chunk_num, total_chunks). Validates 1 <= N <= M."""
     parts = chunk_str.split("/")
@@ -554,7 +601,11 @@ def optimize(
         secho(f"Invalid parameter specification: {e}", fg="red", err=True)
         raise Exit(1)
 
-    combinations = generate_combinations(specs)
+    is_explicit_mode = params_dict.get("_mode") == "explicit"
+    if is_explicit_mode:
+        combinations = generate_explicit_combinations(specs)
+    else:
+        combinations = generate_combinations(specs)
     chunk_num, total_chunks = 0, 0
     if chunk:
         chunk_num, total_chunks = parse_chunk(chunk)
