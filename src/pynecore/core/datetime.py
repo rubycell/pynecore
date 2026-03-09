@@ -12,6 +12,7 @@ STANDARD_FORMATS = [
 
 # Pine Script specific formats (without timezone)
 PINE_FORMATS = [
+    "%Y %b %d %H:%M:%S",  # "2022 Jun 01 09:00:00"
     "%b %d %Y %H:%M:%S",  # "Feb 01 2020 22:10:05"
     "%d %b %Y %H:%M:%S",  # "04 Dec 1995 00:12:00"
     "%d %b %Y %H:%M",     # "01 Jan 2018 00:00"
