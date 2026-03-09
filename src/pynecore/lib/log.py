@@ -16,8 +16,9 @@ except ImportError:
 
 __all__ = 'info', 'warning', 'error', 'logger'
 
-# Logging is silent by default for performance. Set PYNE_LOG=1 to enable.
-_LOG_ENABLED = os.environ.get("PYNE_LOG", "") == "1"
+# Pine Script log.info/warning/error are user-facing messages — always shown.
+# PYNE_LOG=0 can explicitly silence them if needed for benchmarks.
+_LOG_ENABLED = os.environ.get("PYNE_LOG", "1") != "0"
 
 if os.environ.get("PYNE_NO_COLOR_LOG", "") == "1":
     rich = None
