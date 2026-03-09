@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -52,7 +53,8 @@ def setup(
         typer.echo(ctx.get_help())
         raise typer.Exit(0)
 
-    typer.echo("")
+    if sys.stdout.isatty() and os.getenv("PYNE_VERBOSE"):
+        typer.echo("")
 
     # Check if workdir is available
     workdir_existed = Path(workdir).exists()

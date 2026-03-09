@@ -187,7 +187,7 @@ def print_logo():
             print(line)
 
 
-if (not os.getenv("PYNE_NO_LOGO") and not os.getenv("PYNE_QUIET")
+if (os.getenv("PYNE_VERBOSE")
         # Don't print logo when completion is requested
         and not os.getenv("_TYPER_COMPLETE_ARGS")):
     print_logo()

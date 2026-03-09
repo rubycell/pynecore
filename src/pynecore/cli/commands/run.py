@@ -1,3 +1,4 @@
+import os
 import queue
 import threading
 import time
@@ -26,6 +27,7 @@ from ...cli.utils.api_error_handler import APIErrorHandler
 
 __all__ = []
 
+_interactive = sys.stderr.isatty() and os.getenv("PYNE_VERBOSE")
 console = Console()
 
 
@@ -276,96 +278,83 @@ def run(
             sys.path.insert(0, str(lib_dir))
             lib_path_added = True
 
-        # Show loading spinner while importing
-        with Progress(
-                SpinnerColumn(finished_text="[green]✓"),
-                TextColumn("{task.description}"),
-        ) as loading_progress:
-            loading_task = loading_progress.add_task("Loading PyneCore...", total=1)
-
-            try:
-                # Create script runner (this is where the import happens)
+        # Show loading spinner while importing (only in interactive mode)
+        try:
+            if _interactive:
+                with Progress(
+                        SpinnerColumn(finished_text="[green]✓"),
+                        TextColumn("{task.description}"),
+                ) as loading_progress:
+                    loading_task = loading_progress.add_task("Loading PyneCore...", total=1)
+                    runner = ScriptRunner(script, ohlcv_iter, syminfo, last_bar_index=size - 1,
+                                          plot_path=plot_path, strat_path=strat_path, trade_path=trade_path)
+                    loading_progress.update(loading_task, completed=1)
+            else:
                 runner = ScriptRunner(script, ohlcv_iter, syminfo, last_bar_index=size - 1,
                                       plot_path=plot_path, strat_path=strat_path, trade_path=trade_path)
-            finally:
-                # Remove lib directory from Python path
-                if lib_path_added:
-                    sys.path.remove(str(lib_dir))
+        finally:
+            # Remove lib directory from Python path
+            if lib_path_added:
+                sys.path.remove(str(lib_dir))
 
-            # Mark as completed
-            loading_progress.update(loading_task, completed=1)
+        if _interactive:
+            # Interactive mode: show progress bar with 30Hz worker thread
+            with Progress(
+                    SpinnerColumn(finished_text="[green]✓"),
+                    TextColumn("{task.description}"),
+                    DateColumn(time_from),
+                    BarColumn(),
+                    CustomTimeElapsedColumn(),
+                    "/",
+                    CustomTimeRemainingColumn(),
+            ) as progress:
+                task = progress.add_task(
+                    description="Running script...",
+                    total=total_seconds,
+                )
 
-        # Now run with the main progress bar
-        with Progress(
-                SpinnerColumn(finished_text="[green]✓"),
-                TextColumn("{task.description}"),
-                DateColumn(time_from),
-                BarColumn(),
-                CustomTimeElapsedColumn(),
-                "/",
-                CustomTimeRemainingColumn(),
-        ) as progress:
-            task = progress.add_task(
-                description="Running script...",
-                total=total_seconds,
-            )
+                progress_queue = queue.Queue()
+                stop_event = threading.Event()
 
-            # Create queue for progress updates
-            progress_queue = queue.Queue()
-            stop_event = threading.Event()
+                def progress_worker():
+                    last_update = 0
+                    while not stop_event.is_set():
+                        try:
+                            current_time = None
+                            while True:
+                                try:
+                                    current_time = progress_queue.get_nowait()
+                                except queue.Empty:
+                                    break
+                            if current_time is not None:
+                                if current_time == datetime.max:
+                                    current_time = time_to
+                                elapsed_seconds = int((current_time - time_from).total_seconds())
+                                if elapsed_seconds != last_update:
+                                    progress.update(task, completed=elapsed_seconds)
+                                    last_update = elapsed_seconds
+                        except Exception:  # noqa
+                            pass
+                        time.sleep(1 / 30)
 
-            def progress_worker():
-                """Worker thread that updates progress bar at 60Hz"""
-                last_update = 0
-                while not stop_event.is_set():
+                worker = threading.Thread(target=progress_worker, daemon=True)
+                worker.start()
+
+                def cb_progress(current_time: datetime | None):
                     try:
-                        # Drain all pending updates
-                        current_time = None
-                        while True:
-                            try:
-                                current_time = progress_queue.get_nowait()
-                            except queue.Empty:
-                                break
+                        progress_queue.put_nowait(current_time)
+                    except queue.Full:
+                        pass
 
-                        # Update progress if we have new data
-                        if current_time is not None:
-                            if current_time == datetime.max:
-                                current_time = time_to
-                            elapsed_seconds = int((current_time - time_from).total_seconds())
-                            # Only update if time changed (to avoid redundant updates)
-                            if elapsed_seconds != last_update:
-                                progress.update(task, completed=elapsed_seconds)
-                                last_update = elapsed_seconds
-                    except Exception:  # noqa
-                        pass  # Ignore any errors in worker thread
-
-                    # Wait ~33.33ms (30Hz refresh rate)
-                    time.sleep(1 / 30)
-
-            # Start worker thread
-            worker = threading.Thread(target=progress_worker, daemon=True)
-            worker.start()
-
-            def cb_progress(current_time: datetime | None):
-                """Callback that just puts timestamp in queue - near zero overhead"""
                 try:
-                    progress_queue.put_nowait(current_time)
-                except queue.Full:
-                    pass  # If queue is full, skip this update
-
-            try:
-                # Run the script
-                runner.run(on_progress=cb_progress)
-
-                # Ensure final progress update
-                progress_queue.put(time_to)
-                time.sleep(0.05)  # Give worker thread time to process final update
-
-                progress.update(task, completed=total_seconds)
-            finally:
-                # Stop worker thread
-                stop_event.set()
-                worker.join(timeout=0.1)  # Wait max 100ms for thread to finish
-
-                # Final update to ensure completion
-                progress.refresh()
+                    runner.run(on_progress=cb_progress)
+                    progress_queue.put(time_to)
+                    time.sleep(0.05)
+                    progress.update(task, completed=total_seconds)
+                finally:
+                    stop_event.set()
+                    worker.join(timeout=0.1)
+                    progress.refresh()
+        else:
+            # Quiet mode: no progress bar, no worker thread, no display overhead
+            runner.run()
