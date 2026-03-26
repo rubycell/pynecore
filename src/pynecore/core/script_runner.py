@@ -102,6 +102,8 @@ def _set_lib_properties(ohlcv: OHLCV, bar_index: int, tz: 'ZoneInfo', lib: Modul
 
     dt = lib._datetime = datetime.fromtimestamp(ohlcv.timestamp, UTC).astimezone(tz)
     lib._time = lib.last_bar_time = int(dt.timestamp() * 1000)  # PineScript representation of time
+    trading_day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    lib.time_tradingday = int(trading_day_start.timestamp() * 1000)
 
 
 def _set_lib_syminfo_properties(syminfo: SymInfo, lib: ModuleType):

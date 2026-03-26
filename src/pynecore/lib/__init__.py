@@ -53,7 +53,7 @@ __all__ = [
 
     # Module properties
     'dayofmonth', 'dayofweek', 'hour', 'minute', 'month', 'second', 'weekofyear', 'year',
-    'time', 'time_close', 'na', 'NA',
+    'time', 'time_close', 'time_tradingday', 'na', 'NA',
 ]
 
 #
@@ -85,6 +85,9 @@ hlcc4: Series[float] | NA[float] = Source("hlcc4")
 # Store time as integer as in Pine Scripts timestamp format
 _time: int = 0
 last_bar_time: int = 0
+
+# Beginning of the trading day (midnight in exchange timezone) for the current bar, in milliseconds
+time_tradingday: int = 0
 
 # Datetime object in the exchange timezone
 _datetime: datetime = datetime.fromtimestamp(0, UTC)
