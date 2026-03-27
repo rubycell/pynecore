@@ -121,6 +121,40 @@ pip install pynesys-pynecore[all]
 
 > **Note for Windows users**: PyneCore requires timezone data that is not included in Windows by default. The `[cli]` and `[all]` installations automatically include the `tzdata` package. If you're using the basic installation and encounter timezone errors, install it manually with `pip install tzdata`.
 
+### Building & Installing from Source
+
+```bash
+# Create a virtual environment (recommended)
+python3 -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# .venv\Scripts\activate   # Windows
+
+# Build the package
+pip install build
+python -m build
+# Creates dist/pynesys_pynecore-<version>.tar.gz and dist/pynesys_pynecore-<version>-py3-none-any.whl
+
+# Install in editable/dev mode (changes reflect immediately, recommended for development)
+pip install -e .
+
+# Install with all optional dependencies in editable mode
+pip install -e ".[all]"
+
+# Install with dev tools (pytest, pyright, etc.)
+pip install -e ".[all,dev]"
+
+# Or install the built wheel (fixed snapshot)
+pip install dist/pynesys_pynecore-*.whl
+```
+
+To use PyneCore from another project on your machine, install it in editable mode by pointing to the source directory:
+
+```bash
+pip install -e /path/to/pynecore
+# or with all extras
+pip install -e "/path/to/pynecore[all]"
+```
+
 ## Getting Started
 
 ### Create a Simple Script
