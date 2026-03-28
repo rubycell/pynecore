@@ -256,8 +256,30 @@ def barcolor(*_, **__):
     ...
 
 
-def bgcolor(*_, **__):
-    ...
+def bgcolor(color=None, offset: int = 0, editable: bool = True,
+            show_last: int | None = None, title: str | None = None,
+            display: Any = None, overlay: bool = None, **__):
+    """Background color for the current bar. Outputs color value to CSV as a plot column."""
+    if _lib_semaphore:
+        return
+
+    if title is None:
+        title = 'bgcolor'
+    # Handle duplicate titles
+    c = 0
+    t = title
+    while t in _plot_data:
+        t = title + ' ' + str(c)
+        c += 1
+    title = t
+
+    # Capture metadata on first encounter
+    if title not in _plot_meta:
+        _plot_meta[title] = {"type": "bgcolor"}
+
+    # Store the color value (serialized to hex string, or empty for na)
+    color_hex = _serialize_color(color)
+    _plot_data[title] = color_hex if color_hex is not None else ''
 
 
 def fill(*_, **__):
