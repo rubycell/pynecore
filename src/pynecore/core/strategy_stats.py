@@ -248,7 +248,11 @@ def calculate_strategy_statistics(
         stats.net_profit_percent = (stats.net_profit / initial_capital) * 100
         stats.gross_profit_percent = (stats.gross_profit / initial_capital) * 100
         stats.gross_loss_percent = (stats.gross_loss / initial_capital) * 100
-        stats.max_equity_drawdown_percent = (stats.max_equity_drawdown / initial_capital) * 100
+        # Max equity drawdown % relative to the equity PEAK (max equity value), matching
+        # TradingView's Max Drawdown convention — not initial capital.
+        _peak_equity = float(position.peak_equity) if not isinstance(position.peak_equity, NA) else 0.0
+        _dd_denom = _peak_equity if _peak_equity > 0 else initial_capital
+        stats.max_equity_drawdown_percent = (stats.max_equity_drawdown / _dd_denom) * 100
         stats.max_equity_runup_percent = (stats.max_equity_runup / initial_capital) * 100
         stats.realized_pnl_percent = (stats.realized_pnl / initial_capital) * 100
         stats.unrealized_pnl_percent = (stats.unrealized_pnl / initial_capital) * 100
