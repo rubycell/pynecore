@@ -378,6 +378,7 @@ class Position:
         'entry_equity', 'max_equity', 'min_equity',
         'drawdown_summ', 'runup_summ', 'max_drawdown', 'max_runup',
         'equity_max_drawdown', 'equity_max_drawdown_percent', 'peak_equity',
+        'close_max_drawdown', 'close_max_drawdown_percent',
         'real_max_drawdown', 'real_max_drawdown_percent',
         'entry_summ', 'open_commission',
         'risk_allowed_direction', 'risk_max_cons_loss_days', 'risk_max_cons_loss_days_alert',
@@ -433,6 +434,10 @@ class Position:
         self.equity_max_drawdown: float = 0.0
         self.equity_max_drawdown_percent: float = 0.0
         self.peak_equity: float = 0.0  # Initialized to initial_capital on first bar
+        # Close-based peak-to-trough drawdown (TradingView Max Drawdown, no bar magnifier),
+        # percent measured against the equity peak AT the trough (peak-at-trough), like TV.
+        self.close_max_drawdown: float = 0.0
+        self.close_max_drawdown_percent: float = 0.0
         self.real_max_drawdown: float = 0.0  # Max sum of unrealized losses from losing open trades
         self.real_max_drawdown_percent: float = 0.0
         self.entry_summ: float = 0.0
@@ -1369,6 +1374,17 @@ class Position:
         # Peak equity tracks close-based equity (realized + unrealized at close)
         close_equity = initial_capital + self.netprofit + self.openprofit
         self.peak_equity = max(self.peak_equity, close_equity)
+
+        # Max Drawdown: largest close-based peak-to-trough decline. Dollar and percent
+        # maxima are tracked independently — under percent_of_equity sizing the largest
+        # dollar drawdown lands in the highest-equity (most recent) period, which would
+        # otherwise mask larger PERCENT drawdowns that occurred when the account was small.
+        _close_dd = self.peak_equity - close_equity
+        if _close_dd > self.close_max_drawdown:
+            self.close_max_drawdown = _close_dd
+        _close_dd_percent = (_close_dd / self.peak_equity) * 100.0 if self.peak_equity != 0 else 0.0
+        if _close_dd_percent > self.close_max_drawdown_percent:
+            self.close_max_drawdown_percent = _close_dd_percent
 
         # Worst-case open P&L: what if every open trade hit its worst price this bar
         worst_case_open_pnl = 0.0
