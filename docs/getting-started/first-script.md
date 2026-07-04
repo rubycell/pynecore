@@ -72,11 +72,11 @@ def main():
     plot(sma, "SMA")
 ```
 
-Save this code to a file named `simple_ma.py` in your working directory`s scripts/` folder.
+Save this code to a file named `simple_ma.py` in your working directory's scripts/` folder.
 
 ## Download some data
 
-This will download the OHLCV data for the BTC/USDT pair from Bybit and save it as `ccxt_BYBIT_BTC_USDT_USDT_1D.ohlcv` in your working directory`s data/` folder:
+This will download the OHLCV data for the BTC/USDT pair from Bybit and save it as `ccxt_BYBIT_BTC_USDT_USDT_1D.ohlcv` in your working directory's data/` folder:
 
 ```bash
 pyne data download ccxt --symbol "BYBIT:BTC/USDT:USDT"
@@ -93,6 +93,22 @@ pyne run simple_ma ccxt_BYBIT_BTC_USDT_USDT_1D.ohlcv
 This will run your script on every bar of the OHLCV data, and save the plots or returned values to the output folder of
 your working directory. This mechanism is the heart of PyneCore. You actually write a script that will run on every candle.
 
+### Direct Execution
+
+If you have a compiled script (from [PyneSys](https://pynesys.io) or [converted from Pine Script](./converting-from-pine.md)), you can run it directly with Python — no CLI or workdir needed:
+
+```bash
+python simple_ma.py my_data.csv
+```
+
+This works because compiled scripts include a built-in bootstrap that:
+- Accepts a CSV or OHLCV data file as argument
+- Auto-detects the symbol and timeframe from the filename and data
+- Outputs CSV files next to your script (plots, trades, strategy stats)
+
+> **Note:** Direct execution requires PyneCore to be installed (`pip install pynecore`).
+> For more control over execution (date ranges, custom output paths), use the `pyne run` CLI.
+
 ## Adding Parameters
 
 Let's enhance our script by adding user-configurable parameters:
@@ -107,9 +123,9 @@ from pynecore.lib import script, close, ta, plot, color, input
 @script.indicator("Customizable Moving Average", overlay=True)
 def main():
     # Input parameters
-    length = input.int("Period", 20, minval=1)
-    ma_type = input.string("Type", "SMA", options=["SMA", "EMA", "WMA"])
-    line_color = input.color("Line Color", color.blue)
+    length = input.int(20, "Period", minval=1)
+    ma_type = input.string("SMA", "Type", options=["SMA", "EMA", "WMA"])
+    line_color = input.color(color.blue, "Line Color")
 
     # Calculate the selected moving average
     ma: Series[float] = None
@@ -265,5 +281,5 @@ Now that you've created your first PyneCore script, you can:
 
 1. Learn how to [convert existing Pine Script code](./converting-from-pine.md) to PyneCore
 2. Explore the [core concepts](../overview/core-concepts.md) of PyneCore in depth
-3. Check out the [library documentation](../library/) for available functions and indicators
+3. Check out the [library documentation](../lib.md) for available functions and indicators
 4. Dive into [advanced topics](../advanced/) for more technical details
