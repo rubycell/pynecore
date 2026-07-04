@@ -850,6 +850,31 @@ def new_line(size: int = 0) -> list[Line | NA[Line]]:
 
 
 # noinspection PyShadowingNames
+@overload
+def new_label(size: int = 0) -> list[Label | NA[Label]]:
+    """
+    Creates a new array for storing label objects.
+
+    :param size: Size of the new array
+    :return: New array of the specified size
+    """
+    ...
+
+
+# noinspection PyShadowingNames
+def new_label(size: int = 0) -> list[Label | NA[Label]]:
+    """
+    Creates a new array for storing label objects.
+
+    :param size: Size of the new array (default: 0)
+    :return: New array of label objects
+    """
+    assert size >= 0, "Size must be >=0!"
+    return [NA(Label)] * size
+
+
+
+# noinspection PyShadowingNames
 def new_table(size: int = 0) -> list:
     """
     Creates a new array for storing table objects.
