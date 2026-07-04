@@ -1,0 +1,14 @@
+{
+  "Avg close": {
+    "type": "plot",
+    "color": "#9C27B04C",
+    "style": "style_area",
+    "display": "-5"
+  },
+  "Sum OHLC": {
+    "type": "plot",
+    "color": "#F23645",
+    "linewidth": 4,
+    "style": "style_stepline"
+  }
+}

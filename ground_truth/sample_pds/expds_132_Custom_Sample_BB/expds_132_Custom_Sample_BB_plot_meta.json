@@ -1,0 +1,14 @@
+{
+  "Basis": {
+    "type": "plot",
+    "color": "#FF9800"
+  },
+  "Upper": {
+    "type": "plot",
+    "color": "#00E676"
+  },
+  "Lower": {
+    "type": "plot",
+    "color": "#F23645"
+  }
+}

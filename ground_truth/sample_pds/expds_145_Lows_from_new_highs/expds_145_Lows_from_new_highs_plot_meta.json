@@ -1,0 +1,26 @@
+{
+  "Low 1": {
+    "type": "plot",
+    "color": "#9C27B0",
+    "linewidth": 2,
+    "style": "style_linebr"
+  },
+  "Low 2": {
+    "type": "plot",
+    "color": "#9C27B0",
+    "linewidth": 3,
+    "style": "style_linebr"
+  },
+  "Low 3": {
+    "type": "plot",
+    "color": "#9C27B0",
+    "linewidth": 4,
+    "style": "style_linebr"
+  },
+  "Low 4": {
+    "type": "plot",
+    "color": "#9C27B0",
+    "linewidth": 5,
+    "style": "style_linebr"
+  }
+}

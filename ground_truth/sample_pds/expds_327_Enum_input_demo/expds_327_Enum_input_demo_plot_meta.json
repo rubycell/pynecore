@@ -1,0 +1,22 @@
+{
+  "Long signal": {
+    "type": "plotshape",
+    "style": "triangleup",
+    "location": "belowbar",
+    "color": "#089981",
+    "size": "normal"
+  },
+  "Short signal": {
+    "type": "plotshape",
+    "style": "triangledown",
+    "location": "abovebar",
+    "color": "#880E4F",
+    "size": "normal"
+  },
+  "Fast MA": {
+    "type": "plot"
+  },
+  "Slow MA": {
+    "type": "plot"
+  }
+}

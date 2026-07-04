@@ -1,0 +1,10 @@
+{
+  "Oscillator": {
+    "type": "plot"
+  },
+  "Zero level": {
+    "type": "plot",
+    "color": "#B2B5BE",
+    "style": "style_circles"
+  }
+}

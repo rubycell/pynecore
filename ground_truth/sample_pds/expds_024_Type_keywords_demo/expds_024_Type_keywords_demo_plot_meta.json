@@ -1,0 +1,16 @@
+{
+  "MA": {
+    "type": "plot",
+    "color": "#E040FB"
+  },
+  "Cross value": {
+    "type": "plot",
+    "style": "style_circles"
+  },
+  "Cross Up": {
+    "type": "plotchar",
+    "char": "\u25b2",
+    "location": "belowbar",
+    "size": "small"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "First variable": {
+    "type": "plot",
+    "color": "#2962FF",
+    "linewidth": 3
+  },
+  "Second variable": {
+    "type": "plot",
+    "color": "#9C27B0",
+    "linewidth": 3
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "Plot": {
+    "type": "plot",
+    "color": "#2962FF"
+  },
+  "Plot 0": {
+    "type": "plot",
+    "color": "#FF9800"
+  },
+  "Plot 1": {
+    "type": "plot",
+    "color": "#F23645",
+    "style": "style_histogram"
+  }
+}

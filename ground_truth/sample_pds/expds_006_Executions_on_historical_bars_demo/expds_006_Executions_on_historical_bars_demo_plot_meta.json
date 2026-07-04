@@ -1,0 +1,17 @@
+{
+  "SMA": {
+    "type": "plot",
+    "color": "#F23645",
+    "linewidth": 3
+  },
+  "Execution number": {
+    "type": "plot",
+    "color": "#9C27B0",
+    "linewidth": 5
+  },
+  "Bar index": {
+    "type": "plot",
+    "color": "#00BCD4",
+    "linewidth": 2
+  }
+}

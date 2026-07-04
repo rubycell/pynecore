@@ -1,0 +1,7 @@
+{
+  "Close price": {
+    "type": "plot",
+    "color": "#FFFFFF",
+    "linewidth": 5
+  }
+}

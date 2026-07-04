@@ -1,0 +1,12 @@
+{
+  "High pivot": {
+    "type": "plot",
+    "linewidth": 3
+  },
+  "ta.change(pivotHigh)": {
+    "type": "plotchar",
+    "char": "\u2022",
+    "location": "top",
+    "size": "small"
+  }
+}

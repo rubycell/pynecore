@@ -1,0 +1,9 @@
+{
+  "Plot": {
+    "type": "plot",
+    "color": "#F23645",
+    "linewidth": 3,
+    "style": "style_cross",
+    "offset": -2
+  }
+}

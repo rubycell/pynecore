@@ -1,0 +1,7 @@
+{
+  "Average close": {
+    "type": "plot",
+    "color": "#FF9800",
+    "linewidth": 2
+  }
+}

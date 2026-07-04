@@ -1,0 +1,21 @@
+{
+  "Close": {
+    "type": "plot",
+    "color": "#2962FF19",
+    "linewidth": 3,
+    "display": "all"
+  },
+  "Open": {
+    "type": "plot",
+    "color": "#FF9800",
+    "linewidth": 3,
+    "display": "-3"
+  },
+  "Large CO": {
+    "type": "plotshape",
+    "style": "circle",
+    "location": "abovebar",
+    "color": "#E040FB",
+    "display": "pane"
+  }
+}

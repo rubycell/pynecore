@@ -1,0 +1,7 @@
+{
+  "Plot": {
+    "type": "plot",
+    "style": "style_histogram",
+    "histbase": 5
+  }
+}

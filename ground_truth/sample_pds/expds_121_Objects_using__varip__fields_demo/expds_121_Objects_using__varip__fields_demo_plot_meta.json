@@ -1,0 +1,12 @@
+{
+  "Bar counter": {
+    "type": "plot",
+    "color": "#2962FF",
+    "linewidth": 3
+  },
+  "Tick counter": {
+    "type": "plot",
+    "color": "#9C27B0",
+    "linewidth": 3
+  }
+}

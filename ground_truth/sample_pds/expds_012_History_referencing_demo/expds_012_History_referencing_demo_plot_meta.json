@@ -1,0 +1,17 @@
+{
+  "Current `open`": {
+    "type": "plot",
+    "color": "#2962FF",
+    "linewidth": 2
+  },
+  "Previous bar `open`": {
+    "type": "plot",
+    "color": "#9C27B0",
+    "linewidth": 3
+  },
+  "Past `open` from custom offset": {
+    "type": "plot",
+    "color": "#FF9800",
+    "linewidth": 4
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "Up direction": {
+    "type": "plot",
+    "color": "#4CAF50",
+    "style": "style_linebr"
+  },
+  "Down direction": {
+    "type": "plot",
+    "color": "#F23645",
+    "style": "style_linebr"
+  },
+  "Up direction 0": {
+    "type": "plot",
+    "color": "#4CAF50",
+    "style": "style_linebr"
+  },
+  "Down direction 0": {
+    "type": "plot",
+    "color": "#F23645",
+    "style": "style_linebr"
+  }
+}

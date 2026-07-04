@@ -1,0 +1,10 @@
+{
+  "RSI": {
+    "type": "plot",
+    "color": "#2962FF99"
+  },
+  "EMA of RSI": {
+    "type": "plot",
+    "color": "#787B86B2"
+  }
+}

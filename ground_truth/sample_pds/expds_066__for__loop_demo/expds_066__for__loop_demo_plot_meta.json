@@ -1,0 +1,7 @@
+{
+  "VWMA": {
+    "type": "plot",
+    "color": "#117FDA",
+    "linewidth": 2
+  }
+}

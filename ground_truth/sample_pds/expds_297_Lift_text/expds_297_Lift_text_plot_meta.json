@@ -1,0 +1,18 @@
+{
+  "": {
+    "type": "plotshape",
+    "style": "arrowup",
+    "location": "abovebar",
+    "color": "#4CAF50",
+    "text": "A"
+  },
+  " 0": {
+    "type": "plot"
+  },
+  " 1": {
+    "type": "plot"
+  },
+  " 2": {
+    "type": "plot"
+  }
+}

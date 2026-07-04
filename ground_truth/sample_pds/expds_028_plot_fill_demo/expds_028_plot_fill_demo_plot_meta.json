@@ -1,0 +1,12 @@
+{
+  "Fast EMA": {
+    "type": "plot",
+    "color": "#FF9800",
+    "linewidth": 3
+  },
+  "Slow EMA": {
+    "type": "plot",
+    "color": "#787B86",
+    "linewidth": 3
+  }
+}

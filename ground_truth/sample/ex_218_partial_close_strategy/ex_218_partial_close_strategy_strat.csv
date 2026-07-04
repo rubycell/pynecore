@@ -1,0 +1,36 @@
+Metric,All VND,All %,Long VND,Long %,Short VND,Short %
+Total P&L,1.4225e+08,14225,,,,
+Realized P&L,0,0,,,,
+Unrealized P&L,1.4225e+08,14225,,,,
+Net profit,0,0,0,0,0,0
+Gross profit,0,0,0,0,0,0
+Gross loss,0,0,0,0,0,0
+Commission paid,0,,0,,0,
+Buy & hold return,2199810,219.981,,,,
+Max equity run-up,1.5172e+08,15172,,,,
+Max equity drawdown,3840000,384,,,,
+Unrealized max drawdown,71370000,310.37037,,,,
+Real max drawdown,3250000,5.4302423,,,,
+Max contracts held,1,,1,,0,
+,,,,,,
+Total trades,0,,0,,0,
+Total open trades,1,,1,,0,
+Winning trades,0,,0,,0,
+Losing trades,0,,0,,0,
+Percent profitable,,0,,0,,0
+Avg P&L,0,0,0,0,0,0
+Avg winning trade,0,0,0,0,0,
+Avg losing trade,0,0,0,0,0,
+Ratio avg win / avg loss,0,,0,,0,
+Largest winning trade,0,,0,,0,
+Largest winning trade percent,,0,,0,,0
+Largest losing trade,0,,0,,0,
+Largest losing trade percent,,0,,0,,0
+Avg # bars in trades,0,,0,,0,
+Avg # bars in winning trades,0,,0,,0,
+Avg # bars in losing trades,0,,0,,0,
+,,,,,,
+Sharpe ratio,0.10069328,,,,,
+Sortino ratio,0.18890898,,,,,
+Profit factor,0,,0,,0,
+Margin calls,0,,0,,0,

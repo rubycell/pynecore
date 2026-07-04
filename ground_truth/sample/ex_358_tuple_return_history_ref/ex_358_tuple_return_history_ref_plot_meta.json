@@ -1,0 +1,13 @@
+{
+  "Fast MA": {
+    "type": "plot",
+    "color": "#2962FF"
+  },
+  "Slow MA": {
+    "type": "plot",
+    "color": "#F23645"
+  },
+  "bgcolor": {
+    "type": "bgcolor"
+  }
+}

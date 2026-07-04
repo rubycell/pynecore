@@ -1,0 +1,8 @@
+{
+  "5-bar SMA": {
+    "type": "plot"
+  },
+  "20-bar SMA": {
+    "type": "plot"
+  }
+}

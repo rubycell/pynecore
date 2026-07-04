@@ -11,8 +11,14 @@ venv/
 # PyPI configuration file
 .pypirc
 
-# Working directory
-workdir/
+# Working directory (except regression baseline data)
+workdir/*
+!workdir/data/
+workdir/data/*
+!workdir/data/VN30F1M_15m.ohlcv
+!workdir/data/VN30F1M_15m.toml
+!workdir/data/demo.ohlcv
+!workdir/data/demo.toml
 
 # Pytest cache
 .pytest_cache/
@@ -40,8 +46,7 @@ MEMORY.md
 # Others
 uv.lock
 
-# Regression testing artifacts (large / regenerable)
-ground_truth/
+# Regression testing artifacts (regenerable run reports; ground_truth/ itself is tracked)
 ground_truth_old_*/
 test_results*.json
 test_results*.json.bak

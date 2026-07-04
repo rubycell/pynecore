@@ -1,0 +1,16 @@
+{
+  "10-bar SMA": {
+    "type": "plot",
+    "linewidth": 3
+  },
+  "30-bar SMA": {
+    "type": "plot",
+    "color": "#80800099",
+    "linewidth": 3
+  },
+  "50-bar SMA": {
+    "type": "plot",
+    "color": "#80800099",
+    "linewidth": 3
+  }
+}

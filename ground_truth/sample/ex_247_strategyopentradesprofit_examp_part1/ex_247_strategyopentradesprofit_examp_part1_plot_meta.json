@@ -1,0 +1,11 @@
+{
+  "EMA": {
+    "type": "plot",
+    "color": "#FF9800"
+  },
+  "SMA": {
+    "type": "plot",
+    "color": "#089981",
+    "linewidth": 2
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "Plot": {
+    "type": "plot"
+  },
+  "xUp": {
+    "type": "plotchar",
+    "char": "\u25b2",
+    "location": "top",
+    "size": "tiny"
+  }
+}

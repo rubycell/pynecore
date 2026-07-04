@@ -1,0 +1,12 @@
+{
+  "Plot": {
+    "type": "plot",
+    "linewidth": 3,
+    "style": "style_cross"
+  },
+  "Plot 0": {
+    "type": "plot",
+    "linewidth": 3,
+    "style": "style_cross"
+  }
+}

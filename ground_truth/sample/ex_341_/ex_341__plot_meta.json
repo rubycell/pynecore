@@ -1,0 +1,12 @@
+{
+  "Plot": {
+    "type": "plot",
+    "color": "#F23645",
+    "linewidth": 2,
+    "style": "style_circles"
+  },
+  "Plot 0": {
+    "type": "plot",
+    "color": "#F23645"
+  }
+}

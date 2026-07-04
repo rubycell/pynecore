@@ -1,0 +1,16 @@
+{
+  "Title": {
+    "type": "plot",
+    "color": "#00FFAA4C",
+    "linewidth": 2,
+    "style": "style_area",
+    "trackprice": true,
+    "offset": 15
+  },
+  "Plot": {
+    "type": "plot"
+  },
+  "Plot 0": {
+    "type": "plot"
+  }
+}

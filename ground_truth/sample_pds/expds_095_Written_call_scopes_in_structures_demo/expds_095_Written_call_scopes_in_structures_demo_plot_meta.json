@@ -1,0 +1,12 @@
+{
+  "Global call result": {
+    "type": "plot",
+    "color": "#089981",
+    "linewidth": 3
+  },
+  "Looped call result": {
+    "type": "plot",
+    "color": "#F23645",
+    "linewidth": 3
+  }
+}

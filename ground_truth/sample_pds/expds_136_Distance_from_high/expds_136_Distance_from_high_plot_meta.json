@@ -1,0 +1,14 @@
+{
+  "lastHiBar": {
+    "type": "plotchar",
+    "char": "",
+    "location": "top",
+    "size": "tiny"
+  },
+  "fillNo": {
+    "type": "plotchar",
+    "char": "",
+    "location": "top",
+    "size": "tiny"
+  }
+}

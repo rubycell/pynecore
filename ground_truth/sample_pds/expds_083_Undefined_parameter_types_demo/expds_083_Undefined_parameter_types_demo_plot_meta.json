@@ -1,0 +1,8 @@
+{
+  "Test plot": {
+    "type": "plot",
+    "color": "#FFFFFF",
+    "linewidth": 3,
+    "display": "-5"
+  }
+}

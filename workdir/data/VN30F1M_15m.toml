@@ -1,0 +1,101 @@
+[symbol]
+prefix = "CUSTOM"
+description = "VN30F1M"
+ticker = "VN30F1M"
+currency = "VND"
+basecurrency = "VND"
+period = "15"
+type = "futures"
+mintick = 0.10000000
+pricescale = 10
+minmove = 1
+mincontract = 1
+pointvalue = 100000.00000000
+country = "VN"
+timezone = "Asia/Ho_Chi_Minh"
+volumetype = "base"
+#avg_spread =
+#taker_fee =
+#maker_fee =
+#target_price_average =
+#target_price_high =
+#target_price_low =
+#target_price_date =
+
+# Opening hours
+[[opening_hours]]
+day = 1
+start = "09:00:00"
+end = "11:59:59"
+
+[[opening_hours]]
+day = 1
+start = "13:00:00"
+end = "14:59:59"
+
+[[opening_hours]]
+day = 2
+start = "09:00:00"
+end = "11:59:59"
+
+[[opening_hours]]
+day = 2
+start = "13:00:00"
+end = "14:59:59"
+
+[[opening_hours]]
+day = 3
+start = "09:00:00"
+end = "14:59:59"
+
+[[opening_hours]]
+day = 4
+start = "09:00:00"
+end = "14:59:59"
+
+[[opening_hours]]
+day = 5
+start = "09:00:00"
+end = "14:59:59"
+
+# Session starts
+[[session_starts]]
+day = 1
+time = "09:00:00"
+
+[[session_starts]]
+day = 2
+time = "09:00:00"
+
+[[session_starts]]
+day = 3
+time = "09:00:00"
+
+[[session_starts]]
+day = 4
+time = "09:00:00"
+
+[[session_starts]]
+day = 5
+time = "09:00:00"
+
+# Session ends
+[[session_ends]]
+day = 1
+time = "14:59:59"
+
+[[session_ends]]
+day = 2
+time = "14:59:59"
+
+[[session_ends]]
+day = 3
+time = "14:59:59"
+
+[[session_ends]]
+day = 4
+time = "14:59:59"
+
+[[session_ends]]
+day = 5
+time = "14:59:59"

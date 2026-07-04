@@ -1,0 +1,14 @@
+{
+  "ADX": {
+    "type": "plot",
+    "color": "#F23645"
+  },
+  "+DI": {
+    "type": "plot",
+    "color": "#2962FF"
+  },
+  "-DI": {
+    "type": "plot",
+    "color": "#FF9800"
+  }
+}

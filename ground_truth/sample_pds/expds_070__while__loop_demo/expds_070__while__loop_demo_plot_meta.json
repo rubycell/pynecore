@@ -1,0 +1,8 @@
+{
+  "Channel low": {
+    "type": "plot"
+  },
+  "Channel high": {
+    "type": "plot"
+  }
+}

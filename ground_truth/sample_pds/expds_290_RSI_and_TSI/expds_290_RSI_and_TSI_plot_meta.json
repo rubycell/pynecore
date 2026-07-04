@@ -1,0 +1,15 @@
+{
+  "RSI": {
+    "type": "plot",
+    "color": "#F236454C",
+    "linewidth": 3
+  },
+  "TSI": {
+    "type": "plot",
+    "color": "#2962FF",
+    "linewidth": 2
+  },
+  "TSI EMA": {
+    "type": "plot"
+  }
+}

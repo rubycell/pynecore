@@ -1,0 +1,11 @@
+{
+  "CCI": {
+    "type": "plot",
+    "color": "#FFFFFF",
+    "linewidth": 3
+  },
+  "CCI 0": {
+    "type": "plot",
+    "color": "#363A45"
+  }
+}

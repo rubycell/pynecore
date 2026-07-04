@@ -1,0 +1,11 @@
+{
+  "Long entry price": {
+    "type": "plot",
+    "style": "style_linebr"
+  },
+  "Long exit price": {
+    "type": "plot",
+    "color": "#4CAF50",
+    "style": "style_linebr"
+  }
+}

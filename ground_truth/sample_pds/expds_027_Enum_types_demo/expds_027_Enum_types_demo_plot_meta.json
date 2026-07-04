@@ -1,0 +1,7 @@
+{
+  "Selected moving average": {
+    "type": "plot",
+    "color": "#089981",
+    "linewidth": 3
+  }
+}

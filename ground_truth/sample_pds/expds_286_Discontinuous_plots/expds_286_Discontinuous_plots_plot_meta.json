@@ -1,0 +1,29 @@
+{
+  "Plot": {
+    "type": "plot",
+    "color": "#E040FB",
+    "linewidth": 6,
+    "style": "style_linebr"
+  },
+  "Plot 0": {
+    "type": "plot"
+  },
+  "Plot 1": {
+    "type": "plot",
+    "color": "#311B92",
+    "linewidth": 6,
+    "style": "style_cross"
+  },
+  "Plot 2": {
+    "type": "plot",
+    "color": "#311B92",
+    "linewidth": 6,
+    "style": "style_circles"
+  },
+  "Plot 3": {
+    "type": "plot",
+    "color": "#4CAF50",
+    "linewidth": 6,
+    "style": "style_stepline"
+  }
+}

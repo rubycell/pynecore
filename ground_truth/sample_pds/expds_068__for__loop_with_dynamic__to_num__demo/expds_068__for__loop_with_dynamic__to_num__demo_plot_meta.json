@@ -1,0 +1,12 @@
+{
+  "Bar offset": {
+    "type": "plot",
+    "color": "#2962FF",
+    "style": "style_columns"
+  },
+  "Historical bar's price": {
+    "type": "plot",
+    "color": "#2962FF",
+    "linewidth": 3
+  }
+}

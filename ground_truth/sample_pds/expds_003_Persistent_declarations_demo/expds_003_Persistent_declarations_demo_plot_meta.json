@@ -1,0 +1,7 @@
+{
+  "`x` series": {
+    "type": "plot",
+    "color": "#2962FF",
+    "linewidth": 3
+  }
+}

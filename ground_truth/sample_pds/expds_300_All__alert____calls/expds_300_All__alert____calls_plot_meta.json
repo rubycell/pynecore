@@ -1,0 +1,19 @@
+{
+  "Go Long": {
+    "type": "plotchar",
+    "char": "\u25b2",
+    "location": "bottom",
+    "color": "#00E676",
+    "size": "tiny"
+  },
+  "Go Short": {
+    "type": "plotchar",
+    "char": "\u25bc",
+    "location": "top",
+    "color": "#F23645",
+    "size": "tiny"
+  },
+  "Plot": {
+    "type": "plot"
+  }
+}

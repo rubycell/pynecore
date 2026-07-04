@@ -1,0 +1,12 @@
+{
+  "Consistent EMA": {
+    "type": "plot",
+    "color": "#2962FF",
+    "linewidth": 4
+  },
+  "Inconsistent EMA/SMA": {
+    "type": "plot",
+    "color": "#9C27B0",
+    "linewidth": 3
+  }
+}

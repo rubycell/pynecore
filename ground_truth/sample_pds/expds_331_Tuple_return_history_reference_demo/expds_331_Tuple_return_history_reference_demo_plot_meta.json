@@ -1,0 +1,15 @@
+{
+  "Upper": {
+    "type": "plot",
+    "color": "#4CAF50",
+    "linewidth": 2
+  },
+  "Lower": {
+    "type": "plot",
+    "color": "#F23645",
+    "linewidth": 2
+  },
+  "bgcolor": {
+    "type": "bgcolor"
+  }
+}

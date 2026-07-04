@@ -1,0 +1,12 @@
+{
+  "High": {
+    "type": "plot",
+    "linewidth": 2,
+    "style": "style_line"
+  },
+  "Low": {
+    "type": "plot",
+    "linewidth": 2,
+    "style": "style_line"
+  }
+}

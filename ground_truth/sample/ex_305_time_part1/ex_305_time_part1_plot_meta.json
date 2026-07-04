@@ -1,0 +1,9 @@
+{
+  "Plot": {
+    "type": "plot",
+    "color": "#F23645"
+  },
+  "Plot 0": {
+    "type": "plot"
+  }
+}

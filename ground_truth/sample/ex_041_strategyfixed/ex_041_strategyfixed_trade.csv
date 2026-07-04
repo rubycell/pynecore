@@ -1,0 +1,3 @@
+Trade #,Bar Index,Type,Signal,Date/Time,Price VND,Contracts,Profit VND,Profit %,Cumulative profit VND,Cumulative profit %,Run-up VND,Run-up %,Drawdown VND,Drawdown %
+1,1,Entry long,EN,2020-03-27T09:15:00+0700,631.6,50,-13500000,-0.43,-13500000,-1350.00,2000000,0.06,22000000,0.70
+1,3,Exit long,Close entry(s) order EN,2020-03-27T09:45:00+0700,628.9,50,-13500000,-0.43,-13500000,-1350.00,2000000,0.06,22000000,0.70

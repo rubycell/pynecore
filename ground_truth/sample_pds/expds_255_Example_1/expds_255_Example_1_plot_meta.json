@@ -1,0 +1,11 @@
+{
+  "Sine of `high`": {
+    "type": "plot"
+  },
+  "Cosine of `low`": {
+    "type": "plot"
+  },
+  "Sine of `close`": {
+    "type": "plot"
+  }
+}

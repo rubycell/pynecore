@@ -1,0 +1,17 @@
+{
+  "Max EMA": {
+    "type": "plot",
+    "color": "#4CAF50",
+    "linewidth": 2
+  },
+  "Min EMA": {
+    "type": "plot",
+    "color": "#F23645",
+    "linewidth": 2
+  },
+  "50-bar EMA": {
+    "type": "plot",
+    "color": "#FF9800",
+    "linewidth": 3
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "`plotchar()`": {
+    "type": "plotchar",
+    "char": "\ud83e\udc05",
+    "location": "belowbar",
+    "color": "#00E676",
+    "size": "small"
+  },
+  "`plotchar()` 0": {
+    "type": "plot"
+  }
+}

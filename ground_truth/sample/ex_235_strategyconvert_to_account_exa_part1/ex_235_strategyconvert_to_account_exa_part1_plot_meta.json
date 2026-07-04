@@ -1,0 +1,8 @@
+{
+  "Close price using default currency": {
+    "type": "plot"
+  },
+  "Close price converted to strategy currency": {
+    "type": "plot"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "Go Long": {
+    "type": "plotchar",
+    "char": "\u25b2",
+    "location": "bottom",
+    "color": "#00E676",
+    "size": "tiny"
+  },
+  "Go Short": {
+    "type": "plotchar",
+    "char": "\u25bc",
+    "location": "top",
+    "color": "#F23645",
+    "size": "tiny"
+  },
+  "WARNING: Falling RSI": {
+    "type": "plotchar",
+    "char": "\u2022",
+    "location": "top",
+    "color": "#F23645",
+    "size": "tiny"
+  },
+  "WARNING: Rising RSI": {
+    "type": "plotchar",
+    "char": "\u2022",
+    "location": "bottom",
+    "color": "#00E676",
+    "size": "tiny"
+  },
+  "Plot": {
+    "type": "plot"
+  }
+}

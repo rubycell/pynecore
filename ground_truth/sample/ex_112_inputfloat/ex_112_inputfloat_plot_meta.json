@@ -1,0 +1,10 @@
+{
+  "sin": {
+    "type": "plot",
+    "color": "#4CAF50"
+  },
+  "cos": {
+    "type": "plot",
+    "color": "#F23645"
+  }
+}

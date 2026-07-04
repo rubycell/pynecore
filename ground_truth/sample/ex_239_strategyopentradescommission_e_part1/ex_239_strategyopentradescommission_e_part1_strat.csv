@@ -1,0 +1,36 @@
+Metric,All VND,All %,Long VND,Long %,Short VND,Short %
+Total P&L,-9.8419785e+08,-98419.785,,,,
+Realized P&L,-9.8137785e+08,-98137.785,,,,
+Unrealized P&L,-2820000,-282,,,,
+Net profit,-9.8137785e+08,-98137.785,-1.74734e+08,-17473.4,-8.0513515e+08,-80513.515
+Gross profit,8.2876863e+08,82876.863,3.7844528e+08,37844.527,4.5032335e+08,45032.335
+Gross loss,1.8086378e+09,180863.78,-5.5317928e+08,-55317.928,-1.2554585e+09,-125545.85
+Commission paid,1.0275292e+09,,1.0275292e+09,,0,
+Buy & hold return,2199810,219.981,,,,
+Max equity run-up,94994100,9499.41,,,,
+Max equity drawdown,1.0324025e+09,103240.25,,,,
+Unrealized max drawdown,1.0169431e+09,16197.231,,,,
+Real max drawdown,1.0574445e+08,12.635406,,,,
+Max contracts held,5,,5,,0,
+,,,,,,
+Total trades,1644,,736,,908,
+Total open trades,3,,3,,0,
+Winning trades,702,,359,,343,
+Losing trades,942,,377,,565,
+Percent profitable,,42.70073,,48.777174,,37.77533
+Avg P&L,-596945.16,-59.694516,-237410.33,-23.741033,-886712.72,-88.671272
+Avg winning trade,1180582.1,118.05821,1180582.1,118.05821,0,
+Avg losing trade,-1919997.6,-191.99976,-1919997.6,-191.99976,0,
+Ratio avg win / avg loss,0.61488726,,0.61488726,,0,
+Largest winning trade,16092750,,16092750,,13974175,
+Largest winning trade percent,,14.22878,,14.22878,,11.799523
+Largest losing trade,-18879200,,-9052675,,-18879200,
+Largest losing trade percent,,-11.594424,,-6.8198546,,-11.594424
+Avg # bars in trades,41.020073,,31.096467,,49.063877,
+Avg # bars in winning trades,24.864672,,24.864672,,0,
+Avg # bars in losing trades,53.059448,,53.059448,,0,
+,,,,,,
+Sharpe ratio,0.1349059,,,,,
+Sortino ratio,0.64488107,,,,,
+Profit factor,0.45822809,,0.45822809,,0,
+Margin calls,0,,0,,0,

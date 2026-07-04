@@ -1,0 +1,62 @@
+[symbol]
+prefix = "NASDAQ"
+description = "AAPL"
+ticker = "AAPL"
+currency = "USD"
+basecurrency = "USD"
+period = "1D"
+type = "other"
+mintick = 0.00010000
+pricescale = 10000
+minmove = 1
+pointvalue = 1.00000000
+country = ""
+mincontract = 1.00000000
+#root =
+#sector =
+#industry =
+timezone = "UTC"
+volumetype = "base"
+#avg_spread =
+#taker_fee =
+#maker_fee =
+#target_price_average =
+#target_price_high =
+#target_price_low =
+#target_price_date =
+
+# Opening hours
+[[opening_hours]]
+day = 1
+start = "09:30:00"
+end = "16:00:00"
+
+[[opening_hours]]
+day = 2
+start = "09:30:00"
+end = "16:00:00"
+
+[[opening_hours]]
+day = 3
+start = "09:30:00"
+end = "16:00:00"
+
+[[opening_hours]]
+day = 4
+start = "09:30:00"
+end = "16:00:00"
+
+[[opening_hours]]
+day = 5
+start = "09:30:00"
+end = "16:00:00"
+
+# Session starts
+[[session_starts]]
+day = 1
+time = "00:00:00"
+
+# Session ends
+[[session_ends]]
+day = 7
+time = "23:59:59"

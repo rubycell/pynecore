@@ -1,0 +1,23 @@
+{
+  "Plot": {
+    "type": "plot",
+    "color": "#FDD835"
+  },
+  "Plot 0": {
+    "type": "plot",
+    "color": "#FDD835"
+  },
+  "Plot 1": {
+    "type": "plot",
+    "color": "#FDD835"
+  },
+  "Plot 2": {
+    "type": "plot"
+  },
+  "Plot 3": {
+    "type": "plot"
+  },
+  "Plot 4": {
+    "type": "plot"
+  }
+}
