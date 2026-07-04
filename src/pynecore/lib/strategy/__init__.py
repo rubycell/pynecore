@@ -378,6 +378,7 @@ class Position:
         'entry_equity', 'max_equity', 'min_equity',
         'drawdown_summ', 'runup_summ', 'max_drawdown', 'max_runup',
         'equity_max_drawdown', 'equity_max_drawdown_percent', 'peak_equity',
+        'peak_realized_equity',
         'close_max_drawdown', 'close_max_drawdown_percent',
         'real_max_drawdown', 'real_max_drawdown_percent',
         'entry_summ', 'open_commission',
@@ -434,6 +435,10 @@ class Position:
         self.equity_max_drawdown: float = 0.0
         self.equity_max_drawdown_percent: float = 0.0
         self.peak_equity: float = 0.0  # Initialized to initial_capital on first bar
+        # TV-parity peak for intrabar Max Drawdown: peak of REALIZED equity only
+        # (initial + netprofit), excluding open/unrealized profit — matches TradingView's
+        # "Max_Equity = Initial Capital + equity of trades already closed" reference.
+        self.peak_realized_equity: float = 0.0
         # Close-based peak-to-trough drawdown (TradingView Max Drawdown, no bar magnifier),
         # percent measured against the equity peak AT the trough (peak-at-trough), like TV.
         self.close_max_drawdown: float = 0.0
@@ -1285,15 +1290,32 @@ class Position:
                 # Check stop trigger against bar's full range
                 if exit_order.stop is not None:
                     if matching_trade.sign > 0 and self.l <= exit_order.stop:
-                        # Long exit: stoploss hit, fill at stop price with slippage
-                        fill_price = exit_order.stop
+                        # Long exit stoploss hit on the entry bar.
+                        # A valid protective stop sits BELOW entry -> fill at the stop level.
+                        # If it is at/above entry it was already triggered the moment it was
+                        # placed (a wrong-side stop). TradingView fills such orders at MARKET,
+                        # NOT at the favorable stop level. Market = the entry LEVEL (undo the
+                        # entry slippage) so the immediate round-trip pays slippage on BOTH legs.
+                        # (Prevents phantom same-bar profit from an inverted stop-loss.)
+                        if exit_order.stop < matching_trade.entry_price:
+                            base_price = exit_order.stop
+                        else:
+                            base_price = matching_trade.entry_price - syminfo.mintick * self._slippage_ticks * matching_trade.sign
+                        fill_price = base_price
                         if self._slippage_ticks > 0:
                             fill_price += syminfo.mintick * self._slippage_ticks * exit_order.sign
                         self.fill_order(exit_order, fill_price, self.h, fill_price)
                         continue
                     elif matching_trade.sign < 0 and self.h >= exit_order.stop:
-                        # Short exit: stoploss hit, fill at stop price with slippage
-                        fill_price = exit_order.stop
+                        # Short exit stoploss hit on the entry bar.
+                        # A valid short stop sits ABOVE entry -> fill at the stop level.
+                        # At/below entry = wrong-side/already-triggered -> fill at MARKET (entry
+                        # LEVEL, undo entry slippage) so the round-trip pays slippage on both legs.
+                        if exit_order.stop > matching_trade.entry_price:
+                            base_price = exit_order.stop
+                        else:
+                            base_price = matching_trade.entry_price - syminfo.mintick * self._slippage_ticks * matching_trade.sign
+                        fill_price = base_price
                         if self._slippage_ticks > 0:
                             fill_price += syminfo.mintick * self._slippage_ticks * exit_order.sign
                         self.fill_order(exit_order, fill_price, fill_price, self.l)
@@ -1375,16 +1397,14 @@ class Position:
         close_equity = initial_capital + self.netprofit + self.openprofit
         self.peak_equity = max(self.peak_equity, close_equity)
 
-        # Max Drawdown: largest close-based peak-to-trough decline. Dollar and percent
-        # maxima are tracked independently — under percent_of_equity sizing the largest
-        # dollar drawdown lands in the highest-equity (most recent) period, which would
-        # otherwise mask larger PERCENT drawdowns that occurred when the account was small.
+        # TradingView-style Max Drawdown: largest close-based peak-to-trough decline,
+        # with its percent taken against the peak it fell from (peak-at-trough).
         _close_dd = self.peak_equity - close_equity
         if _close_dd > self.close_max_drawdown:
             self.close_max_drawdown = _close_dd
-        _close_dd_percent = (_close_dd / self.peak_equity) * 100.0 if self.peak_equity != 0 else 0.0
-        if _close_dd_percent > self.close_max_drawdown_percent:
-            self.close_max_drawdown_percent = _close_dd_percent
+            self.close_max_drawdown_percent = (
+                (_close_dd / self.peak_equity) * 100.0 if self.peak_equity != 0 else 0.0
+            )
 
         # Worst-case open P&L: what if every open trade hit its worst price this bar
         worst_case_open_pnl = 0.0
@@ -1405,10 +1425,13 @@ class Position:
 
         realized_equity = initial_capital + self.netprofit
         worst_equity = realized_equity + worst_case_open_pnl
-        drawdown_from_peak = self.peak_equity - worst_equity
+        # TV-parity: anchor the intrabar drawdown to peak REALIZED equity (excludes
+        # unrealized profit on open trades), matching TradingView's Max_Equity reference.
+        self.peak_realized_equity = max(self.peak_realized_equity, realized_equity)
+        drawdown_from_peak = self.peak_realized_equity - worst_equity
         if drawdown_from_peak > 0:
             self.equity_max_drawdown = max(self.equity_max_drawdown, drawdown_from_peak)
-            dd_pct = (drawdown_from_peak / self.peak_equity) * 100.0 if self.peak_equity != 0 else 0.0
+            dd_pct = (drawdown_from_peak / self.peak_realized_equity) * 100.0 if self.peak_realized_equity != 0 else 0.0
             self.equity_max_drawdown_percent = max(self.equity_max_drawdown_percent, dd_pct)
 
         # Cumulative stats
