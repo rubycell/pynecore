@@ -1,0 +1,26 @@
+// INDICATOR: Conditional colors
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Conditional colors", "", true)  
+int legsInput = input.int(5, "Pivot Legs", minval = 1)  
+color pHiColorInput = input.color(color.olive, "High pivots")  
+color pLoColorInput = input.color(color.orange, "Low pivots")  
+// Intialize the pivot level variables.  
+var float pHi = na  
+var float pLo = na  
+// When a new pivot is detected, save its value.  
+pHi := nz(ta.pivothigh(legsInput, legsInput), pHi)  
+pLo := nz(ta.pivotlow( legsInput, legsInput), pLo)  
+// When a new pivot is detected, do not plot a color.  
+plot(pHi, "High", ta.change(pHi) != 0 ? na : pHiColorInput, 2, plot.style_line)  
+plot(pLo, "Low",  ta.change(pLo) != 0 ? na : pLoColorInput, 2, plot.style_line)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

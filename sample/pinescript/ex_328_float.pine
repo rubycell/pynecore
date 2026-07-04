@@ -1,0 +1,16 @@
+//@version=6
+strategy("float", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+float f = 3.14    // Same as `f = 3.14`
+f := na
+plot(f)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

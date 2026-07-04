@@ -1,0 +1,24 @@
+// INDICATOR: Using `var`
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Using `var`", overlay=true)  
+FILL_COLOR = color.green  
+var array<color> fillColors = array.from(  
+     color.new(FILL_COLOR, 70),  
+     color.new(FILL_COLOR, 75),  
+     color.new(FILL_COLOR, 80),  
+     color.new(FILL_COLOR, 85),  
+     color.new(FILL_COLOR, 90)  
+ )  
+// Cycle background through the array's colors.  
+bgcolor(array.get(fillColors, bar_index % (fillColors.size())))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

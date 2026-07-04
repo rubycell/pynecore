@@ -1,0 +1,16 @@
+//@version=6
+strategy("Renko candles", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+renko_tickerid = ticker.renko(syminfo.tickerid, "ATR", 10)
+[renko_open, renko_high, renko_low, renko_close] = request.security(renko_tickerid, timeframe.period, [open, high, low, close])
+plotcandle(renko_open, renko_high, renko_low, renko_close, color = renko_close > renko_open ? color.green : color.red)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

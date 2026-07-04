@@ -1,0 +1,69 @@
+// INDICATOR: Text formatting demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Text formatting demo", overlay = true)  
+  
+//@variable The size of the `closeLabel` text, set using "string" `size.*` constants.  
+string closeLabelSize = input.string(size.large, "Label text size",   
+     [size.auto, size.tiny, size.small, size.normal, size.large, size.huge], group = "Text size")  
+//@variable The size of the `barMoveTable` text, set using "int" sizes.  
+int tableTextSize = input.int(25, "Table text size", minval = 0, group = "Text size")  
+  
+// Toggles for the text formatting of all the drawing objects (`label`, `table` cell, and `box` texts).   
+bool formatBold   = input.bool(false, "Bold emphasis",   group = "Text formatting (all objects)")  
+bool formatItalic = input.bool(true,  "Italic emphasis", group = "Text formatting (all objects)")  
+  
+// Track the highest and lowest prices in 20 bars. Used to draw a `box` of the high-low range.  
+float recentHighest = ta.highest(20)  
+float recentLowest  = ta.lowest(20)  
+  
+if barstate.islast  
+    //@variable Label displaying `close` price on last bar. Text size is set using "string" constants.  
+    label closeLabel = label.new(bar_index, close, "Close price: " + str.tostring(close, "$0.00"),   
+         color = #EB9514D8, style = label.style_label_left, size = closeLabelSize)  
+  
+    // Create a `table` cell to display the bar move (difference between `open` and `close` price).  
+    float barMove = close - open  
+    //@variable Single-cell table displaying the `barMove`. Cell text size is set using "int" values.  
+    var table barMoveTable = table.new(position.bottom_right, 1, 1, bgcolor = barMove > 0 ? #31E23FCC : #EE4040CC)  
+    barMoveTable.cell(0, 0, "Bar move = " + str.tostring(barMove, "$0.00") + "\n Percent = "   
+         + str.tostring(barMove / open, "0.00%"), text_halign = text.align_right, text_size = tableTextSize)  
+  
+    // Draw a box to show where current price falls in the range of `recentHighest` to `recentLowest`.  
+    //@variable Box drawing the range from `recentHighest` to `recentLowest` in last 20 bars. Text size is set at 19.  
+    box rangeBox = box.new(bar_index - 20, recentHighest, bar_index + 1, recentLowest, text_size = 19,  
+         bgcolor = #A4B0F826, text_valign = text.align_top, text_color = #4A07E7D8)  
+    // Set box text to display how far current price is from the high or low of the range, depending on which is closer.  
+    rangeBox.set_text("Current price is " +   
+         (close >= (recentHighest + recentLowest) / 2 ? str.tostring(recentHighest - close, "$0.00") + " from box high"  
+         : str.tostring(close - recentLowest, "$0.00") + " from box low"))  
+      
+    // Set the text formatting of the `closeLabel`, `barMoveTable` cell, and `rangeBox` objects.  
+    // `formatBold` and `formatItalic` can both be `true` to combine formats, or both `false` for no special formatting.  
+    switch   
+        formatBold and formatItalic =>   
+            closeLabel.set_text_formatting(text.format_bold + text.format_italic)  
+            barMoveTable.cell_set_text_formatting(0, 0, text.format_bold + text.format_italic)  
+            rangeBox.set_text_formatting(text.format_bold + text.format_italic)  
+        formatBold =>   
+            closeLabel.set_text_formatting(text.format_bold)  
+            barMoveTable.cell_set_text_formatting(0, 0, text.format_bold)  
+            rangeBox.set_text_formatting(text.format_bold)  
+        formatItalic =>   
+            closeLabel.set_text_formatting(text.format_italic)  
+            barMoveTable.cell_set_text_formatting(0, 0, text.format_italic)  
+            rangeBox.set_text_formatting(text.format_italic)  
+        =>  
+            closeLabel.set_text_formatting(text.format_none)  
+            barMoveTable.cell_set_text_formatting(0, 0, text.format_none)  
+            rangeBox.set_text_formatting(text.format_none)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

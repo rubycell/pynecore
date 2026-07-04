@@ -1,0 +1,32 @@
+// INDICATOR: String input demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("String input demo", overlay = true)  
+  
+//@variable A "string" specifying a UTC offset or IANA identifier for time zone specification.  
+string timezoneInput = input.string("America/New_York", "Time zone")  
+//@variable A "string" specifying whether the labels show opening times, closing times, or both.   
+string displayModeInput = input.string("Both", "Display mode", ["Open time", "Close time", "Both"])  
+  
+// Express the bar's `time` and `time_close` as formatted dates and times in the `timezoneInput` time zone.  
+string openText  = str.format_time(time,       timezone = timezoneInput)  
+string closeText = str.format_time(time_close, timezone = timezoneInput)  
+  
+//@variable A formatted "string" containing the `openText`, `closeText`, or both, based on the `displayModeInput`.  
+string displayText = switch displayModeInput  
+    "Open time"  => str.format("TZ: {0}\nOpen: {1}", timezoneInput, openText)  
+    "Close time" => str.format("TZ: {0}\nClose: {1}", timezoneInput, closeText)  
+    =>              str.format("TZ: {0}\nOpen: {1}\nClose: {2}", timezoneInput, openText, closeText)  
+  
+// Draw a label at the bar's `high` to show the `displayText`.  
+label.new(bar_index, high, displayText)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

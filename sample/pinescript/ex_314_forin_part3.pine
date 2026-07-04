@@ -1,0 +1,23 @@
+//@version=6
+strategy("for ... in matrix Example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+// Create a 2x3 matrix with values `4`.
+matrix1 = matrix.new<int>(2, 3, 4)
+
+sum = 0.0
+// Loop through every row of the matrix.
+for rowArray in matrix1
+    // Sum values of the every row 
+    sum += array.sum(rowArray)
+
+plot(sum)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

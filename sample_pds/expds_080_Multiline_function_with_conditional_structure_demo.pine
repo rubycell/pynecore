@@ -1,0 +1,37 @@
+// INDICATOR: Multiline function with conditional structure demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Multiline function with conditional structure demo", overlay = true, behind_chart = false)  
+  
+//@function Calculates the median of `source` over `length` bars, then returns a moving average of the median.  
+smoothMedian(float source, int length, string avgType = "ema") =>  
+  
+    //@variable The median of the `source` series.  
+    float median = ta.median(source, length)  
+  
+    // Calculate the EMA, SMA, and WMA of `median`.  
+    float ema = ta.ema(median, length)  
+    float sma = ta.sma(median, length)  
+    float wma = ta.wma(median, length)  
+  
+    // Return `ema`, `sma`, or `wma`, depending on the `avgType` value.  
+    switch avgType  
+        "ema" => ema  
+        "sma" => sma  
+        "wma" => wma  
+  
+//@variable The EMA of the 10-bar median of `close` values.  
+float medSmooth = smoothMedian(close, 10)  
+  
+// Plot the `medSmooth` series as a color-coded line.  
+plot(medSmooth, "Smoothed median", close > medSmooth ? color.teal : color.maroon, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

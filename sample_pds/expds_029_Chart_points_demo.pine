@@ -1,0 +1,36 @@
+// INDICATOR: Chart points demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Chart points demo", overlay = true)  
+  
+//@variable References a chart point containing the previous bar's `bar_index` and `high` values.  
+firstPoint = chart.point.from_index(bar_index - 1, high[1])  
+//@variable References a chart point containing the current bar's `bar_index`, `time`, and `low` values.  
+chart.point secondPoint = chart.point.now(low)  
+  
+//@variable References a line connecting the coordinates from the objects referenced by `firstPoint` and `secondPoint`.   
+line myLine = line.new(firstPoint, secondPoint, color = color.purple, width = 3)  
+  
+// Draw a label at the `index` and `price` coordinates of the chart point referenced by `firstPoint`.  
+// The label displays a string representing the first chart point's `price` value.    
+label.new(  
+     firstPoint, str.tostring(firstPoint.price), color = color.green,  
+     style = label.style_label_down, textcolor = color.white  
+ )  
+  
+// Draw a label at the `index` and `price` coordinates of the chart point referenced by `secondPoint`.  
+// The label displays a string representing the second chart point's `price` value.   
+label.new(  
+     secondPoint, str.tostring(secondPoint.price), color = color.red,  
+     style = label.style_label_up, textcolor = color.white  
+ )
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,18 @@
+//@version=6
+strategy("strategy.opentrades.entry_price Example 1", overlay = true)
+
+// Strategy calls to enter long trades every 15 bars and exit long trades every 20 bars.
+if ta.crossover(close, ta.sma(close, 14))
+    strategy.entry("Long", strategy.long)
+
+// Return the entry price for the latest closed trade.
+currEntryPrice = strategy.opentrades.entry_price(strategy.opentrades - 1)
+currExitPrice = currEntryPrice * 1.05
+
+if high >= currExitPrice
+    strategy.close("Long")
+
+plot(currEntryPrice, "Long entry price", style = plot.style_linebr)
+plot(currExitPrice, "Long exit price", color.green, style = plot.style_linebr)
+
+// Calculates the average price for the open position.

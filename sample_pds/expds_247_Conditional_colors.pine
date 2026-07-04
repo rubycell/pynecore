@@ -1,0 +1,23 @@
+// INDICATOR: Conditional colors
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Conditional colors", "", true)  
+int   lengthInput = input.int(20, "Length", minval = 2)  
+color maBullColorInput = input.color(color.green, "Bull")  
+color maBearColorInput = input.color(color.maroon, "Bear")  
+float ma = ta.sma(close, lengthInput)  
+// Define our states.  
+bool maRising  = ta.rising(ma, 1)  
+// Build our color.  
+color maColor = maRising ? maBullColorInput : maBearColorInput  
+plot(ma, "MA", maColor, 2)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

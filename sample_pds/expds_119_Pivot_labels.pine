@@ -1,0 +1,33 @@
+// INDICATOR: Pivot labels
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Pivot labels", overlay = true)  
+int legsInput = input(10)  
+  
+// Define the `pivotPoint` UDT.  
+type pivotPoint  
+    int x  
+    float y  
+    string xloc = xloc.bar_time  
+  
+// Detect high pivots.  
+pivotHighPrice = ta.pivothigh(legsInput, legsInput)  
+if not na(pivotHighPrice)  
+    // A new high pivot was found; display a label where it occurred `legsInput` bars back.  
+    foundPoint = pivotPoint.new(time[legsInput], pivotHighPrice)  
+    label.new(  
+      foundPoint.x,  
+      foundPoint.y,  
+      str.tostring(foundPoint.y, format.mintick),  
+      foundPoint.xloc,  
+      textcolor = color.white)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

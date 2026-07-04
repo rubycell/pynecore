@@ -1,0 +1,22 @@
+//@version=6
+strategy("for...in", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+// Here we determine on each bar how many of the bar's OHLC values are greater than the SMA of 'close' values
+float[] ohlcValues = array.from(open, high, low, close)
+qtyGreaterThan(value, array) =>
+    int result = 0
+    for currentElement in array
+        if currentElement > value
+            result += 1
+        result
+plot(qtyGreaterThan(ta.sma(close, 20), ohlcValues))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,21 @@
+// INDICATOR: Invalid from_row, to_row demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Invalid from_row, to_row demo")   
+  
+//@variable A 4x4 matrix filled with a pseudorandom value.   
+matrix<float> m = matrix.new<float>(4, 4, math.random())  
+  
+matrix<float> mSub = m.submatrix(from_row = 2, to_row = 2) // Raises an error. `from_row` can't equal `to_row`.  
+  
+plot(mSub.get(0, 0))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

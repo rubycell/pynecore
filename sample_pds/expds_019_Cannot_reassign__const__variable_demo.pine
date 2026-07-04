@@ -1,0 +1,22 @@
+// INDICATOR: Cannot reassign `const` variable demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Cannot reassign `const` variable demo", overlay=true)  
+  
+//@variable A "float" variable declared using the `const` keyword.  
+const float myVar = 0.0  
+  
+// Using the `+=` operator on `myVar` causes an error, because scripts *cannot* modify variables declared using `const`.  
+myVar += 1.0  
+  
+plot(myVar)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

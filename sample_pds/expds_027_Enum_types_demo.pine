@@ -1,0 +1,41 @@
+// INDICATOR: Enum types demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Enum types demo", overlay = true)  
+  
+//@enum       An enumeration of named values for moving average selection.  
+//@field sma  Specifies a Simple Moving Average.  
+//@field ema  Specifies an Exponential Moving Average.  
+//@field wma  Specifies a Weighted Moving Average.  
+//@field hma  Specifies a Hull Moving Average.  
+enum maChoice  
+    sma = "Simple Moving Average"  
+    ema = "Exponential Moving Average"  
+    wma = "Weighted Moving Average"  
+    hma = "Hull Moving Average"  
+  
+//@variable The `maChoice` member representing a selected moving average name.  
+//          This variable's type is "input maChoice".  
+maChoice maInput = input.enum(maChoice.sma, "Moving average type")  
+//@variable The length of the moving average.  
+int lengthInput = input.int(20, "Length", 1, 4999)  
+  
+//@variable The moving average corresponding to the selected enum member.  
+float selectedMA = switch maInput  
+    maChoice.sma => ta.sma(close, lengthInput)  
+    maChoice.ema => ta.ema(close, lengthInput)  
+    maChoice.wma => ta.wma(close, lengthInput)  
+    maChoice.hma => ta.hma(close, lengthInput)  
+  
+// Plot the `selectedMA` value.  
+plot(selectedMA, "Selected moving average", color.teal, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

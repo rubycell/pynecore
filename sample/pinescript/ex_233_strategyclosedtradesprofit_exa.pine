@@ -1,0 +1,17 @@
+//@version=6
+strategy("strategy.closedtrades.profit Example")
+
+// Strategy calls to enter long trades every 15 bars and exit long trades every 20 bars.
+if bar_index % 15 == 0
+    strategy.entry("Long", strategy.long)
+if bar_index % 20 == 0
+    strategy.close("Long")
+
+// Calculate average gross profit by adding the difference between gross profit and commission.
+avgGrossProfit() =>
+    sumGrossProfit = 0.0
+    for tradeNo = 0 to strategy.closedtrades - 1
+        sumGrossProfit += strategy.closedtrades.profit(tradeNo) - strategy.closedtrades.commission(tradeNo)
+    result = nz(sumGrossProfit / strategy.closedtrades)
+    
+plot(avgGrossProfit(), "Average gross profit")

@@ -1,0 +1,23 @@
+// INDICATOR: `for...in` loop
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("`for...in` loop", overlay = true)  
+//@variable An array of `close` prices from the 1-minute timeframe.  
+array<float> a = request.security_lower_tf(syminfo.tickerid, "1", close)  
+  
+//@variable A string representation of the elements in `a`.  
+string labelText = ""  
+for price in a  
+    labelText += str.tostring(price) + "\n"  
+  
+label.new(bar_index, high, text = labelText)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

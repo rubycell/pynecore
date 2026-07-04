@@ -1,0 +1,21 @@
+//@version=6
+strategy("color", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+color textColor = color.green
+color labelColor = #FF000080 // Red color (FF0000) with 50% transparency (80 which is half of FF).
+if barstate.islastconfirmedhistory
+    label.new(bar_index, high, text = "Label", color = labelColor, textcolor = textColor)
+
+// When declaring variables with color literals, built-in constants(color.green) or functions (color.new(), color.rgb()), the "color" keyword for the type can be omitted.
+c = color.rgb(0,255,0,0)
+plot(close, color = c)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

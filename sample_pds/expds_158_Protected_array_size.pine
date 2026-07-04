@@ -1,0 +1,19 @@
+// INDICATOR: Protected array size
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Protected array size", overlay=true)  
+sizeInput = input.int(10, "Array size", minval = 1, maxval = 100000)  
+a = array.new<float>(sizeInput)  
+for i = 0 to sizeInput - 1  
+    array.set(a, i, i)  
+plot(array.size(a))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,17 @@
+//@version=6
+strategy("strategy.closedtrades.exit_time Example 2")
+
+// Strategy calls to emulate a single long trade at the first bar.
+if bar_index == 0
+    strategy.entry("Long", strategy.long)
+
+reopenPositionAfter(timeSec) =>
+    if strategy.closedtrades > 0
+        if time - strategy.closedtrades.exit_time(strategy.closedtrades - 1) >= timeSec * 1000
+            strategy.entry("Long", strategy.long)
+
+// Reopen last closed position after 120 sec.                
+reopenPositionAfter(120)
+
+if ta.change(strategy.opentrades) != 0
+    strategy.exit("Long", stop = low * 0.9, profit = high * 2.5)

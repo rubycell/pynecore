@@ -1,0 +1,27 @@
+// INDICATOR: Valid modification demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Valid modification demo", overlay=true)  
+  
+//@variable Holds a reference to an array of three pseudorandom "float" values.  
+//          Although the variable is declared using `const`, the reference returned by `array.from()` has the "series"   
+//          qualifier, because each execution creates a new, unique array object. Additionally, all elements in the   
+//          array are of the type "series float".  
+const array<float> randArray = array.from(math.random(), math.random(), math.random())  
+  
+// This line *does not* cause an error, even though it changes the array's contents, because `randArray` still refers   
+// to the *same* array instance for the rest of the execution.  
+array.set(randArray, 0, 0.0)  
+  
+// Plot the sum of the `randArray` elements.  
+plot(randArray.sum())
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

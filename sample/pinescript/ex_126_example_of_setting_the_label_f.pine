@@ -1,0 +1,16 @@
+//@version=6
+strategy("Example of setting the label font", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+if barstate.islastconfirmedhistory
+    l = label.new(bar_index, 0, "monospace", yloc=yloc.abovebar)
+    label.set_text_font_family(l, font.family_monospace)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

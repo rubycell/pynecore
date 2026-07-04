@@ -1,0 +1,9 @@
+//@version=6
+strategy("strategy.risk.allow_entry_in")
+
+strategy.risk.allow_entry_in(strategy.direction.long)
+if open > close
+    strategy.entry("Long", strategy.long)
+// Instead of opening a short position with 10 contracts, this command will close long entries.
+if open < close
+    strategy.entry("Short", strategy.short, qty = 10)

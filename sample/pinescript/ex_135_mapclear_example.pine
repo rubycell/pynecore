@@ -1,0 +1,19 @@
+//@version=6
+strategy("map.clear example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+oddMap = map.new<int, bool>()
+oddMap.put(1, true)
+oddMap.put(2, false)
+oddMap.put(3, true)
+map.clear(oddMap)
+plot(oddMap.size())
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

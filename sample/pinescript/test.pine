@@ -1,0 +1,37 @@
+//@version=6
+strategy("My strategy", overlay=true, margin_long=100, margin_short=100)
+
+// //@strategy_alert_message Strategy alert on symbol {{ticker}}
+sma14 = ta.sma(close, 14)
+sma28 = ta.sma(close, 28)
+
+longCondition = ta.crossover(sma14, sma28)
+if (longCondition) and strategy.opentrades == 0
+    strategy.entry("long_id", strategy.long)
+
+// if (ta.crossunder(sma14, sma28))
+//     strategy.close(id = "long_id")
+
+// strategy.exit("Exit", "long_id", profit = 1001, loss = 500)
+
+// if strategy.opentrades > 0
+if not na(strategy.position_avg_price)
+    // entryprice = strategy.opentrades.entry_price(0)
+    entryprice = strategy.position_avg_price
+    strategy.exit("Exit", "long_id", stop = entryprice - 100, limit = entryprice + 100)
+
+// entryprice = strategy.opentrades.entry_price(0)
+// strategy.exit("Exit", "long_id", stop = entryprice - 100, limit = entryprice + 100)
+
+// ==================== Original Indicator Logic ====================
+// plot(bar_index)
+// plot(bar_index > 5000 ? close : 0)
+
+// // ==================== Strategy Entry/Exit Logic ====================
+// longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+// if (longCondition)
+//     strategy.entry("Long", strategy.long)
+
+// shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+// if (shortCondition)
+//     strategy.entry("Short", strategy.short)

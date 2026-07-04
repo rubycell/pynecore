@@ -1,0 +1,32 @@
+// INDICATOR: Necessary loop demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Necessary loop demo", overlay = true, max_labels_count = 500)  
+  
+//@variable The number of previous `high` values to compare to the last historical bar's `high`.   
+int lengthInput = input.int(20, "Length", 1, 500)  
+  
+if barstate.islastconfirmedhistory  
+    // Draw a horizontal line segment at the last historical bar's `high` to visualize the level.   
+    line.new(bar_index - lengthInput, high, bar_index, high, color = color.gray, style = line.style_dashed, width = 2)  
+    // Create a `for` loop that counts from 1 to `lengthInput`.  
+    for i = 1 to lengthInput  
+        // Draw a circular `label` above the bar from `i` bars ago if that bar's `high` is above the current `high`.  
+        if high[i] > high  
+            label.new(  
+                 bar_index - i, na, "", yloc = yloc.abovebar, color = color.purple,   
+                 style = label.style_circle, size = size.tiny  
+             )  
+  
+// Highlight the last historical bar.  
+barcolor(barstate.islastconfirmedhistory ? color.orange : na, title = "Last historical bar highlight")
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

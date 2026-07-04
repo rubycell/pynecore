@@ -1,0 +1,44 @@
+// INDICATOR: Function overloading demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Function overloading demo", overlay=true)  
+  
+//@function     (Overload 1) Changes the sign of a number.  
+//@param value  The "float" or "int" value to process.  
+//@returns      The negated number.  
+negate(float value) =>  
+    -value  
+  
+//@function     (Overload 2) Negates a Boolean value.  
+//@param value  The "bool" value to process.  
+//@returns      `false` if the value is `true`, or `true` if the value is `false`.  
+negate(bool value) =>  
+    not value  
+  
+//@function     (Overload 3) Calculates the sRGB negative (i.e., complement) of a color.  
+//@param value  The "color" value to process.  
+//@returns      The "color" value whose red, green, and blue components are opposites of the `value` color's components  
+//              in the sRGB color space.  
+negate(color value) =>  
+    color.rgb(255 - color.r(value), 255 - color.g(value), 255 - color.b(value), color.t(value))  
+  
+  
+//@variable `true` if the current `close` value is *not* greater than the value of `open`. Otherwise, `false`.  
+bool notUpBar = negate(close > open)  
+//@variable The `-close` value if the `notUpBar` condition is `true`, or the `close` value if the condition is `false`.  
+float plotSeries = notUpBar ? negate(close) : close  
+//@variable The sRGB negative of the chart's background color.  
+color plotColor = negate(chart.bg_color)  
+  
+// Plot the value of `plotSeries` and color it using `plotColor`.  
+plot(plotSeries, "Test plot", plotColor, style = plot.style_area)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

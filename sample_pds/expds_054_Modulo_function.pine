@@ -1,0 +1,17 @@
+// INDICATOR: Modulo function
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Modulo function", overlay=true)  
+modulo(series int a, series int b) =>  
+    a - b * math.floor(nz(a/b))  
+plot(modulo(-1, 100))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

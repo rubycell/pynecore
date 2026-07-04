@@ -1,0 +1,35 @@
+// INDICATOR: Timeframe warning table demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Timeframe warning table demo", overlay = true, max_labels_count = 500, behind_chart = false)   
+  
+// Input for the trading session (e.g., "0930-1600" for US stocks regular hours)  
+sessionInput = input.session("0930-1600", "Trading Session")  
+  
+// Display `warningTable` on last bar if the chart timeframe is not intraday.  
+if barstate.islastconfirmedhistory and timeframe.isdwm  
+    //@variable A single-cell `table` that inform users about the unsupported timeframe.  
+    var table warningTable = table.new(position.middle_center, 1, 1, color.yellow)  
+    warningTable.cell(0, 0,   
+         "Warning: This indicator supports only intraday timeframes.\n Switch to a lower timeframe to see output.",   
+         text_size = size.large)  
+  
+// Plot a label at the opening price when the session starts  
+if timeframe.isintraday and na(time("", sessionInput)[1]) and not na(time("", sessionInput))  
+    label.new(bar_index, open, "Session Open: " + str.tostring(open, "#.##"), yloc = yloc.abovebar,   
+      color = color.green, style = label.style_label_down)  
+  
+// Plot a label at the closing price on the last bar of the session  
+if timeframe.isintraday and not na(time("", sessionInput)[1]) and na(time("", sessionInput))  
+    label.new(bar_index[1], close[1], "Session Close: " + str.tostring(close[1], "#.##"), yloc = yloc.belowbar,   
+      color = color.red, style = label.style_label_up)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

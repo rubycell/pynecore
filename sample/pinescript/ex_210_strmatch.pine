@@ -1,0 +1,20 @@
+//@version=6
+strategy("str.match", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+s = input.string("It's time to sell some NASDAQ:AAPL!")
+
+// finding first substring that matches regular expression "[\w]+:[\w]+"
+var string tickerid = str.match(s, "[\\w]+:[\\w]+")
+
+if barstate.islastconfirmedhistory
+    label.new(bar_index, high, text = tickerid) // "NASDAQ:AAPL"
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

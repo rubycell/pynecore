@@ -1,0 +1,38 @@
+// INDICATOR: `for` loop with dynamic `to_num` demo
+// Extracted from Pine Script documentation
+
+//@version=6   
+strategy("`for` loop with dynamic `to_num` demo")  
+  
+//@variable The length of the standard deviation.  
+int lengthInput = input.int(20, "Length", 1, 4999)  
+  
+//@variable The standard deviation of `close` prices over `lengthInput` bars.   
+float stdev = ta.stdev(close, lengthInput)  
+  
+//@variable The minimum bars back where the past bar's `close` differs from the current `close` by at least `stdev`.  
+//          Used as the weight value in the weighted average.    
+int barOffset = 0  
+  
+// Define a `for` loop that iterates from 0 to `barsBack`.  
+for i = 0 to barOffset  
+    // Add 1 for each bar where the distance from that bar's `close` to the current bar's `close` is less than `stdev`.  
+    // Each time `barsBack` increases, it changes the loop's `to_num` boundary, allowing another iteration.    
+    barOffset += math.abs(close - close[i]) < stdev ? 1 : 0  
+  
+//@variable A gradient color for the `barOffset` plot.   
+color offsetColor = color.from_gradient(barOffset, 0, lengthInput, color.blue, color.orange)  
+  
+// Plot the `barOffset` in a separate pane.   
+plot(barOffset, "Bar offset", offsetColor, 1, plot.style_columns)  
+// Plot the historical `close` price from `barOffset` bars back in the main chart pane.  
+plot(close[barOffset], "Historical bar's price", color.blue, 3, force_overlay = true)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

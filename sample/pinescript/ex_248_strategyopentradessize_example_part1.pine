@@ -1,0 +1,15 @@
+//@version=6
+strategy("strategy.opentrades.size Example 1")
+
+// We calculate the max amt of shares we can buy.
+amtShares = math.floor(strategy.equity / close)
+// Strategy calls to enter long trades every 15 bars and exit long trades every 20 bars
+if bar_index % 15 == 0
+    strategy.entry("Long", strategy.long, qty = amtShares)
+if bar_index % 20 == 0
+    strategy.close("Long")
+
+// Plot the number of contracts in the latest open trade.
+plot(strategy.opentrades.size(strategy.opentrades - 1), "Amount of contracts in latest open trade")
+
+// Calculates the average profit percentage for all open trades.

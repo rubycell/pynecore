@@ -1,0 +1,21 @@
+//@version=6
+strategy("matrix.get() Example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+
+// Create a 2x3 "float" matrix from the `hl2` values.
+m = matrix.new<float>(2, 3, hl2)
+
+// Return the value of the element at index [0, 0] of matrix `m`.
+x = matrix.get(m, 0, 0)
+
+plot(x)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

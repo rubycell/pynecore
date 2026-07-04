@@ -1,0 +1,21 @@
+//@version=6
+strategy("strategy.closedtrades.exit_time Example 1")
+
+// Enter long trades on three rising bars; exit on two falling bars.
+if ta.rising(close, 3)
+    strategy.entry("Long", strategy.long)
+if ta.falling(close, 2)
+    strategy.close("Long")
+
+// Calculate the average trade duration. 
+avgTradeDuration() =>
+    sumTradeDuration = 0
+    for i = 0 to strategy.closedtrades - 1
+        sumTradeDuration += strategy.closedtrades.exit_time(i) - strategy.closedtrades.entry_time(i)
+    result = nz(sumTradeDuration / strategy.closedtrades)
+
+// Display average duration converted to seconds and formatted using 2 decimal points.
+if barstate.islastconfirmedhistory
+    label.new(bar_index, high, str.tostring(avgTradeDuration() / 1000, "#.##") + " seconds")
+
+// Reopens a closed trade after X seconds.

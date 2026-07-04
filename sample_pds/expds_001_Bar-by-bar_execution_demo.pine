@@ -1,0 +1,18 @@
+// INDICATOR: Bar-by-bar execution demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Bar-by-bar execution demo", overlay = true, behind_chart = false)  
+  
+// Plot the `close` series on the chart.  
+// This call defines the plotted point for the current bar on each execution.  
+plot(close, "Close price", chart.fg_color, 5)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

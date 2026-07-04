@@ -1,0 +1,26 @@
+// INDICATOR: Built-in
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Built-in 'input' variables demo")  
+  
+//@variable The difference between `time` and the leftmost visible bar's time, relative to the visible range.  
+//          The `chart.*` variables in this calculation depend on input data from the visible chart, so their type is  
+//          "input int".  
+gradientValue = (time - chart.left_visible_bar_time) / (chart.right_visible_bar_time - chart.left_visible_bar_time)  
+  
+//@variable The gradient color. The `chart.*` variables in this calculation are of the type "input color", because   
+//          they depend on the "Background" inputs in the "Canvas" tab of the chart's settings.   
+gradientColor = color.from_gradient(gradientValue, 0, 1, chart.bg_color, chart.fg_color)  
+  
+// Color the background using the `gradientColor` value.  
+bgcolor(gradientColor)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

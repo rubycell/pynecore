@@ -1,0 +1,18 @@
+//@version=6
+strategy("strategy.closedtrades.exit_bar_index Example 2")
+
+// Enter long trades on three rising bars; exit on two falling bars.
+if ta.rising(close, 3)
+    strategy.entry("Long", strategy.long)
+if ta.falling(close, 2)
+    strategy.close("Long")
+
+// Function that calculates the average amount of bars per trade.
+avgBarsPerTrade() =>
+    sumBarsPerTrade = 0
+    for tradeNo = 0 to strategy.closedtrades - 1
+        // Loop through all closed trades, starting with the oldest.
+        sumBarsPerTrade += strategy.closedtrades.exit_bar_index(tradeNo) - strategy.closedtrades.entry_bar_index(tradeNo) + 1
+    result = nz(sumBarsPerTrade / strategy.closedtrades)
+
+plot(avgBarsPerTrade())

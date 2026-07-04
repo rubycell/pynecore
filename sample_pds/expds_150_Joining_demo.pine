@@ -1,0 +1,41 @@
+// INDICATOR: Joining demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Joining demo", overlay=true)  
+  
+//@function Returns a tuple containing the ticker ID ("string"), bar index ("int"), and closing price ("float").   
+dataRequest() =>  
+    [syminfo.tickerid, bar_index, close]  
+  
+if barstate.islast  
+    //@variable A single-cell table displaying the results of `array.join()` calls.  
+    var table displayTable = table.new(position.middle_center, 1, 1, color.blue)  
+    // Request data for three symbols.   
+    [ticker1, index1, price1] = request.security("SPY", "", dataRequest())  
+    [ticker2, index2, price2] = request.security("GLD", "", dataRequest())  
+    [ticker3, index3, price3] = request.security("TLT", "", dataRequest())  
+  
+    // Create separate "string", "int", and "float" arrays to hold the requested data.  
+    array<string> tickerArray = array.from(ticker1, ticker2, ticker3)  
+    array<int> indexArray = array.from(index1, index2, index3)  
+    array<float> priceArray = array.from(price1, price2, price3)  
+  
+    // Convert each array's data to strings and join them with different separators.   
+    string joined1 = array.join(tickerArray, ", ")  
+    string joined2 = indexArray.join("|")  
+    string joined3 = priceArray.join("\n")  
+  
+    //@variable A joined "string" containing the `joined1`, `joined2`, and `joined3` values.   
+    string displayText = array.from(joined1, joined2, joined3).join("\n---\n")  
+    // Initialize a cell to show the `displayText`.  
+    displayTable.cell(0, 0, displayText, text_color = color.white, text_size = 36)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

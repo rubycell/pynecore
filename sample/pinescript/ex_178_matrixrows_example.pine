@@ -1,0 +1,23 @@
+//@version=6
+strategy("matrix.rows() Example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+
+// Create a 2x6 matrix with values `0`.
+var m = matrix.new<int>(2, 6, 0)
+
+// Get the quantity of rows in the matrix.
+var x = matrix.rows(m)
+
+// Display using a label.
+if barstate.islastconfirmedhistory
+    label.new(bar_index, high, "Rows: " + str.tostring(x) + "\n" + str.tostring(m))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

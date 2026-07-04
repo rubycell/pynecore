@@ -1,0 +1,20 @@
+// INDICATOR: Invalid recursive function demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Invalid recursive function demo", overlay=true)  
+  
+gcd(int x, int y) =>  
+    // This expression causes an error. `gcd()` cannot call itself.  
+    y == 0 ? x : gcd(y, x % y)  
+  
+plot(gcd(15, 20))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

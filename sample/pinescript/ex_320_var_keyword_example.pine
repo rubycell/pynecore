@@ -1,0 +1,27 @@
+//@version=6
+strategy("Var keyword example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+var a = close
+var b = 0.0
+var c = 0.0
+var green_bars_count = 0
+if close > open
+    var x = close
+    b := x
+    green_bars_count := green_bars_count + 1
+    if green_bars_count >= 10
+        var y = close
+        c := y
+plot(a)
+plot(b)
+plot(c)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

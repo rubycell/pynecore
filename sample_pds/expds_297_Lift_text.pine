@@ -1,0 +1,18 @@
+// INDICATOR: Lift text
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Lift text", "", true)  
+plotshape(true, "", shape.arrowup,   location.abovebar, color.green,  text = "A")  
+plotshape(true, "", shape.arrowup,   location.abovebar, color.lime,   text = "B\n")  
+plotshape(true, "", shape.arrowdown, location.belowbar, color.red,    text = "C")  
+plotshape(true, "", shape.arrowdown, location.belowbar, color.maroon, text = "​\nD")
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

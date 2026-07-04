@@ -1,0 +1,19 @@
+//@version=6
+strategy("Converted Strategy", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+len = input.int(17, minval=1, title="DI Length")
+lensig = input.int(14, title="ADX Smoothing", minval=1)
+[diplus, diminus, adx] = ta.dmi(len, lensig)
+plot(adx, color=color.red, title="ADX")
+plot(diplus, color=color.blue, title="+DI")
+plot(diminus, color=color.orange, title="-DI")
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

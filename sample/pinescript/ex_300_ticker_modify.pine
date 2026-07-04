@@ -1,0 +1,19 @@
+//@version=6
+strategy("ticker_modify", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+t1 = ticker.new(syminfo.prefix, syminfo.ticker, session.regular, adjustment.splits)
+c1 = request.security(t1, "D", close)
+t2 = ticker.modify(t1, session.extended)
+c2 = request.security(t2, "2D", close)
+plot(c1)
+plot(c2)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

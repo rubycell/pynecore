@@ -1,0 +1,38 @@
+//@version=6
+strategy("matrix.new<type>() Example 3", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ==================== 3")
+
+// Function to create a matrix from a text string.
+// Values in a row must be separated by a space. Each line is one row.
+matrixFromInputArea(stringOfValues) =>
+    var rowsArray = str.split(stringOfValues, "\n")
+    var rows = array.size(rowsArray)
+    var cols = array.size(str.split(array.get(rowsArray, 0), " "))
+    var matrix = matrix.new<float>(rows, cols, na) 
+    row = 0
+    for rowString in rowsArray
+        col = 0
+        values = str.split(rowString, " ")
+        for val in values
+            matrix.set(matrix, row, col, str.tonumber(val))
+            col += 1
+        row += 1
+    matrix
+
+
+stringInput = input.text_area("1 2 3\n4 5 6\n7 8 9")
+var m = matrixFromInputArea(stringInput)    
+
+// Display using a label.
+if barstate.islastconfirmedhistory
+    label.new(bar_index, high, str.tostring(m))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

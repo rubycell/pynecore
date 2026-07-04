@@ -1,0 +1,20 @@
+// INDICATOR: Simple `for` loop demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Simple `for` loop demo", overlay=true)  
+  
+if barstate.islastconfirmedhistory  
+    // Define a `for` loop that iterates from `i == 0` to `i == 10` by 1 (11 total iterations).  
+    for i = 0 to 10  
+        // Draw a new label `i` bars ahead of the current bar.    
+        label.new(bar_index + i, 0, str.tostring(i), textcolor = color.white, size = size.large)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

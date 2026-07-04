@@ -1,0 +1,29 @@
+// INDICATOR: Row with reference types demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Row with reference types demo", overlay=true)  
+  
+//@type A custom type that holds a float value.  
+type myUDT  
+    float value = 0.0  
+  
+//@variable A 1x1 matrix of `myUDT` type.  
+var matrix<myUDT> m = matrix.new<myUDT>(1, 1, myUDT.new())  
+//@variable A shallow copy of the first row of `m`.  
+array<myUDT> row = m.row(0)  
+//@variable The first element of the `row`.  
+myUDT firstElement = row.get(0)  
+  
+firstElement.value += 1.0 // Add 1 to the `value` field of `firstElement`. Also affects the element in the matrix.  
+  
+plot(m.get(0, 0).value, linewidth = 3) // Plot the `value` of the `myUDT` object from the first row and column of `m`.
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

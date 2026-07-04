@@ -1,0 +1,30 @@
+//@version=6
+strategy("Tuple return with history reference", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== User-defined function returning tuple ====================
+// This function returns two smoothed moving averages as a tuple.
+calculateSmoothed(int length) =>
+    fast = ta.sma(close, length)
+    slow = ta.sma(close, length * 2)
+    [fast, slow]
+
+// Tuple destructure — both variables need Series[float] because we use [1] below
+[smoothFast, smoothSlow] = calculateSmoothed(10)
+
+// Historical reference on tuple-returned variables — this is the bug trigger
+// smoothFast[1] requires smoothFast to be Series[float], not plain float
+fastRising = smoothFast > smoothFast[1]
+slowRising = smoothSlow > smoothSlow[1]
+
+plot(smoothFast, "Fast MA", color.blue)
+plot(smoothSlow, "Slow MA", color.red)
+bgcolor(fastRising ? color.new(color.green, 90) : na)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(smoothFast, smoothSlow) and fastRising
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(smoothFast, smoothSlow)
+if (shortCondition)
+    strategy.close("Long")

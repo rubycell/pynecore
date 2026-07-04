@@ -1,0 +1,26 @@
+// INDICATOR: Value type independence demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Value type independence demo", overlay=true)  
+  
+// Initialize the first variable with a value of 10.  
+int myVar1 = 10  
+// Initialize the second variable using the first. This variable's value is now 10.  
+int myVar2 = myVar1  
+  
+// Increase the first variable's value by 10. Now, the value of `myVar1` is 20, but the value of `myVar2` is still 10.  
+myVar1 += 10  
+  
+// Plot both values for comparison.  
+plot(myVar1, "First variable", color.blue, 3)  
+plot(myVar2, "Second variable", color.purple, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

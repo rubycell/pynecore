@@ -1,0 +1,19 @@
+//@version=6
+strategy("strategy.opentrades.size Example 2")
+
+// Strategy calls to enter long trades every 15 bars and exit long trades every 20 bars.
+if bar_index % 15 == 0
+    strategy.entry("Long", strategy.long)
+if bar_index % 20 == 0
+    strategy.close("Long")
+
+// Calculate profit for all open trades.
+profitPct = 0.0
+for tradeNo = 0 to strategy.opentrades - 1
+    entryP = strategy.opentrades.entry_price(tradeNo)
+    exitP = close
+    profitPct += (exitP - entryP) / entryP * strategy.opentrades.size(tradeNo) * 100
+    
+// Calculate average profit percent for all open trades.
+avgProfitPct = nz(profitPct / strategy.opentrades)
+plot(avgProfitPct)

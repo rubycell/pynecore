@@ -1,0 +1,29 @@
+// INDICATOR: Objects using `var` demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Objects using `var` demo", overlay=true)  
+  
+//@type A custom type to hold index, price, and volume information.  
+type BarInfo  
+    int   index = bar_index  
+    float price = close  
+    float vol   = volume  
+  
+//@variable A `BarInfo` instance whose fields persist through all iterations, starting from the first bar.  
+var BarInfo firstBar = BarInfo.new()  
+//@variable A `BarInfo` instance declared on every bar.  
+BarInfo currentBar = BarInfo.new()  
+  
+// Plot the `index` fields of both instances to compare the difference.   
+plot(firstBar.index)  
+plot(currentBar.index)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

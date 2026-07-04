@@ -1,0 +1,19 @@
+//@version=6
+strategy("[]", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+// [] can be used to "save" variable value between bars
+a = 0.0 // declare `a`
+a := a[1] // immediately set current value to the same as previous. `na` in the beginning of history
+if high == low // if some condition - change `a` value to another
+    a := low
+plot(a)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

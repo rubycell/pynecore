@@ -1,0 +1,20 @@
+// INDICATOR: Cannot assign a
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Cannot assign a 'series' value demo")  
+  
+// This declaration causes an error. `math.random()` returns a "series float" value, but the `rand` variable   
+// requires a "float" value with the "simple" qualifier or a weaker one.  
+simple float rand = math.random()  
+  
+plot(rand)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

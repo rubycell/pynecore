@@ -39,3 +39,10 @@ MEMORY.md
 
 # Others
 uv.lock
+
+# Regression testing artifacts (large / regenerable)
+ground_truth/
+ground_truth_old_*/
+test_results*.json
+test_results*.json.bak
+test_results*.txt

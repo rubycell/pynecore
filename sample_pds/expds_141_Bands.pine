@@ -1,0 +1,29 @@
+// INDICATOR: Bands
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Bands", "", true)  
+//@variable The distance ratio between plotted price levels.  
+factorInput = 1 + (input.float(-2., "Step %") / 100)  
+//@variable A single-value array holding the lowest `ohlc4` value within a 50 bar window from 10 bars back.  
+level = array.new<float>(1, ta.lowest(ohlc4, 50)[10])  
+  
+nextLevel(val) =>  
+    newLevel = level.get(0) * val  
+    // Write new level to the global `level` array so we can use it as the base in the next function call.  
+    level.set(0, newLevel)  
+    newLevel  
+  
+plot(nextLevel(1))  
+plot(nextLevel(factorInput))  
+plot(nextLevel(factorInput))  
+plot(nextLevel(factorInput))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

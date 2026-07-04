@@ -1,0 +1,18 @@
+//@version=6
+strategy("input.int", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+i_len1 = input.int(10, "Length 1", minval=5, maxval=21, step=1)
+plot(ta.sma(close, i_len1))
+
+i_len2 = input.int(10, "Length 2", options=[5, 10, 21])
+plot(ta.sma(close, i_len2))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

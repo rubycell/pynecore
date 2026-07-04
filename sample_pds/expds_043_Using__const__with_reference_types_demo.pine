@@ -1,0 +1,24 @@
+// INDICATOR: Using `const` with reference types demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Using `const` with reference types demo", overlay=true)  
+  
+//@variable Holds a reference to an array of three pseudorandom "float" values.  
+//          Although the variable is declared using `const`, the reference returned by `array.from()` has the "series"   
+//          qualifier, because each execution creates a new, unique array object. Additionally, all elements in the   
+//          array are of the type "series float".  
+//          This *does not* cause an error, because the script does not *reassign* the variable during any execution.  
+const array<float> randArray = array.from(math.random(), math.random(), math.random())  
+  
+// Plot the sum of the `randArray` elements.  
+plot(randArray.sum())
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

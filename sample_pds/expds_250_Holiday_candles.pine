@@ -1,0 +1,20 @@
+// INDICATOR: Holiday candles
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Holiday candles", "", true)  
+float r = math.random(0, 255)  
+float g = math.random(0, 255)  
+float b = math.random(0, 255)  
+float t = math.random(0, 100)  
+color holidayColor = color.rgb(r, g, b, t)  
+plotcandle(open, high, low, close, color = holidayColor, wickcolor = holidayColor, bordercolor = holidayColor)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

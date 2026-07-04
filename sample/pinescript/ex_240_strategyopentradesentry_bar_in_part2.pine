@@ -1,0 +1,13 @@
+//@version=6
+strategy("strategy.opentrades.entry_bar_index Example")
+
+barsSinceLastEntry() =>
+    strategy.opentrades > 0 ? bar_index - strategy.opentrades.entry_bar_index(strategy.opentrades - 1) : na
+
+// Enter a long position if there are no open positions.
+if strategy.opentrades == 0
+    strategy.entry("Long", strategy.long)
+
+// Close the long position after 10 bars. 
+if barsSinceLastEntry() >= 10
+    strategy.close("Long")

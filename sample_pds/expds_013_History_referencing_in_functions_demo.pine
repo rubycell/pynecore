@@ -1,0 +1,24 @@
+// INDICATOR: History referencing in functions demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("History referencing in functions demo", overlay = true, behind_chart = false)  
+  
+//@variable The highest value from the `high` series across the 20 most recent bars.  
+//          The `ta.highest()` call compares the current `high` to the last 19 committed values.  
+float highest = ta.highest(high, 20)  
+  
+// Plot the `highest` series on the chart.  
+plot(highest, "20-bar high", color.purple, 3)  
+  
+// Color the background of the last 20 bars, i.e., the bars used by the latest execution's `ta.highest()` call.  
+bgcolor(color.new(color.blue, 70), show_last = 20, title = "Last 20 bar highlight")
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

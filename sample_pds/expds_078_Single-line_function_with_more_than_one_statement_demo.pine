@@ -1,0 +1,23 @@
+// INDICATOR: Single-line function with more than one statement demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Single-line function with more than one statement demo", overlay=true)  
+  
+//@function Calculates the z-score of a `source` series over `length` bars.  
+zScore(float source, int length) => mean = ta.sma(source, length), sd = ta.stdev(source, length), (source - mean) / sd  
+  
+//@variable The 20-bar z-score of `close` values.  
+float osc = zScore(close, 20)  
+  
+// Plot the `osc` series as color-coded columns.  
+plot(osc, "Z-score", osc > 0 ? color.green : color.red, style = plot.style_columns)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

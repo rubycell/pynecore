@@ -1,0 +1,30 @@
+// INDICATOR: Independent call scopes demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Independent call scopes demo", overlay=true)  
+  
+//@function Accumulates the values from a `source` series across executions.  
+//          Each written call to this function defines a *separate* scope with unique versions of `source` and `total`.  
+accumulate(float source) =>  
+    //@variable A *persistent* variable declared on only one bar, initialized with a value of 0.  
+    var float total = 0.0  
+    // Add the `source` value to `total` and return the variable's new value.  
+    total += source  
+  
+// Use two calls to `accumulate()` with the same `source` argument inside a ternary expression.  
+// Each call has its own version of `total`, which updates only on bars where the script *evaluates* that call.  
+// These two calls thus return **different** results, because the script does not evaluate both of them on the  
+// *same* number of bars.  
+float altCallSeries = bar_index % 3 == 0 ? accumulate(1) : accumulate(1)  
+  
+plot(altCallSeries, "Alternating call results", color.purple, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

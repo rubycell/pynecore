@@ -1,0 +1,29 @@
+// INDICATOR: Object matrix fill demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Object matrix fill demo", overlay=true)  
+  
+//@variable A 4x4 label matrix.  
+var matrix<label> m = matrix.new<label>(4, 4)  
+  
+// Fill `m` with a new label object on the first bar.  
+if bar_index == 0  
+    m.fill(label.new(0, 0, textcolor = color.white, size = size.huge))  
+  
+//@variable The number of label objects on the chart.  
+int numLabels = label.all.size()  
+  
+// Set the `x` of the label from the first row and column to `bar_index`.  
+m.get(0, 0).set_x(bar_index)  
+// Set the `text` of the label at the last row and column to the number of labels.  
+m.get(3, 3).set_text(str.format("Total labels on the chart: {0}", numLabels))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

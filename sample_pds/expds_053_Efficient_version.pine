@@ -1,0 +1,18 @@
+// INDICATOR: Efficient version
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Efficient version", "", true)  
+var closeLine = line.new(bar_index - 1, close, bar_index, close, extend = extend.right, width = 3)  
+if barstate.islast  
+    line.set_xy1(closeLine, bar_index - 1, close)  
+    line.set_xy2(closeLine, bar_index, close)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

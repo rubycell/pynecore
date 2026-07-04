@@ -1,0 +1,16 @@
+//@version=6
+strategy("label.get_text", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+my_label = label.new(time, open, text="Open bar text", xloc=xloc.bar_time)
+a = label.get_text(my_label)
+label.new(time, close, text = a + " new", xloc=xloc.bar_time)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

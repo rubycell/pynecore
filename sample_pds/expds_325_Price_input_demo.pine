@@ -1,0 +1,27 @@
+// INDICATOR: Price input demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Price input demo", overlay=true)  
+  
+//@variable The level at which the plot of the RSI changes color.   
+//          Users can adjust the value directly in the chart pane.   
+float thresholdInput = input.price(50.0, "Threshold")  
+  
+//@variable The 14-bar RSI of `close` prices.   
+float rsi = ta.rsi(close, 14)  
+  
+//@variable Is green if the `rsi` is above the `thresholdInput`; red otherwise.   
+color rsiColor = rsi > thresholdInput ? color.green : color.red  
+  
+// Plot the `rsi` using the `rsiColor`.  
+plot(rsi, "RSI", rsiColor, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

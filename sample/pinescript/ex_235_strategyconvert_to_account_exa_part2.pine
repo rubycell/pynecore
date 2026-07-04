@@ -1,0 +1,20 @@
+//@version=6
+strategy("strategy.convert_to_account Example 2", currency = currency.EUR)
+
+dateInput = input.time(timestamp("20 Jul 2021 00:00 +0300"), "From Date", confirm = true)
+
+buyAndHoldReturnPct(fromDate) =>
+    if time >= fromDate
+        money = close * syminfo.pointvalue
+        var initialBal = strategy.convert_to_account(money)
+        (strategy.convert_to_account(money) - initialBal) / initialBal * 100
+
+plot(buyAndHoldReturnPct(dateInput))
+
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("My Long Entry Id", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("My Short Entry Id", strategy.short)

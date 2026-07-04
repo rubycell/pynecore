@@ -1,0 +1,28 @@
+// INDICATOR: Switch using an expression
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Switch using an expression", "", true)  
+  
+string maType = input.string("EMA", "MA type", options = ["EMA", "SMA", "RMA", "WMA"])  
+int maLength = input.int(10, "MA length", minval = 2)  
+  
+float ma = switch maType  
+    "EMA" => ta.ema(close, maLength)  
+    "SMA" => ta.sma(close, maLength)  
+    "RMA" => ta.rma(close, maLength)  
+    "WMA" => ta.wma(close, maLength)  
+    =>   
+        runtime.error("No matching MA type found.")  
+        float(na)  
+  
+plot(ma)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

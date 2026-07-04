@@ -1,0 +1,13 @@
+//@version=6
+strategy("strategy.opentrades.max_runup Example 1")
+
+// Strategy calls to enter long trades every 15 bars and exit long trades every 20 bars.
+if bar_index % 15 == 0
+    strategy.entry("Long", strategy.long)
+if bar_index % 20 == 0
+    strategy.close("Long")
+
+// Plot the max runup of the latest open trade.
+plot(strategy.opentrades.max_runup(strategy.opentrades - 1), "Max runup of the latest open trade")
+
+// Calculates the max trade runup value for all open trades.

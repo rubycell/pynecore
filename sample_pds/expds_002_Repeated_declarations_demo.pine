@@ -1,0 +1,24 @@
+// INDICATOR: Repeated declarations demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Repeated declarations demo", overlay=true)  
+  
+//@variable A user-defined variable. The script declares this variable and initializes it to 0 on *every* execution.  
+int x = 0  
+  
+// Increase the value of `x` by 10 on every bar.  
+x += 10  
+  
+// Plot the value of `x`.  
+// Because `x` begins at 0 on every execution, and the script adds 10 to that value, the plotted value is always 10.  
+plot(x, "`x` value", color.blue, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,30 @@
+//@version=6
+strategy("input", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+i_switch = input(true, "On/Off")
+plot(i_switch ? open : na)
+
+i_len = input(7, "Length")
+i_src = input(close, "Source")
+plot(ta.sma(i_src, i_len))
+
+i_border = input(142.50, "Price Border")
+hline(i_border)
+bgcolor(close > i_border ? color.green : color.red)
+
+i_col = input(color.red, "Plot Color")
+plot(close, color=i_col)
+
+i_text = input("Hello!", "Message")
+l = label.new(bar_index, high, text=i_text)
+label.delete(l[1])
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(i_src, i_len), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(i_src, i_len), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

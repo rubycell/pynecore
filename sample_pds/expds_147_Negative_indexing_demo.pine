@@ -1,0 +1,63 @@
+// INDICATOR: Negative indexing demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Negative indexing demo", overlay = false)  
+  
+//@variable A table that displays various array operations and their results.  
+var table displayTable = table.new(  
+     position.middle_center, 2, 15, bgcolor = color.white,   
+     frame_color = color.black, frame_width = 1, border_width = 1  
+ )  
+  
+//@function Initializes a `displayTable` row to output a "string" of an `arrayOperation` and the `operationResult`.  
+displayRow(int rowID, string arrayOperation, operationResult) =>  
+    //@variable Is white if the `rowID` is even, light blue otherwise. Used to set alternating table row colors.  
+    color rowColor = rowID % 2 == 0 ? color.white : color.rgb(33, 149, 243, 75)  
+    // Display the `arrayOperation` in the row's first cell.  
+    displayTable.cell(0, rowID, arrayOperation, text_color = color.black,   
+         text_halign = text.align_left, bgcolor = rowColor, text_font_family = font.family_monospace  
+     )  
+    // Display the `operationResult` in the row's second cell.  
+    displayTable.cell(1, rowID, str.tostring(operationResult), text_color = color.black,   
+         text_halign = text.align_right, bgcolor = rowColor  
+     )  
+  
+if barstate.islastconfirmedhistory  
+    //@variable Array of "int" numbers. Holds six multiples of 10, counting from 10 to 60.  
+    array<int> countingArray = array.from(10, 20, 30, 40, 50, 60)  
+  
+    // Initialize the table's header cells.  
+    displayTable.cell(0, 0, "ARRAY OPERATION")  
+    displayTable.cell(1, 0, "RESULT")  
+  
+    // Display the initial `countingArray` values.  
+    displayTable.cell(0, 1, "Initial `countingArray`",   
+         text_color = color.black, text_halign = text.align_center, bgcolor = color.yellow)  
+    displayTable.cell(1, 1, str.tostring(countingArray),   
+         text_color = color.black, text_halign = text.align_right, bgcolor = color.yellow)  
+  
+    // Retrieve array elements using negative indices in `array.get()`.  
+    displayRow(2, "`countingArray.get(0)`", countingArray.get(0))  
+    displayRow(3, "`countingArray.get(-1)`", countingArray.get(-1))  
+    displayRow(4, "`countingArray.get(-countingArray.size())`", countingArray.get(-countingArray.size()))  
+  
+    // Update array elements using negative indices in `array.set()` and `array.insert()`.  
+    countingArray.set(-2, 99)  
+    displayRow(5, "`countingArray.set(-2, 99)`", countingArray)  
+  
+    countingArray.insert(-5, 878)  
+    displayRow(6, "`countingArray.insert(-5, 878)`", countingArray)  
+  
+    // Remove array elements using negative indices in `array.remove()`.  
+    countingArray.remove(-3)  
+    displayRow(7, "`countingArray.remove(-3)`", countingArray)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

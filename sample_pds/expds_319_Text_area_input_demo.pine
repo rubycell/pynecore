@@ -1,0 +1,28 @@
+// INDICATOR: Text area input demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Text area input demo", overlay = true)  
+  
+//@variable A comma-separated list of symbol names with optional exchange prefixes.   
+string symbolListInput = input.text_area("AAPL,GOOG,NVDA,MSFT", "Symbol list")  
+  
+//@variable An array of symbol substrings formed by splitting the `symbolListInput` by its commas.   
+var array<string> symbols = str.split(symbolListInput, ",")  
+  
+if barstate.islast  
+    //@variable A table displaying requested volume data for each symbol in the `symbols` array.  
+    var table display = table.new(position.bottom_right, 2, symbols.size())  
+    for [i, symbol] in symbols  
+        display.cell(0, i, symbol, text_color = chart.fg_color, text_size = 20)  
+        float vol = request.security(symbol, "", volume)  
+        display.cell(1, i, str.tostring(vol, format.volume), text_color = chart.fg_color, text_size = 20)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

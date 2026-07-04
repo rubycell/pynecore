@@ -1,0 +1,36 @@
+//@version=5
+strategy(title="Open trade commission", commission_value=0.25, 
+     commission_type=strategy.commission.percent, pyramiding=5,
+     overlay=true)
+
+// Calculate the Stochastic %K and %D values
+kValue = ta.sma(ta.stoch(close, high, low, 9), 3)
+dValue = ta.sma(kValue, 3)
+
+// Generate trades based on the Stochastics
+if ta.crossover(kValue, dValue) and kValue < 20
+    strategy.entry("Enter Long", strategy.long)
+
+if ta.crossunder(kValue, dValue) and kValue > 80
+    strategy.entry("Enter Short", strategy.short)
+
+// Track the total number of trades and see if a new one opened
+totalTrades = strategy.closedtrades + strategy.opentrades
+newEntry = strategy.opentrades > 0 and totalTrades > totalTrades[1]
+
+// When there's a new entry, create a label with commission info
+if newEntry
+    // First get the total and average commission
+    totalCommission = 0.0
+
+    for tradeNumber = 0 to strategy.opentrades - 1
+        totalCommission += strategy.opentrades.commission(tradeNumber)
+    
+    averageCommission = totalCommission / strategy.opentrades
+
+    // Create the label text and then make the label itself
+    labelText = "Commission\nAverage: " + str.tostring(averageCommission, 
+         "0.00") + "\nTotal: " + str.tostring(totalCommission, "0.00")
+        
+    label.new(bar_index, open, color=color.black, textcolor=color.white,
+         text=labelText, style=label.style_label_left)

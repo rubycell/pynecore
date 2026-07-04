@@ -1,0 +1,30 @@
+//@version=6
+strategy("Map with enum keys", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+//@enum        Contains fields with titles representing ticker IDs.
+//@field aapl  Has an Apple ticker ID as its title.
+//@field tsla  Has a Tesla ticker ID as its title.
+//@field amzn  Has an Amazon ticker ID as its title.
+enum symbols
+    aapl = "NASDAQ:AAPL"
+    tsla = "NASDAQ:TSLA"
+    amzn = "NASDAQ:AMZN"
+
+//@variable A map that accepts fields from the symbols enum as keys and "float" values.
+map<symbols, float> data = map.new<symbols, float>()
+// Put key-value pairs into the `data` map.
+data.put(symbols.aapl, request.security(str.tostring(symbols.aapl), timeframe.period, close))
+data.put(symbols.tsla, request.security(str.tostring(symbols.tsla), timeframe.period, close))
+data.put(symbols.amzn, request.security(str.tostring(symbols.amzn), timeframe.period, close))
+// Plot the value from the `data` map accessed by the `symbols.aapl` key.
+plot(data.get(symbols.aapl))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

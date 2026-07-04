@@ -1,0 +1,29 @@
+// INDICATOR: All `alert()` calls
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("All `alert()` calls", overlay=true)  
+r = ta.rsi(close, 20)  
+  
+// Detect crosses.  
+xUp = ta.crossover( r, 50)  
+xDn = ta.crossunder(r, 50)  
+// Trigger an alert on crosses.  
+if xUp  
+    alert("Go long (RSI is " + str.tostring(r, "#.00)"))  
+else if xDn  
+    alert("Go short (RSI is " + str.tostring(r, "#.00)"))  
+  
+plotchar(xUp, "Go Long",  "▲", location.bottom, color.lime, size = size.tiny)  
+plotchar(xDn, "Go Short", "▼", location.top,    color.red,  size = size.tiny)  
+hline(50)  
+plot(r)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

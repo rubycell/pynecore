@@ -1,0 +1,7 @@
+// //@version=6
+// // @description Math library
+// library("num_methods", overlay = true)
+// // Calculate "sinh()" from the float parameter `x`
+// export sinh(float x) =>
+//     (math.exp(x) - math.exp(-x)) / 2.0
+// plot(sinh(0))

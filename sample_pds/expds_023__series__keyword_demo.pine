@@ -1,0 +1,25 @@
+// INDICATOR: `series` keyword demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("`series` keyword demo", overlay = true)  
+  
+//@variable Holds a value intended for use as the `length` argument in `ta.ema()`.  
+//          Although the variable's value is from an input, its type is "series int" because the declaration uses the   
+//          `series` keyword.  
+series int lengthInput = input.int(20, "Length")  
+  
+// This function call causes an error. The `length` parameter requires a "simple int", "input int", or "const int"  
+// argument; it cannot accept a "series int" value.   
+ema = ta.ema(close, length = lengthInput)  
+  
+plot(ema)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

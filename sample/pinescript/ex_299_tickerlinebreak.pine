@@ -1,0 +1,16 @@
+//@version=6
+strategy("ticker.linebreak", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+linebreak_tickerid = ticker.linebreak(syminfo.tickerid, 3)
+linebreak_close = request.security(linebreak_tickerid, timeframe.period, close)
+plot(linebreak_close)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

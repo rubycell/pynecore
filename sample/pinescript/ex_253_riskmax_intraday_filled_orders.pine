@@ -1,0 +1,7 @@
+//@version=6
+strategy("risk.max_intraday_filled_orders Demo")
+strategy.risk.max_intraday_filled_orders(10) // After 10 orders are filled, no more strategy orders will be placed (except for a market order to exit current open market position, if there is any).
+if open > close
+    strategy.entry("buy", strategy.long)
+if open < close
+    strategy.entry("sell", strategy.short)

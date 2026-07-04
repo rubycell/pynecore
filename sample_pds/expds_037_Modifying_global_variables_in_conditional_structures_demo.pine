@@ -1,0 +1,31 @@
+// INDICATOR: Modifying global variables in conditional structures demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Modifying global variables in conditional structures demo", overlay=true)  
+  
+//@variable The number of conditions that occur before the counter value resets.  
+int cycleSizeInput = input.int(10, "Cycle size", 1)  
+  
+//@variable A persistent global variable for counting occurrences of a condition in cycles.   
+var int counter = 0  
+  
+// Logic to update `counter` based on a pseudorandom condition.  
+if math.random() < 0.5  
+    // Increase the `counter` value by one when the condition occurs.  
+    counter += 1  
+    // Reset the `counter` value to 1 if it exceeds the value of `cycleSizeInput`.   
+    if counter > cycleSizeInput  
+        counter := 1  
+  
+// Plot the `counter` value.  
+plot(counter, "Counter value")
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

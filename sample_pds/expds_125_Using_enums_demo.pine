@@ -1,0 +1,37 @@
+// INDICATOR: Using enums demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Using enums demo", overlay=true)  
+  
+//@enum An enumeration of oscillator choices.  
+enum OscType  
+    rsi = "Relative Strength Index"  
+    mfi = "Money Flow Index"  
+    cci = "Commodity Channel Index"  
+  
+//@variable An enumerator (member) of the `OscType` enum. Its type is "input OscType".  
+OscType oscInput = input.enum(OscType.rsi, "Oscillator type")  
+  
+//@function         Calculates one of three oscillators based on a specified `selection` value.  
+//@param source     The series of values to process.  
+//@param length     The number of bars in the calculation.  
+//@param selection  Determines which oscillator to calculate.  
+//                  Possible values are: `OscType.rsi`, `OscType.mfi`, `OscType.cci`, or `na`.  
+calcOscillator(float source, simple int length, OscType selection) =>  
+    result = switch selection  
+        OscType.rsi => ta.rsi(source, length)  
+        OscType.mfi => ta.mfi(source, length)  
+        OscType.cci => ta.cci(source, length)  
+  
+// Plot the value of a `calcOscillator()` call with `oscInput` as the `selection` argument.  
+plot(calcOscillator(close, 20, selection = oscInput))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

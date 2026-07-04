@@ -1,0 +1,23 @@
+// INDICATOR: Reassigning reference-type variables demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Reassigning reference-type variables demo", overlay=true)  
+  
+if barstate.islastconfirmedhistory  
+    // Create a new `label` object and assign its reference to `myLabel`.   
+    label myLabel = label.new(bar_index, 0, "First label")  
+  
+    // Create another `label` object and assign that object's reference to the variable.  
+    // This reassignment operation does not overwrite the first label. It only changes the variable's assigned  
+    // reference. The first object still exists and produces an output on the chart.   
+    myLabel := label.new(bar_index, 20, "Second label")
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,8 @@
+//@version=6
+strategy("My strategy", overlay = true)
+
+// Enter long by market if current open is greater than previous high.
+if open > high[1]
+    strategy.entry("Long", strategy.long, 1)
+// Generate a full exit bracket (profit 10 points, loss 5 points per contract) from the entry named "Long".
+strategy.exit("Exit", "Long", profit = 10, loss = 5)

@@ -1,0 +1,17 @@
+//@version=6
+strategy("array.binary_search", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+a = array.from(5, -2, 0, 9, 1)
+array.sort(a) // [-2, 0, 1, 5, 9]
+position = array.binary_search(a, 0) // 1
+plot(position)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,20 @@
+// INDICATOR: barcolor example
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("barcolor example", overlay = true)  
+isUp = close > open  
+isDown = close <= open  
+isOutsideUp = high > high[1] and low < low[1] and isUp  
+isOutsideDown = high > high[1] and low < low[1] and isDown  
+isInside = high < high[1] and low > low[1]  
+barcolor(isInside ? color.yellow : isOutsideUp ? color.aqua : isOutsideDown ? color.purple : na)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

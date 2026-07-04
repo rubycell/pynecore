@@ -1,0 +1,28 @@
+// INDICATOR: Garbage collection demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Garbage collection demo", overlay = true)  
+  
+//@variable A new `chart.point` at the current `bar_index` and `high`.  
+firstPoint = chart.point.now(high)  
+//@variable A new `chart.point` one bar into the future at the current `low`.  
+secondPoint = chart.point.from_index(bar_index + 1, low)  
+//@variable A new `chart.point` one bar into the future at the current `high`.  
+thirdPoint = chart.point.from_index(bar_index + 1, high)  
+  
+// Draw a new `line` connecting the `firstPoint` to the `secondPoint`.  
+line.new(firstPoint, secondPoint, color = color.red, width = 2)  
+// Draw a new `box` with the `firstPoint` top-left corner and `secondPoint` bottom-right corner.  
+box.new(firstPoint, secondPoint, color.purple, 2, bgcolor = na)  
+// Draw a new `polyline` connecting the `firstPoint`, `secondPoint`, and `thirdPoint` sequentially.  
+polyline.new(array.from(firstPoint, secondPoint, thirdPoint), true, line_width = 2)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,28 @@
+// INDICATOR: Copied objects demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Copied objects demo", overlay=true)  
+  
+if barstate.islastconfirmedhistory  
+    // Create a new label and assign its reference to a variable.  
+    label myLabel1 = label.new(bar_index, 0, "First label", color = color.green, size = size.large)  
+    // Initialize a second variable using `label.copy(myLabel1)`. This variable now references an independent copy   
+    // of the initial label instead of pointing to the same object as `myLabel1`, and the script now displays two labels   
+    // on the chart.  
+    label myLabel2 = label.copy(myLabel1)  
+  
+    // Now that `myLabel2` refers to a different `label` object than `myLabel1`, this call does not affect that object.  
+    label.set_color(myLabel1, color.red)  
+    // Likewise, these two calls do not affect the label referenced by `myLabel1`.  
+    label.set_style(myLabel2, label.style_label_up)  
+    label.set_text(myLabel2, "Second label")
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

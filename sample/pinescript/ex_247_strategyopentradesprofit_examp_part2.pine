@@ -1,0 +1,12 @@
+//@version=6
+strategy("strategy.opentrades.profit Example 1", commission_type = strategy.commission.percent, commission_value = 0.1)
+
+// Strategy calls to enter long trades every 15 bars and exit long trades every 20 bars.
+if bar_index % 15 == 0
+    strategy.entry("Long", strategy.long)
+if bar_index % 20 == 0
+    strategy.close("Long")
+
+plot(strategy.opentrades.profit(strategy.opentrades - 1), "Profit of the latest open trade")
+
+// Calculates the profit for all open trades.

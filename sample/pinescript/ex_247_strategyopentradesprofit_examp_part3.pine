@@ -1,0 +1,15 @@
+//@version=6
+strategy("strategy.opentrades.profit Example 2", pyramiding = 5)
+
+// Strategy calls to enter 5 long positions every 2 bars.
+if bar_index % 2 == 0
+    strategy.entry("Long", strategy.long, qty = 5)
+
+// Calculate open profit or loss for the open positions.
+tradeOpenPL() =>
+    sumProfit = 0.0
+    for tradeNo = 0 to strategy.opentrades - 1
+        sumProfit += strategy.opentrades.profit(tradeNo)
+    result = sumProfit
+    
+plot(tradeOpenPL(), "Profit of all open trades")

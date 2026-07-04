@@ -1,0 +1,23 @@
+// INDICATOR: Invalid sum dimensions demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Invalid sum dimensions demo", overlay=true)   
+  
+//@variable A 2x3 matrix.   
+matrix<float> m1 = matrix.new<float>(2, 3, 1)  
+//@variable A 3x4 matrix.  
+matrix<float> m2 = matrix.new<float>(3, 4, 2)  
+  
+mSum = matrix.sum(m1, m2) // Raises an error. `m1` and `m2` don't have matching dimensions.  
+  
+plot(mSum.get(0, 0))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

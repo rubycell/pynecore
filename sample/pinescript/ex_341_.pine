@@ -1,0 +1,20 @@
+//@version=6
+strategy("Quick compare", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+// Draw circles at the bars where open crosses close
+s2 = ta.cross(open, close) ? math.avg(open,close) : na
+plot(s2, style=plot.style_circles, linewidth=2, color=color.red)
+
+// Combination of ?: operators for 'switch'-like logic
+c = timeframe.isintraday ? color.red : timeframe.isdaily ? color.green : timeframe.isweekly ? color.blue : color.gray
+plot(hl2, color=c)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

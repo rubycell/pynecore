@@ -1,0 +1,23 @@
+// INDICATOR: Out of bounds demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Out of bounds demo", overlay=true)  
+  
+//@variable A 2x3 matrix with a max row index of 1 and max column index of 2.   
+matrix<float> m = matrix.new<float>(2, 3, 0.0)  
+  
+m.set(row = 2, column = 0, value = 1.0)     // The `row` index is out of bounds on this line. The max value is 1.  
+m.submatrix(from_column = 1, to_column = 4) // The `to_column` index is invalid on this line. The max value is 3.  
+  
+if bar_index == last_bar_index - 1  
+    label.new(bar_index, 0, str.tostring(m), color = color.navy, textcolor = color.white, size = size.huge)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

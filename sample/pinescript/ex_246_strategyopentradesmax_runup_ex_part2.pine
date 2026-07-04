@@ -1,0 +1,15 @@
+//@version=6
+strategy("strategy.opentrades.max_runup Example 2", pyramiding = 100)
+
+// Enter a long position every 30 bars.
+if bar_index % 30 == 0
+    strategy.entry("Long", strategy.long)
+
+// Calculate biggest max trade runup value from all of the open trades.
+maxOpenTradeRunUp() =>
+    maxRunup = 0.0
+    for tradeNo = 0 to strategy.opentrades - 1
+        maxRunup := math.max(maxRunup, strategy.opentrades.max_runup(tradeNo))
+    result = maxRunup
+
+plot(maxOpenTradeRunUp(), "Biggest max runup of all open trades")

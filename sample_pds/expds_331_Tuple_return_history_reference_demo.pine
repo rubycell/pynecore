@@ -1,0 +1,37 @@
+// INDICATOR: Tuple return with history reference demo
+// Tests that tuple-destructured variables from user-defined functions
+// are correctly annotated as Series[float] when accessed with [1].
+
+//@version=6
+strategy("Tuple return history reference demo", overlay=true)
+
+//@function Calculates upper and lower envelope bands from a moving average.
+//@param length The SMA period.
+//@returns A tuple of [upperBand, lowerBand].
+calculateEnvelope(int length) =>
+    basis = ta.sma(close, length)
+    deviation = ta.stdev(close, length)
+    [basis + deviation, basis - deviation]
+
+// Tuple destructure with historical reference on both variables
+[upperBand, lowerBand] = calculateEnvelope(20)
+
+// Using [1] on tuple-returned variables — requires Series[float] annotation
+upperExpanding = upperBand > upperBand[1]
+lowerContracting = lowerBand > lowerBand[1]
+bandWidth = upperBand - lowerBand
+prevBandWidth = upperBand[1] - lowerBand[1]
+expanding = bandWidth > prevBandWidth
+
+plot(upperBand, "Upper", color.green, 2)
+plot(lowerBand, "Lower", color.red, 2)
+bgcolor(expanding ? color.new(color.blue, 90) : na)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

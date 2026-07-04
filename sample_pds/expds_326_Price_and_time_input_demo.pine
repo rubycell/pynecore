@@ -1,0 +1,41 @@
+// INDICATOR: Price and time input demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Price and time input demo", overlay = true)  
+  
+// Create price and time inputs with the same `inline` arguments to set them together on the chart.   
+  
+// Price and time for the first point.  
+float price1Input = input.price(0, "Price 1", inline = "1", confirm = true)  
+int   time1Input  = input.time(0,  "Time 1",  inline = "1", confirm = true)  
+// Price and time for the second point.   
+float price2Input = input.price(0, "Price 2", inline = "2", confirm = true)  
+int   time2Input  = input.time(0,  "Time 2",  inline = "2", confirm = true)  
+// Price and time for the third point.   
+float price3Input = input.price(0, "Price 3", inline = "3", confirm = true)  
+int   time3Input  = input.time(0,  "Time 3",  inline = "3", confirm = true)  
+// Price and time for the fourth point.   
+float price4Input = input.price(0, "Price 4", inline = "4", confirm = true)  
+int   time4Input  = input.time(0,  "Time 4",  inline = "4", confirm = true)  
+  
+//@variable An array of chart points created from the time and price inputs.   
+var array<chart.point> points = array.from(  
+     chart.point.from_time(time1Input, price1Input),  
+     chart.point.from_time(time2Input, price2Input),  
+     chart.point.from_time(time3Input, price3Input),  
+     chart.point.from_time(time4Input, price4Input)  
+ )  
+  
+// Draw a closed, curved polyline connecting the points from the `points` array on the last bar.   
+if barstate.islast  
+    var polyline shape = polyline.new(points, true, true, xloc.bar_time, color.purple, color.new(color.blue, 60))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

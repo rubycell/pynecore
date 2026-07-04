@@ -1,0 +1,23 @@
+//@version=6
+strategy("matrix.fill() Example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+
+// Create a 4x5 "int" matrix containing values `0`.
+m = matrix.new<float>(4, 5, 0)
+
+// Fill the intersection of rows 1 to 2 and columns 2 to 3 of the matrix with `hl2` values.
+matrix.fill(m, hl2, 0, 2, 1, 3)
+
+// Display using a label.
+if barstate.islastconfirmedhistory
+    label.new(bar_index, high, str.tostring(m))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

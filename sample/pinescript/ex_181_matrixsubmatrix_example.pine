@@ -1,0 +1,35 @@
+//@version=6
+strategy("matrix.submatrix() Example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+
+// For efficiency, execute this code only once.
+if barstate.islastconfirmedhistory
+    // Create a 2x3 matrix matrix with values `0`.
+    var m1 = matrix.new<int>(2, 3, 0)
+    // Fill the matrix with values.
+    matrix.set(m1, 0, 0, 1)
+    matrix.set(m1, 0, 1, 2)
+    matrix.set(m1, 0, 2, 3)
+    matrix.set(m1, 1, 0, 4)
+    matrix.set(m1, 1, 1, 5)
+    matrix.set(m1, 1, 2, 6)
+    
+    // Create a 2x2 submatrix of the `m1` matrix.
+    var m2 = matrix.submatrix(m1, 0, 2, 1, 3)
+    
+    // Display using a table.
+    var t = table.new(position.top_right, 2, 2, color.green)
+    table.cell(t, 0, 0, "Original Matrix:")
+    table.cell(t, 0, 1, str.tostring(m1))
+    table.cell(t, 1, 0, "Submatrix:")
+    table.cell(t, 1, 1, str.tostring(m2))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

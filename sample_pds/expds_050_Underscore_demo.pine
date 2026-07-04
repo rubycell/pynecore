@@ -1,0 +1,23 @@
+// INDICATOR: Underscore demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Underscore demo", overlay=true)  
+  
+// We do not need the middle Bollinger Bands value, and do not use it.  
+// To make this clear, we assign it to the `_` identifier.  
+[_, bbUpper, bbLower] = ta.bb(close, 5, 4)  
+  
+// We can continue to use `_` in the same code without causing compilation errors:  
+[bbMiddleLong, _, _] = ta.bb(close, 20, 2)  
+  
+plot(bbUpper)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,31 @@
+// INDICATOR: Declared parameter type demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Declared parameter type demo", overlay=true)  
+  
+//@function Returns the value of the `source` argument.  
+//          The argument in each call must be an integer. No other type is allowed.  
+pass(int source) =>  
+    source  
+  
+// These two calls are valid, because their arguments are "int" values.  
+plotSeries = pass(bar_index)  
+lineWidth  = pass(3)  
+  
+// These three calls cause an error, because the `pass()` function no longer allows non-integer arguments.  
+plotTitle   = pass("Test plot")  
+plotColor   = pass(chart.fg_color)  
+plotDisplay = pass(display.all - display.status_line)  
+  
+// Create a plot using the values from the five `pass()` calls.  
+plot(plotSeries, plotTitle, plotColor, lineWidth, display = plotDisplay)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

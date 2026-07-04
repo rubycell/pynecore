@@ -1,0 +1,14 @@
+//@version=6
+strategy("strategy.closedtrades.exit_price Example 1")
+
+// We are creating a long trade every 5 bars
+if bar_index % 5 == 0
+    strategy.entry("Long", strategy.long)
+strategy.close("Long")
+
+// Return the exit price from the latest closed trade.
+exitPrice = strategy.closedtrades.exit_price(strategy.closedtrades - 1)
+
+plot(exitPrice, "Long exit price")
+
+// Calculates the average profit percentage for all closed trades.

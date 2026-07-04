@@ -1,0 +1,28 @@
+//@version=5
+strategy(title="Example: max filled intra-day orders",
+     overlay=false)
+
+// Calculate values
+momValue = ta.mom(close, 12)
+momEma   = ta.ema(momValue, 22)
+
+// Plot values on the chart
+plot(momValue, color=color.teal)
+plot(momEma, color=color.orange)
+hline(0)
+
+// Limit trading to 5 trades per day
+strategy.risk.max_intraday_filled_orders(count=5)
+
+// Determine trading conditions
+enterLong = ta.crossover(momValue, momEma) or
+     ta.crossover(momValue, 0)
+enterShort = ta.crossunder(momValue, momEma) or
+     ta.crossunder(momValue, 0)
+
+// Submit orders
+if enterLong
+    strategy.entry("EL", strategy.long)
+
+if enterShort
+    strategy.entry("ES", strategy.short)

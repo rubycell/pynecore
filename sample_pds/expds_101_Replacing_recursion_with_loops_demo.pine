@@ -1,0 +1,28 @@
+// INDICATOR: Replacing recursion with loops demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Replacing recursion with loops demo", overlay=true)  
+  
+// This function performs the same intended calculations as the invalid recursive structure.  
+// It uses separate local variables to track values, and modifies those variables in a `while` loop  
+// until it finds the greatest common divisor for two positive integers.  
+gcd(int x, int y) =>  
+    int a = x  
+    int b = y  
+    while b != 0  
+        int remainder = a % b  
+        a := b  
+        b := remainder  
+    a  
+  
+plot(gcd(15, 20))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

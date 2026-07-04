@@ -1,0 +1,23 @@
+// INDICATOR: TSI
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("TSI", overlay=true)  
+myTSI = 100 * ta.tsi(close, 25, 13)  
+  
+hline( 50, "+50",  color.lime)  
+hline( 25, "+25",  color.green)  
+hline(  0, "Zero", color.gray, linestyle = hline.style_dotted)  
+hline(-25, "-25",  color.maroon)  
+hline(-50, "-50",  color.red)  
+  
+plot(myTSI)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,17 @@
+//@version=6
+strategy("ta.valuewhen", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+slow = ta.sma(close, 7)
+fast = ta.sma(close, 14)
+// Get value of `close` on second most recent cross
+plot(ta.valuewhen(ta.cross(slow, fast), close, 1))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

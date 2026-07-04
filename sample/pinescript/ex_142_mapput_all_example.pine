@@ -1,0 +1,20 @@
+//@version=6
+strategy("map.put_all example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+a = map.new<string, float>()
+b = map.new<string, float>()
+a.put("first", 10)
+a.put("second", 15)
+b.put("third", 20)
+map.put_all(a, b)
+plot(a.get("third"))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

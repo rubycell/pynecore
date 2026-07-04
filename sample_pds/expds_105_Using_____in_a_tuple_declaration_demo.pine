@@ -1,0 +1,26 @@
+// INDICATOR: Using `_` in a tuple declaration demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Using `_` in a tuple declaration demo", overlay=true)  
+  
+//@function Returns a tuple containing the sum and difference between the `val1` and `val2` values, respectively.  
+sumDiff(float val1, float val2) =>  
+    [val1 + val2, val1 - val2]  
+  
+// Declare a tuple with `_` as the first identifier, meaning the first item returned by `sumDiff()` (the sum) is  
+// inaccessible to the script.  
+[_, diff] = sumDiff(math.random(), math.random())  
+  
+// The first `plot()` call now causes an error, because all `_` variables are *not usable* in a script's calculations.  
+plot(_,    "Sum",        color.teal,   3)  
+plot(diff, "Difference", color.maroon, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

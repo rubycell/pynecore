@@ -1,0 +1,19 @@
+// INDICATOR: Slice out of bounds
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Slice out of bounds", overlay=true)  
+a = array.new<float>(5, 0)  
+b = array.slice(a, 3, 5)  
+array.remove(a, 0)  
+c = array.indexof(b, 2)  
+plot(c)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

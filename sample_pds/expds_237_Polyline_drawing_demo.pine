@@ -1,0 +1,49 @@
+// INDICATOR: Polyline drawing demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Polyline drawing demo", overlay = true)  
+  
+//@variable The left and right strength of the pivot.  
+int pivotLegsInput = input.int(5, "Pivot leg length", minval = 1)  
+//@variable Switches the `polyline` drawing to a straight or curved line drawing.  
+bool isCurvedPolyline = input.bool(false, "Use curved polyline")  
+  
+//@variable A persistent array that stores high and low pivots for the polyline.  
+var array<chart.point> pointsArray = array.new<chart.point>()  
+// Calculate the high and low pivot prices using `ta.pivot*()` functions.  
+float pivotHigh = ta.pivothigh(pivotLegsInput, pivotLegsInput)  
+float pivotLow = ta.pivotlow(pivotLegsInput, pivotLegsInput)  
+// Add all high and low pivot points sequentially to `pointsArray`, and draw labels at pivots to show prices.  
+if not na(pivotHigh)  
+    chart.point highPoint = chart.point.from_index(bar_index - pivotLegsInput, pivotHigh)  
+    pointsArray.push(highPoint)  
+    label.new(highPoint, "Pivot: " + str.tostring(pivotHigh, "##.##"))  
+if not na(pivotLow)  
+    chart.point lowPoint = chart.point.from_index(bar_index - pivotLegsInput, pivotLow)  
+    pointsArray.push(lowPoint)  
+    label.new(lowPoint, "Pivot: " + str.tostring(pivotLow, "##.##"), style = label.style_label_up)  
+  
+// On the last confirmed bar, draw a polyline across the chart to connect all pivots in `pointsArray`.   
+if barstate.islastconfirmedhistory  
+    // First, remove chart points that are too far from the current bar, to prevent errors.  
+    // Iterate backwards to avoid index shifting issues when removing items.  
+    for i = (pointsArray.size() - 1) to 0  
+        chart.point point = pointsArray.get(i)  
+        if (bar_index - point.index) > 9999  
+            pointsArray.remove(i)  
+  
+    polyline.new(pointsArray, curved = isCurvedPolyline, line_color = color.purple, line_width = 4)  
+    // For reference, display the total number of polyline drawings created by the script in a table cell on the chart.  
+    table displayTable = table.new(position.bottom_right, 1, 1, color.purple)  
+    displayTable.cell(0, 0, "Total polyline drawings: " + str.tostring(array.size(polyline.all)),   
+         text_color = color.white, text_size = size.large)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

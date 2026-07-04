@@ -1,0 +1,21 @@
+//@version=6
+strategy("A donut", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+if barstate.islast
+    colNum = 8, rowNum = 8
+    padding = "◯"
+    donutTable = table.new(position.middle_right, colNum, rowNum)
+    for c = 0 to colNum - 1
+        for r = 0 to rowNum - 1
+            table.cell(donutTable, c, r, text=padding, bgcolor=#face6e, text_color=color.new(color.black, 100))
+    table.clear(donutTable, 2, 2, 5, 5)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

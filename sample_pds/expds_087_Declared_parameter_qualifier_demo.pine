@@ -1,0 +1,30 @@
+// INDICATOR: Declared parameter qualifier demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Declared parameter qualifier demo", overlay=true)  
+  
+//@function Returns the value of the `source` argument. Requires an "int" value with  
+//          "simple" or a weaker qualifier.  
+pass(simple int source) =>  
+    source  
+  
+//@variable The EMA smoothing length.  
+//          This `pass()` call's result is a "simple int" value, because the function definition explicitly  
+//          declares that the `source` parameter's qualifier is "simple".  
+int lengthVal = pass(14)  
+  
+// This call does not cause an error. The qualified type of `lengthVal` matches the `length` parameter's type.  
+float emaDiff = ta.ema(close - open, length = lengthVal)  
+  
+// Plot the `emaDiff` series.  
+plot(emaDiff, "Smoothed difference", color.teal, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

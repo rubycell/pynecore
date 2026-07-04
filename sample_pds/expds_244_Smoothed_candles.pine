@@ -1,0 +1,23 @@
+// INDICATOR: Smoothed candles
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Smoothed candles", overlay = true)  
+lenInput = input.int(9)  
+smooth(source, length) =>  
+    ta.sma(source, length)  
+o = smooth(open, lenInput)  
+h = smooth(high, lenInput)  
+l = smooth(low, lenInput)  
+c = smooth(close, lenInput)  
+ourWickColor = close > c ? color.green : color.red  
+plotcandle(o, h, l, c, wickcolor = ourWickColor)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

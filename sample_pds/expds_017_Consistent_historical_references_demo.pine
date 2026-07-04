@@ -1,0 +1,37 @@
+// INDICATOR: Consistent historical references demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Consistent historical references demo", overlay=true)  
+  
+//@function  Returns `color.blue` if `source` is above its last committed value; `color.orange` otherwise.  
+//           For consistent results, this function should execute on *every bar*, because it uses the  
+//           history-referencing operator on the `source` series.  
+upDownColor(float source) =>  
+    source > source[1] ? color.blue : color.orange  
+  
+//@variable The value by which to divide the `bar_index` value.  
+int divisorInput = input.int(5, "Divisor", 1)  
+  
+//@variable The remainder of dividing `bar_index` by `divisorInput`.  
+float remainder = bar_index % divisorInput  
+  
+//@variable Is `color.blue` if `remainder` is above its previous value, and `color.orange` otherwise.  
+color secondColor = upDownColor(remainder)  
+  
+//@variable Is `color.gray` if `remainder` equals 0, and `secondColor` otherwise.  
+//          This ternary operation no longer causes a warning. The scope of the `upDownColor()` call executes on  
+//          every bar, meaning its historical buffer consistently includes data for consecutive past bars.  
+color plotColor = remainder == 0 ? color.gray : secondColor  
+  
+// Plot the `remainder` series and color it using `plotColor`. The plot is now blue or gray, but never orange.  
+plot(remainder, "Remainder", plotColor, 5)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

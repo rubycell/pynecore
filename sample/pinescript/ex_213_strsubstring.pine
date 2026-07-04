@@ -1,0 +1,18 @@
+//@version=6
+strategy("str.substring", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+sym= input.symbol("NASDAQ:AAPL")
+pos = str.pos(sym, ":") // Get position of ":" character
+tkr= str.substring(sym, pos+1) // "AAPL"
+if barstate.islastconfirmedhistory
+    label.new(bar_index, high, text = tkr)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

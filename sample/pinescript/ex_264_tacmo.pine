@@ -1,0 +1,23 @@
+//@version=6
+strategy("ta.cmo", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+plot(ta.cmo(close, 5), color=color.yellow)
+
+// the same on pine
+f_cmo(src, length) =>
+    float mom = ta.change(src)
+    float sm1 = math.sum((mom >= 0) ? mom : 0.0, length)
+    float sm2 = math.sum((mom >= 0) ? 0.0 : -mom, length)
+    100 * (sm1 - sm2) / (sm1 + sm2)
+
+plot(f_cmo(close, 5))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

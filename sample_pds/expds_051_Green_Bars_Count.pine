@@ -1,0 +1,19 @@
+// INDICATOR: Green Bars Count
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Green Bars Count", overlay=true)  
+var count = 0  
+isGreen = close >= open  
+if isGreen  
+    count := count + 1  
+plot(count)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

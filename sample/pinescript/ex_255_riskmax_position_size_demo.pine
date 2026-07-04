@@ -1,0 +1,6 @@
+//@version=6
+strategy("risk.max_position_size Demo", default_qty_value = 100)
+strategy.risk.max_position_size(10)
+if open > close
+    strategy.entry("buy", strategy.long)
+plot(strategy.position_size) // max plot value will be 10

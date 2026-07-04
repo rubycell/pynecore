@@ -1,0 +1,22 @@
+//@version=6
+strategy("matrix example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+// Create `m1` matrix of `int` type.
+matrix<int> m1 = matrix.new<int>(2, 3, 0)
+
+// `matrix<int>` is unnecessary because the `matrix.new<int>()` function returns an `int` type matrix object.
+m2 = matrix.new<int>(2, 3, 0)
+
+// Display matrix using a label.
+if barstate.islastconfirmedhistory
+    label.new(bar_index, high, str.tostring(m2))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

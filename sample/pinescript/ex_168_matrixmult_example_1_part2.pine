@@ -1,0 +1,33 @@
+//@version=6
+strategy("matrix.mult() Example 2", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+
+// For efficiency, execute this code only once.
+if barstate.islastconfirmedhistory
+    // Create a 2x3 matrix containing values `4`.
+    var m1 = matrix.new<float>(2, 3, 4) 
+    
+    // Create a new matrix from the product of the two matrices.
+    scalar = 5
+    var m2 = matrix.mult(m1, scalar) 
+    
+    // Display using a table.
+    var t = table.new(position.top_right, 5, 2, color.green)
+    table.cell(t, 0, 0, "Matrix 1:")
+    table.cell(t, 0, 1, str.tostring(m1))
+    table.cell(t, 1, 1, "x")
+    table.cell(t, 2, 0, "Scalar:")
+    table.cell(t, 2, 1, str.tostring(scalar))
+    table.cell(t, 3, 1, "=")
+    table.cell(t, 4, 0, "Matrix 2:")
+    table.cell(t, 4, 1, str.tostring(m2))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

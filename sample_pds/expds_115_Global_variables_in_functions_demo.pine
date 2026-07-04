@@ -1,0 +1,28 @@
+// INDICATOR: Global variables in functions demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Global variables in functions demo", overlay=true)  
+  
+//@variable A global variable that holds a pseudorandom value.  
+var float globalVar = math.random()  
+  
+//@function Multiplies `x` by a pseudorandom value, adds the value of `globalVar`, then returns the result.  
+//          This function can use `globalVar` in its body because the script declares the variable *first*.  
+myFun(float x = 10) =>  
+    math.random() * x + globalVar  
+  
+// Assign the result of a default `myFun()` call to a new variable. The call uses `globalVar` internally.  
+float result = myFun()  
+  
+// Plot the `result` series.  
+plot(result, "`result` series", color.teal, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

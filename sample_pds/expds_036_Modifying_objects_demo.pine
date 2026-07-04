@@ -1,0 +1,31 @@
+// INDICATOR: Modifying objects demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Modifying objects demo", overlay = true)  
+  
+//@variable Maintains a persistent reference to one `chart.point` object with an initial `price` field of `na`.   
+var chart.point myPoint = chart.point.now(na)  
+  
+//@variable Maintains a persistent reference to one `label` object initialized using the `myPoint` chart point.  
+var label myLabel = label.new(myPoint, "Persistent label")  
+  
+// Update the chart point referenced by `myPoint` on each bar by reassigning the object's *fields*.  
+myPoint.index := bar_index  
+myPoint.price := close  
+  
+// Update the label referenced by `myLabel` using a call to `label.set_point()`. The call uses the `index` field of   
+// the chart point for the label's x-coordinate, and the `price` field for the y-coordinate.  
+label.set_point(myLabel, myPoint)  
+  
+// Retrieve the y-coordinate from the `myLabel` label, confirming that both persistent objects were modified.  
+plot(label.get_y(myLabel), "Label y-coordinate")
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

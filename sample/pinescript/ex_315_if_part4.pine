@@ -1,0 +1,6 @@
+//@version=6
+strategy("if")
+if (ta.crossover(high, low))
+    strategy.entry("BBandLE", strategy.long, stop=low, oca_name="BollingerBands", oca_type=strategy.oca.cancel, comment="BBandLE")
+else
+    strategy.cancel(id="BBandLE")

@@ -1,0 +1,42 @@
+// INDICATOR: Modifying globally referenced objects in functions demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Modifying globally referenced objects in functions demo", overlay=true)  
+  
+//@variable The number of conditions that occur before the counter value resets.  
+int cycleSizeInput = input.int(10, "Cycle size", 1)  
+  
+//@type         A custom type for creating objects that store counter data.  
+//@field value  The counter value, initialized to 0 by default.   
+type Counter  
+    int value = 0  
+  
+//@variable A persistent global variable that holds the reference of a `Counter` object.  
+var Counter myCounter = Counter.new()  
+  
+//@function Increments and cyclically resets the `value` field of the object referenced by `myCounter` based on a   
+//          pseudorandom condition.  
+//          This function does *not* cause an error, because it does not modify the global variable.   
+updateCounter() =>  
+    if math.random() < 0.5  
+        // Increase the `value` *field* of the `Counter` object referenced by `myCounter` when the condition occurs.  
+        myCounter.value += 1  
+        // Reset the `value` field to 1 if it exceeds the value of `cycleSizeInput`.   
+        if myCounter.value > cycleSizeInput  
+            myCounter.value := 1  
+  
+// Modify the object referenced by `myCounter`. This function call works without issue.  
+updateCounter()  
+  
+// Plot the value of the object's `value` field, i.e., the condition counter.  
+plot(myCounter.value, "Counter value")
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

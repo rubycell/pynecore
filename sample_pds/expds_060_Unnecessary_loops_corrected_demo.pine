@@ -1,0 +1,23 @@
+// INDICATOR: Unnecessary loops corrected demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Unnecessary loops corrected demo", overlay = true)  
+  
+//@variable The number of bars in the calculation window.  
+int lengthInput = input.int(defval = 20, title = "Length")  
+  
+//@variable The average `close` value over `lengthInput` bars.  
+float avgClose = ta.sma(close, lengthInput)  
+  
+// Plot the `avgClose`.  
+plot(avgClose, "Average close", color.blue, 2)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

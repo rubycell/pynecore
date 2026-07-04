@@ -1,0 +1,30 @@
+//@version=6
+strategy("syminfo target_price", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+if barstate.islastconfirmedhistory
+    //@variable The time value one year from the date of the last analyst recommendations.
+    int YTD = syminfo.target_price_date + timeframe.in_seconds("12M") * 1000
+    //@variable A line connecting the current `close` to the highest yearly price estimate.
+    highLine = line.new(time, close, YTD, syminfo.target_price_high, color = color.green, xloc = xloc.bar_time)
+    //@variable A line connecting the current `close` to the lowest yearly price estimate.
+    lowLine = line.new(time, close, YTD, syminfo.target_price_low, color = color.red, xloc = xloc.bar_time)
+    //@variable A line connecting the current `close` to the median yearly price estimate.
+    medianLine = line.new(time, close, YTD, syminfo.target_price_median, color = color.gray, xloc = xloc.bar_time)
+    //@variable A line connecting the current close to the average yearly price estimate.
+    averageLine = line.new(time, close, YTD, syminfo.target_price_average, color = color.orange, xloc = xloc.bar_time)
+    // Fill the space between targets
+    linefill.new(lowLine, medianLine, color.new(color.red, 90))
+    linefill.new(medianLine, highLine, color.new(color.green, 90))
+    // Create a label displaying the total number of analyst estimates.
+    string estimatesText = str.format("Number of estimates: {0}", syminfo.target_price_estimates)
+    label.new(bar_index, close, estimatesText, textcolor = color.white, size = size.large)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

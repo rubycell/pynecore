@@ -1,0 +1,39 @@
+// INDICATOR: Written call scopes in structures demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Written call scopes in structures demo", overlay=true)  
+  
+//@function Accumulates the values from a `source` series across executions.  
+//          Each written call to this function defines a **separate** scope with unique versions of `source` and `total`.  
+accumulate(float source) =>  
+    //@variable A *persistent* variable declared on only one bar, initialized with a value of 0.  
+    var float total = 0.0  
+    // Add the `source` value to `total` and return the variable's new value.  
+    total += source  
+  
+//@variable Holds the result of evaluating `accumulate(1)` in the global scope. The value increases by *one* on each bar.  
+float globalCallRes = accumulate(1)  
+  
+//@variable Initialized with `na`, then reassigned the result of an `accumulate()` call within a loop.  
+float loopedCallRes = na  
+  
+for _ = 1 to 10  
+    // Reassign the `loopedCallRes` variable using the result of `accumulate(1)`.  
+    // This written call establishes **one** new scope with a unique version of the `total` variable.  
+    // The script evaluates that scope on every loop iteration, thus adding 1 to the *same* version of `total`  
+    // *10 times* per bar.  
+    loopedCallRes := accumulate(1)  
+  
+// Plot the results of global and looped calls for comparison.  
+plot(globalCallRes, "Global call result", color.teal, 3)  
+plot(loopedCallRes, "Looped call result", color.red,  3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

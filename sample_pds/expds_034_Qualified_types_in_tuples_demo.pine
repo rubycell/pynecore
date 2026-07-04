@@ -1,0 +1,27 @@
+// INDICATOR: Qualified types in tuples demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Qualified types in tuples demo", overlay=true)  
+  
+getParameters(float source, simple int length) =>  
+    // Although the expected type of the `length` parameter is "simple int", the  
+    // `length` value in the returned tuple inherits the "series" qualifier if the  
+    // `source` value has that qualifier, because all items in a tuple inherit the *same* qualifier.  
+    [source, length]  
+  
+// Declare a tuple containing the values returned by a `getParameters()` call.  
+// Both variables in this tuple have the "series" qualifier, because `close` is of the type "series float".  
+[src, len] = getParameters(source = close, length = 20)  
+  
+// This line causes an error. `ta.ema()` expects a "simple int" `length` argument, but `len` has the type "series int".  
+plot(ta.ema(source = src, length = len))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

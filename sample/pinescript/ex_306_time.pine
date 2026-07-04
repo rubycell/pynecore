@@ -1,0 +1,15 @@
+//@version=6
+strategy("Time", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+t1 = time_close(timeframe.period, "1200-1300", "America/New_York")
+bgcolor(not na(t1) ? color.new(color.blue, 90) : na)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

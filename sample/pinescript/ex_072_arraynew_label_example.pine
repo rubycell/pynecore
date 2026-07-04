@@ -1,0 +1,45 @@
+//@version=6
+strategy("array.new_label example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+//@variable The number of labels to show on the chart.
+int labelCount = input.int(50, "Labels to show", 1, 500)
+
+//@variable An array of `label` objects.
+var array<label> labelArray = array.new_label()
+
+//@variable A chart.point for the new label.
+labelPoint = chart.point.from_index(bar_index, close)
+//@variable The text in the new label.
+string labelText = na
+//@variable The color of the new label.
+color labelColor = na
+//@variable The style of the new label.
+string labelStyle = na
+
+// Set the label attributes for rising bars.
+if close > open
+    labelText  := "Rising"
+    labelColor := color.green
+    labelStyle := label.style_label_down
+// Set the label attributes for falling bars.
+else if close < open
+    labelText  := "Falling"
+    labelColor := color.red
+    labelStyle := label.style_label_up
+
+// Add a new label to the `labelArray` when the chart bar closed at a new value.
+if close != open
+    labelArray.push(label.new(labelPoint, labelText, color = labelColor, style = labelStyle))
+// Remove the first element and delete its label when the size of the `labelArray` exceeds the `labelCount`.
+if labelArray.size() > labelCount
+    label.delete(labelArray.shift())
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

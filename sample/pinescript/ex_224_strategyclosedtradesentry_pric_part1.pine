@@ -1,0 +1,15 @@
+//@version=6
+strategy("strategy.closedtrades.entry_price Example 1")
+
+// Strategy calls to enter long trades every 15 bars and exit long trades every 20 bars.
+if bar_index % 15 == 0
+    strategy.entry("Long", strategy.long)
+if bar_index % 20 == 0
+    strategy.close("Long")
+
+// Return the entry price for the latest entry.
+entryPrice = strategy.closedtrades.entry_price(strategy.closedtrades - 1)
+
+plot(entryPrice, "Long entry price")
+
+// Calculates the average profit percentage for all closed trades.

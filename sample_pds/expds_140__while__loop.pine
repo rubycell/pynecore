@@ -1,0 +1,23 @@
+// INDICATOR: `while` loop
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("`while` loop", overlay = true)  
+array<float> a = request.security_lower_tf(syminfo.tickerid, "1", close)  
+  
+string labelText = ""  
+int i = 0  
+while i < array.size(a)  
+    labelText += str.tostring(array.get(a, i)) + "\n"  
+    i += 1  
+  
+label.new(bar_index, high, text = labelText)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,26 @@
+//@version=6
+strategy("matrix.mode() Example", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+
+// Create a 2x2 matrix.
+var m = matrix.new<int>(2, 2, na)
+// Fill the matrix with values.
+matrix.set(m, 0, 0, 0)
+matrix.set(m, 0, 1, 0)
+matrix.set(m, 1, 0, 1)
+matrix.set(m, 1, 1, 1)
+
+// Get the mode of the matrix.
+var x = matrix.mode(m)
+
+plot(x, 'Mode of the matrix')
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,53 @@
+// INDICATOR: `syminfo.*` built-ins demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("`syminfo.*` built-ins demo", overlay = true)  
+  
+//@variable The `syminfo.*` built-ins, displayed in the left column of the table.  
+string txtLeft =  
+  "syminfo.basecurrency: "  + "\n" +  
+  "syminfo.currency: "      + "\n" +  
+  "syminfo.description: "   + "\n" +  
+  "syminfo.main_tickerid: " + "\n" +  
+  "syminfo.mincontract: "   + "\n" +  
+  "syminfo.mintick: "       + "\n" +  
+  "syminfo.pointvalue: "    + "\n" +  
+  "syminfo.prefix: "        + "\n" +  
+  "syminfo.root: "          + "\n" +  
+  "syminfo.session: "       + "\n" +  
+  "syminfo.ticker: "        + "\n" +  
+  "syminfo.tickerid: "      + "\n" +  
+  "syminfo.timezone: "      + "\n" +  
+  "syminfo.type: "  
+  
+//@variable The values of the `syminfo.*` built-ins, displayed in the right column of the table.  
+string txtRight =  
+  syminfo.basecurrency              + "\n" +  
+  syminfo.currency                  + "\n" +  
+  syminfo.description               + "\n" +  
+  syminfo.main_tickerid             + "\n" +  
+  str.tostring(syminfo.mincontract) + "\n" +  
+  str.tostring(syminfo.mintick)     + "\n" +  
+  str.tostring(syminfo.pointvalue)  + "\n" +  
+  syminfo.prefix                    + "\n" +  
+  syminfo.root                      + "\n" +  
+  syminfo.session                   + "\n" +  
+  syminfo.ticker                    + "\n" +  
+  syminfo.tickerid                  + "\n" +  
+  syminfo.timezone                  + "\n" +  
+  syminfo.type  
+  
+if barstate.islast  
+    var table t = table.new(position.middle_right, 2, 1)  
+    table.cell(t, 0, 0, txtLeft, bgcolor = color.yellow, text_halign = text.align_right)  
+    table.cell(t, 1, 0, txtRight, bgcolor = color.yellow, text_halign = text.align_left)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

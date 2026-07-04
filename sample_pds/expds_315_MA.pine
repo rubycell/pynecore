@@ -1,0 +1,23 @@
+// INDICATOR: MA
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("MA", "", true)  
+maLengthInput = input.int(10, minval = 1)  
+bbFactorInput = input.float(1.5, minval = 0, step = 0.5)  
+ma      = ta.sma(close, maLengthInput)  
+bbWidth = ta.stdev(ma, maLengthInput) * bbFactorInput  
+bbHi    = ma + bbWidth  
+bbLo    = ma - bbWidth  
+plot(ma)  
+plot(bbHi, "BB Hi", color.gray)  
+plot(bbLo, "BB Lo", color.gray)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,53 @@
+// INDICATOR: Overloads calling other overloads demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Overloads calling other overloads demo", overlay=true)  
+  
+//@function      (Overload 1) Changes the sign of a number.  
+//@param value   The "float" or "int" value to process.  
+//@returns       The negated number.  
+negate(float value) =>  
+    -value  
+  
+//@function      (Overload 2) Negates a Boolean value.  
+//@param value   The "bool" value to process.  
+//@returns       `false` if the value is `true`, or `true` if the value is `false`.  
+negate(bool value) =>  
+    not value  
+  
+//@function      (Overload 3) Calculates the sRGB negative (i.e., complement) of a color.  
+//@param value   The "color" value to process.  
+//@returns       The "color" value whose red, green, and blue components are opposites of the `value` color's components  
+//               in the sRGB color space.  
+negate(color value) =>  
+    color.rgb(255 - color.r(value), 255 - color.g(value), 255 - color.b(value), color.t(value))  
+  
+//@function      (Overload 4) Changes the sign of the product of two numbers.  
+//@param value1  The first "float" or "int" value to process.  
+//@param value2  The second value to process.  
+//@returns       The negated product.  
+negate(float value1, float value2) =>  
+    // Using this call in the overload's body does not cause an error, because it is *non-recursive*.  
+    // It refers to the *first* `negate()` implementation, not the fourth.  
+    negate(value1 * value2)  
+  
+  
+//@variable `true` if the current `close` value is *not* greater than the value of `open`. Otherwise, `false`.  
+bool notUpBar = negate(close > open)  
+//@variable `-close * 2` if the `notUpBar` condition is `true`, or `close * 2` if the condition is `false`.  
+float plotSeries = notUpBar ? negate(close, 2) : negate(close, -2)  
+//@variable The sRGB negative of `color.green`.  
+color plotColor = negate(color.green)  
+  
+// Plot the value of `plotSeries` and color it using `plotColor`.  
+plot(plotSeries, "Test plot", plotColor, style = plot.style_area)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

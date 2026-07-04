@@ -1,0 +1,16 @@
+//@version=6
+strategy("line.get_x1", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+my_line = line.new(time, open, time + 60 * 60 * 24, close, xloc=xloc.bar_time)
+a = line.get_x1(my_line)
+plot(time - line.get_x1(my_line)) //draws zero plot
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

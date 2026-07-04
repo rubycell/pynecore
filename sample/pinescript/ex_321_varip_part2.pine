@@ -1,0 +1,25 @@
+//@version=6
+strategy("varip with types", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+type barData
+    int index = -1
+    varip int ticks = -1
+
+var currBar = barData.new()
+currBar.index += 1
+currBar.ticks += 1
+
+// Will be equal to bar_index on all bars
+plot(currBar.index)
+// In real time, will increment per every tick on the chart
+plot(currBar.ticks)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

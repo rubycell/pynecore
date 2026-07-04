@@ -1,0 +1,28 @@
+// INDICATOR: Undefined parameter types demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Undefined parameter types demo", overlay=true)  
+  
+//@function Returns the value of the `source` argument without modification.  
+//          Each written call to the function can accept an argument of *any* type except for "void".  
+pass(source) =>  
+    source  
+  
+plotSeries  = pass(bar_index)                         // "series int"  
+lineWidth   = pass(3)                                 // "const int"  
+plotTitle   = pass("Test plot")                       // "const string"  
+plotColor   = pass(chart.fg_color)                    // "input color"  
+plotDisplay = pass(display.all - display.status_line) // "const plot_display"  
+  
+// Create a plot using the values from the five `pass()` calls.  
+plot(plotSeries, plotTitle, plotColor, lineWidth, display = plotDisplay)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

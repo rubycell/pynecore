@@ -1,0 +1,20 @@
+//@version=6
+strategy("Time", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+// Try this on chart AAPL,1
+timeinrange(res, sess) => not na(time(res, sess, "America/New_York")) ? 1 : 0
+plot(timeinrange("1", "1300-1400"), color=color.red)
+
+// This plots 1.0 at every start of 10 minute bar on a 1 minute chart:
+newbar(res) => ta.change(time(res)) == 0 ? 0 : 1
+plot(newbar("10"))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

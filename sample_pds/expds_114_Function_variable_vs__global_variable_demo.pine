@@ -1,0 +1,27 @@
+// INDICATOR: Function variable vs. global variable demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Function variable vs. global variable demo", overlay=true)  
+  
+//@function Multiplies `x` by a pseudorandom value and returns the result.  
+myFun(float x = 10) =>  
+    // This variable belongs to the function definition; other scopes cannot access it.  
+    float result = math.random() * x  
+  
+// This variable stores the result returned by a `myFun()` call.  
+// Although it shares the same name as the variable in `myFun()`, it is a completely separate variable declared  
+// in the global scope, after the function definition.  
+float result = myFun()  
+  
+// This `plot()` call does not cause an error, because `result` refers to the *global* variable.  
+plot(result, "Global `result` series", linewidth = 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

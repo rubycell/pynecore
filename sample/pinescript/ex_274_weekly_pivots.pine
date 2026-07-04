@@ -1,0 +1,20 @@
+//@version=6
+strategy("Weekly Pivots", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+tf_weekly = "1W"
+typeInput = input.string("Traditional", "Type", options=["Traditional", "Fibonacci", "Woodie", "Classic", "DM", "Camarilla"])
+weekChange = timeframe.change(tf_weekly)
+pivotPointsArray = ta.pivot_point_levels(typeInput, weekChange)
+if weekChange
+    for pivotLevel in pivotPointsArray
+        line.new(time, pivotLevel, time + timeframe.in_seconds(tf_weekly) * 1000, pivotLevel, xloc=xloc.bar_time)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

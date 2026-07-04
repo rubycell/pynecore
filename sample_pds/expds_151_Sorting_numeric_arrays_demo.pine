@@ -1,0 +1,43 @@
+// INDICATOR: Sorting numeric arrays demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Sorting numeric arrays demo", overlay=true)  
+  
+if barstate.isfirst  
+    //@variable A formatting string.  
+    string formatString = "\n{0}:\n{1}\n{2}\n{3}"  
+  
+    // Create two three-element arrays.  
+    array<float> a = array.from(2.1, 0.5, 1.2)  
+    array<float> b = array.from(0.1, 1.4, 0.6)  
+    //@variable A combined array containing the elements from `a` and `b`.   
+    array<float> c = array.copy(a).concat(b)  
+  
+    // Log formatted text showing the unsorted `a`, `b`, and `c` arrays.   
+    log.info(formatString, "Unsorted", a, b, c)  
+  
+    // Sort the `a`, `b`, and `c` arrays in ascending order (default).  
+    array.sort(a)  
+    array.sort(b)  
+    c.sort()  
+  
+    // Log formatted text showing the `a`, `b`, and `c` arrays sorted in ascending order.   
+    log.info(formatString, "Ascending", a, b, c)  
+  
+    // Sort the `a`, `b`, and `c` arrays in descending order.  
+    a.sort(order.descending)  
+    b.sort(order.descending)  
+    c.sort(order.descending)  
+  
+    // Log formatted text showing the `a`, `b`, and `c` arrays sorted in descending order.   
+    log.info(formatString, "Descending", a, b, c)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

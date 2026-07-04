@@ -1,0 +1,34 @@
+//@version=5
+strategy(title="Open entry comment example", overlay=true)
+
+// Calculate and plot Exponential Moving Averages (EMAs)
+fastEMA = ta.ema(close, 10)
+slowEMA = ta.ema(close, 35)
+
+plot(fastEMA, color=color.orange, title="Fast EMA")
+plot(slowEMA, color=color.teal, linewidth=2, title="Slow EMA")
+
+// If the moving averages cross, generate a long and short entry stop
+if ta.cross(fastEMA, slowEMA)
+    strategy.entry("Enter Long", strategy.long, stop=high + ta.tr, 
+         comment="Enter Long Stop", oca_name="ema-entry", 
+		 oca_type=strategy.oca.cancel)
+    strategy.entry("Enter Short", strategy.short, stop=low - ta.tr, 
+         comment="Enter Short Stop", oca_name="ema-entry", 
+		 oca_type=strategy.oca.cancel)
+
+// When prices cross the fast average, close the strategy position
+if ta.cross(close, fastEMA)
+    strategy.close_all()
+
+// Get the comment of the most recent entry trade
+lastEntryComment = strategy.opentrades.entry_comment(
+     strategy.opentrades - 1)
+
+// Determine the background colour based on the open trade's commen
+backgroundColour = if str.contains(lastEntryComment, "Long")
+    color.new(color.green, 85)
+else if str.contains(lastEntryComment, "Short")
+    color.new(color.red, 90)
+
+bgcolor(backgroundColour)

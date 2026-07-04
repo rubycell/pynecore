@@ -1,0 +1,23 @@
+// INDICATOR: Symbol input demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Symbol input demo", "RSI")  
+  
+//@variable The ticker ID of the requested data. By default, it is an empty "string", which specifies the main symbol.   
+string symbolInput = input.symbol("", "Symbol")  
+  
+//@variable The 14-bar RSI of `close` prices for the `symbolInput` symbol on the script's main timeframe.   
+float symbolRSI = request.security(symbolInput, timeframe.period, ta.rsi(close, 14))  
+  
+// Plot the `symbolRSI` value.  
+plot(symbolRSI, "RSI", color.aqua)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

@@ -1,0 +1,26 @@
+//@version=6
+strategy("matrix.sum() Example 2", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+
+// For efficiency, execute this code only once.
+if barstate.islastconfirmedhistory
+    // Create a 2x3 matrix with values `4`.
+    var m1 = matrix.new<float>(2, 3, 4)
+    
+    // Create a new matrix containing the sum of the `m1` matrix with the "int" value 1.
+    var m2 = matrix.sum(m1, 1)
+    
+    // Display using a table.
+    var t = table.new(position.top_right, 1, 2, color.green)
+    table.cell(t, 0, 0, "Sum of a matrix and a scalar:")
+    table.cell(t, 0, 1, str.tostring(m2))
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

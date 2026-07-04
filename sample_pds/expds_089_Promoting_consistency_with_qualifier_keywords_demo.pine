@@ -1,0 +1,33 @@
+// INDICATOR: Promoting consistency with qualifier keywords demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Promoting consistency with qualifier keywords demo", overlay = true, behind_chart = false)  
+  
+//@function Calculates a moving average of a `source` series over `length` bars.  
+//          The selected average calculation depends on the `avgType` value.  
+//          The average type *cannot change* across bars.  
+calcAvg(float source, int length, simple string avgType) =>  
+    switch avgType  
+        "ema" => ta.ema(source, length)  
+        "sma" => ta.sma(source, length)  
+        "wma" => ta.wma(source, length)  
+        "hma" => ta.hma(source, length)  
+  
+// This `calcAvg()` call works successfully, because the `avgType` argument is a "const string" value.  
+float avg1 = calcAvg(close, 10, "ema")  
+// This `calcAvg()` call now causes an error, because a dynamic `avgType` argument is *not allowed*.  
+float avg2 = calcAvg(close, 10, bar_index % 2 == 0 ? "ema" : "sma")  
+  
+// Plot `avg1` and `avg2` for comparison.  
+plot(avg1, "Consistent EMA", color.blue, 4)  
+plot(avg2, "Inconsistent EMA/SMA", color.purple, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

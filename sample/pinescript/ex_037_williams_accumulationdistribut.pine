@@ -1,0 +1,24 @@
+//@version=6
+strategy("Williams Accumulation/Distribution", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+plot(ta.wad, color=color.yellow)
+
+// the same on pine
+f_wad() =>
+    trueHigh = math.max(high, close[1])
+    trueLow = math.min(low, close[1])
+    mom = ta.change(close)
+    gain = (mom > 0) ? close - trueLow : (mom < 0) ? close - trueHigh : 0
+    ta.cum(gain)
+
+plot(f_wad())
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

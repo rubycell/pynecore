@@ -1,0 +1,36 @@
+//@version=5
+strategy(title="Open trade maximum drawdown", pyramiding=2, overlay=true)
+
+// Calculate and plot the EMA and SMA moving averages
+emaValue = ta.ema(close, 20)
+smaValue = ta.sma(close, 50)
+
+plot(emaValue, color=color.orange, title="EMA")
+plot(smaValue, color=color.teal, linewidth=2, title="SMA")
+
+// Generate initial long and short entries with EMA-SMA cross
+if ta.crossover(emaValue, smaValue)
+    strategy.entry("Enter Long 1", strategy.long)
+
+if ta.crossunder(emaValue, smaValue)
+    strategy.entry("Enter Short 1", strategy.short)
+
+// Trigger additional entries with EMA cross
+if strategy.position_size > 0 and ta.crossover(close, emaValue)
+    strategy.entry("Enter Long 2", strategy.long)
+
+if strategy.position_size < 0 and ta.crossunder(close, emaValue)
+    strategy.entry("Enter Short 2", strategy.short)
+
+// Calculate the maximum drawdown of the current position
+positionMaxDD = 0.0
+
+for tradeNumber = 0 to strategy.opentrades - 1
+    positionMaxDD += strategy.opentrades.max_drawdown(tradeNumber)
+
+// When the open position makes a new drawdown low, colour
+// the chart's background red
+newMaxDD = strategy.openprofit < 0 and 
+     positionMaxDD > positionMaxDD[1]
+
+bgcolor(newMaxDD ? color.new(color.red, 80) : na)

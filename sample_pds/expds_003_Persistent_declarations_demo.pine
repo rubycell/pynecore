@@ -1,0 +1,26 @@
+// INDICATOR: Persistent declarations demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Persistent declarations demo", overlay=true)  
+  
+//@variable A *persistent* variable. The script initializes this variable only on the *first execution*.   
+//          The variable preserves all changes to its value on each closed bar.   
+var int x = 0  
+  
+// Increase the value of `x` by 10 on every bar.  
+x += 10  
+  
+// Plot the `x` series on the chart.   
+// Because the script declares `x` using `var` and then increments its value, the value never resets to 0.  
+// The plotted value is 10 on the first bar, 20 on the next, and so on.   
+plot(x, "`x` series", color.blue, 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

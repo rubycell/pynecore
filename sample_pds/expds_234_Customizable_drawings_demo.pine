@@ -1,0 +1,53 @@
+// INDICATOR: Customizable drawings demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Customizable drawings demo", overlay = true)  
+  
+// Input `group` headers to distinguish the table style inputs and the label style inputs.  
+const string G1 = "Table Style"  
+const string G2 = "Label Style"  
+// Create user inputs for customizing `table` style (position, colors, text size).  
+string tbVerticalInput   = input.string("Top", "Position", ["Top", "Middle", "Bottom"], inline = "Pos", group = G1)  
+string tbHorizontalInput = input.string("Right", "Center", ["Left", "Center", "Right"], inline = "Pos", group = G1)  
+color  tbBackgroundInput = input.color(#ffeb3bb3,  "Background color", inline = "Col", group = G1)  
+color  tbBorderInput     = input.color(color.white,"Border color",     inline = "Col", group = G1)  
+string tbTextSizeInput   = input.string(size.large, "Text size", inline = "Txt", group = G1,  
+     options = [size.tiny, size.small, size.normal, size.large, size.huge, size.auto])  
+color tbTextColorInput = input.color(color.black, "Text color", inline = "Txt", group = G1)  
+// Create user inputs for customizing `label` style (size, colors).  
+int   lblSizeInput      = input.int(16, "Label size", minval = 0, inline = "Lbl", group = G2)  
+color lblColorInput     = input.color(color.orange, "Label color", inline = "Lbl", group = G2)  
+color lblTextColorInput = input.color(color.white, "Text color", group = G2)  
+  
+// On last confirmed bar, draw a table to show the `open` and `close` prices, and a label to show their difference.  
+if barstate.islastconfirmedhistory  
+    //@variable The table's `position` argument based on the values of `tbVerticalInput` and `tbHorizontalInput`.  
+    string tbPos = switch  
+        tbVerticalInput == "Top"    and tbHorizontalInput == "Left"   => position.top_left  
+        tbVerticalInput == "Top"    and tbHorizontalInput == "Center" => position.top_center  
+        tbVerticalInput == "Top"    and tbHorizontalInput == "Right"  => position.top_right  
+        tbVerticalInput == "Middle" and tbHorizontalInput == "Left"   => position.middle_left  
+        tbVerticalInput == "Middle" and tbHorizontalInput == "Center" => position.middle_center  
+        tbVerticalInput == "Middle" and tbHorizontalInput == "Right"  => position.middle_right  
+        tbVerticalInput == "Bottom" and tbHorizontalInput == "Left"   => position.bottom_left  
+        tbVerticalInput == "Bottom" and tbHorizontalInput == "Center" => position.bottom_center  
+        tbVerticalInput == "Bottom" and tbHorizontalInput == "Right"  => position.bottom_right  
+    //@variable A table showing the last confirmed bar's `open` and `close` prices. Inputs customize the table's style.  
+    var table displayTable = table.new(tbPos, 2, 2, tbBackgroundInput, border_color = tbBorderInput, border_width = 1)   
+    displayTable.cell(0, 0, "Open",              text_color = tbTextColorInput, text_size = tbTextSizeInput)  
+    displayTable.cell(1, 0, str.tostring(open),  text_color = tbTextColorInput, text_size = tbTextSizeInput)  
+    displayTable.cell(0, 1, "Close",             text_color = tbTextColorInput, text_size = tbTextSizeInput)  
+    displayTable.cell(1, 1, str.tostring(close), text_color = tbTextColorInput, text_size = tbTextSizeInput)  
+    //@variable The label text, containing the difference between the bar's `open` and `close` prices.  
+    string lblText = "Bar body = " + str.tostring(close - open)  
+    label.new(bar_index, high, lblText, color = lblColorInput, textcolor = lblTextColorInput, size = lblSizeInput)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

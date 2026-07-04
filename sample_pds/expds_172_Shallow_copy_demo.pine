@@ -1,0 +1,35 @@
+// INDICATOR: Shallow copy demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Shallow copy demo", overlay=true)  
+  
+//@variable Initial value of the original matrix elements.  
+var label newLabel = label.new(  
+     bar_index, 1, "Original", color = color.blue, textcolor = color.white, size = size.huge  
+ )  
+  
+//@variable A 1x1 matrix containing a new `label` instance.  
+var matrix<label> myMatrix = matrix.new<label>(1, 1, newLabel)  
+//@variable A shallow copy of `myMatrix`.  
+var matrix<label> myCopy = myMatrix.copy()  
+  
+//@variable The first label from the `myCopy` matrix.  
+label testLabel = myCopy.get(0, 0)  
+  
+// Change the `text`, `style`, and `x` values of `testLabel`. Also affects the `newLabel`.  
+testLabel.set_text("Copy")  
+testLabel.set_style(label.style_label_up)  
+testLabel.set_x(bar_index)  
+  
+// Plot the total number of labels.  
+plot(label.all.size(), linewidth = 3)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

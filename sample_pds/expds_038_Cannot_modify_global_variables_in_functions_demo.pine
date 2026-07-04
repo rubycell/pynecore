@@ -1,0 +1,35 @@
+// INDICATOR: Cannot modify global variables in functions demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Cannot modify global variables in functions demo", overlay=true)  
+  
+//@variable The number of conditions that occur before the counter value resets.  
+int cycleSizeInput = input.int(10, "Cycle size", 1)  
+  
+//@variable A persistent global variable for counting occurrences of a condition in cycles.   
+var int counter = 0  
+  
+//@function Attempts to increment and cyclically reset the `counter` variable based on a pseudorandom condition.  
+//          This function *does not* compile, because modifying global variables in function scopes is *not allowed*.  
+updateCounter() =>  
+    if math.random() < 0.5  
+        // Attempting to increment `counter` causes a compilation error.  
+        // The variable's value *cannot change* during the execution of an `updateCounter()` call.   
+        counter += 1  
+        if counter > cycleSizeInput  
+            // Reassigning the `counter` variable causes the same error.   
+            counter := 1  
+  
+updateCounter() // This call does not work.   
+  
+plot(counter, "Counter value")
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

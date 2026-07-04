@@ -1,0 +1,20 @@
+//@version=6
+strategy("Intraday Intensity Index", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+plot(ta.iii, color=color.yellow)
+
+// the same on pine
+f_iii() =>
+    (2 * close - high - low) / ((high - low) * volume)
+
+plot(f_iii())
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

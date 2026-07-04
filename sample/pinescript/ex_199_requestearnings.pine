@@ -1,0 +1,17 @@
+// //@version=6
+// strategy("request.earnings", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// // ==================== Original Indicator Logic ====================
+// s1 = request.earnings("NASDAQ:BELFA")
+// plot(s1)
+// s2 = request.earnings("NASDAQ:BELFA", earnings.actual, gaps=barmerge.gaps_on, lookahead=barmerge.lookahead_on)
+// plot(s2)
+
+// // ==================== Strategy Entry/Exit Logic ====================
+// longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+// if (longCondition)
+//     strategy.entry("Long", strategy.long)
+
+// shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+// if (shortCondition)
+//     strategy.entry("Short", strategy.short)

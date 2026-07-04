@@ -1,0 +1,17 @@
+//@version=6
+strategy("Hull Moving Average", overlay=true, fill_orders_on_standard_ohlc = true)
+
+// ==================== Original Indicator Logic ====================
+src = input(defval=close, title="Source")
+length = input(defval=9, title="Length")
+hmaBuildIn = ta.hma(src, length)
+plot(hmaBuildIn, title="Hull MA", color=#674EA7)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

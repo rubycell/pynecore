@@ -1,0 +1,29 @@
+// INDICATOR: Shadowing demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Shadowing demo", overlay=true)  
+  
+// Naming an enum "Syminfo" with a capital "S" works without an issue.   
+enum Syminfo   
+    abcd  
+  
+// In contrast, the names "syminfo", "polyline", "ta", etc. cause a compilation error because they match   
+// built-in namespaces:  
+enum syminfo  
+    abcd  
+  
+enum polyline  
+    abcd  
+  
+enum ta  
+    abcd
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)

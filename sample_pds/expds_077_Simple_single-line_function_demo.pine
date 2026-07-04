@@ -1,0 +1,24 @@
+// INDICATOR: Simple single-line function demo
+// Extracted from Pine Script documentation
+
+//@version=6  
+strategy("Simple single-line function demo", overlay=true)  
+  
+add(val1, val2) => val1 + val2  
+  
+float  a = add(open, close)              // `open + close`  ("series float")  
+int    b = add(bar_index, 1)             // `bar_index + 1` ("series int")  
+int    c = add(2, 3)                     //  5              ("const int")  
+string d = add(add("Test", " "), "plot") // `"Test plot"`   ("const string")  
+  
+// Create a plot using the `a`, `b`, `c`, and `d` values.  
+plot(a / b, title = d, linewidth = c)
+
+// ==================== Strategy Entry/Exit Logic ====================
+longCondition = ta.crossover(ta.sma(close, 14), ta.sma(close, 28))
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(ta.sma(close, 14), ta.sma(close, 28))
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
