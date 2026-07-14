@@ -105,7 +105,6 @@ Directories use `t00_`, `t01_` prefixes to control execution order (dependencies
 
 ## Code Style
 
-- Line length ~100 chars, hard limit 120
 - Type hints on all function signatures
 - Sphinx-style reStructuredText docstrings (`:param:`, `:return:`)
 - Zero mandatory dependencies for core; CLI and providers are optional extras
