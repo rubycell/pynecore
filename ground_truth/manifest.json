@@ -1,25 +1,13 @@
 {
-  "generated_at": "2026-07-18T18:42:53.545970",
+  "generated_at": "2026-07-18T19:22:07.983526",
   "data_file": "/home/mike/workspace/github/pynecore/workdir/data/VN30F1M_15m.ohlcv",
   "total_tested": 562,
-  "passed": 544,
+  "passed": 552,
   "transpile_fail": 0,
   "runtime_fail": 2,
-  "timeout": 8,
-  "total_output_files": 1999,
+  "timeout": 0,
+  "total_output_files": 2027,
   "samples": [
-    {
-      "name": "ex_008_sessionisfirstbar_regular_exam",
-      "suite": "sample",
-      "filename": "ex_008_sessionisfirstbar_regular_exam.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_008_sessionisfirstbar_regular_exam.csv",
-        "ex_008_sessionisfirstbar_regular_exam_strat.csv",
-        "ex_008_sessionisfirstbar_regular_exam_trade.csv"
-      ]
-    },
     {
       "name": "ex_009_sessionislastbar_example",
       "suite": "sample",
@@ -33,15 +21,15 @@
       ]
     },
     {
-      "name": "ex_007_sessionisfirstbar_example",
+      "name": "ex_008_sessionisfirstbar_regular_exam",
       "suite": "sample",
-      "filename": "ex_007_sessionisfirstbar_example.pine",
+      "filename": "ex_008_sessionisfirstbar_regular_exam.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_007_sessionisfirstbar_example.csv",
-        "ex_007_sessionisfirstbar_example_strat.csv",
-        "ex_007_sessionisfirstbar_example_trade.csv"
+        "ex_008_sessionisfirstbar_regular_exam.csv",
+        "ex_008_sessionisfirstbar_regular_exam_strat.csv",
+        "ex_008_sessionisfirstbar_regular_exam_trade.csv"
       ]
     },
     {
@@ -54,6 +42,18 @@
         "ex_010_sessionislastbar_regular_examp.csv",
         "ex_010_sessionislastbar_regular_examp_strat.csv",
         "ex_010_sessionislastbar_regular_examp_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_007_sessionisfirstbar_example",
+      "suite": "sample",
+      "filename": "ex_007_sessionisfirstbar_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_007_sessionisfirstbar_example.csv",
+        "ex_007_sessionisfirstbar_example_strat.csv",
+        "ex_007_sessionisfirstbar_example_trade.csv"
       ]
     },
     {
@@ -82,18 +82,6 @@
       ]
     },
     {
-      "name": "ex_022_syminforoot",
-      "suite": "sample",
-      "filename": "ex_022_syminforoot.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_022_syminforoot.csv",
-        "ex_022_syminforoot_strat.csv",
-        "ex_022_syminforoot_trade.csv"
-      ]
-    },
-    {
       "name": "ex_016_syminfo_recommendations",
       "suite": "sample",
       "filename": "ex_016_syminfo_recommendations.pine",
@@ -103,66 +91,6 @@
         "ex_016_syminfo_recommendations.csv",
         "ex_016_syminfo_recommendations_strat.csv",
         "ex_016_syminfo_recommendations_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_018_syminfo_recommendations",
-      "suite": "sample",
-      "filename": "ex_018_syminfo_recommendations.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_018_syminfo_recommendations.csv",
-        "ex_018_syminfo_recommendations_strat.csv",
-        "ex_018_syminfo_recommendations_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_013_syminfo_simple",
-      "suite": "sample",
-      "filename": "ex_013_syminfo_simple.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_013_syminfo_simple.csv",
-        "ex_013_syminfo_simple_strat.csv",
-        "ex_013_syminfo_simple_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_024_syminfo_simple",
-      "suite": "sample",
-      "filename": "ex_024_syminfo_simple.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_024_syminfo_simple.csv",
-        "ex_024_syminfo_simple_strat.csv",
-        "ex_024_syminfo_simple_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_015_syminfo_recommendations",
-      "suite": "sample",
-      "filename": "ex_015_syminfo_recommendations.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_015_syminfo_recommendations.csv",
-        "ex_015_syminfo_recommendations_strat.csv",
-        "ex_015_syminfo_recommendations_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_014_syminfoprefix",
-      "suite": "sample",
-      "filename": "ex_014_syminfoprefix.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_014_syminfoprefix.csv",
-        "ex_014_syminfoprefix_strat.csv",
-        "ex_014_syminfoprefix_trade.csv"
       ]
     },
     {
@@ -178,30 +106,6 @@
       ]
     },
     {
-      "name": "ex_019_syminfo_recommendations",
-      "suite": "sample",
-      "filename": "ex_019_syminfo_recommendations.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_019_syminfo_recommendations.csv",
-        "ex_019_syminfo_recommendations_strat.csv",
-        "ex_019_syminfo_recommendations_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_020_syminfo_recommendations",
-      "suite": "sample",
-      "filename": "ex_020_syminfo_recommendations.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_020_syminfo_recommendations.csv",
-        "ex_020_syminfo_recommendations_strat.csv",
-        "ex_020_syminfo_recommendations_trade.csv"
-      ]
-    },
-    {
       "name": "ex_017_syminfo_recommendations",
       "suite": "sample",
       "filename": "ex_017_syminfo_recommendations.pine",
@@ -211,6 +115,30 @@
         "ex_017_syminfo_recommendations.csv",
         "ex_017_syminfo_recommendations_strat.csv",
         "ex_017_syminfo_recommendations_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_013_syminfo_simple",
+      "suite": "sample",
+      "filename": "ex_013_syminfo_simple.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_013_syminfo_simple.csv",
+        "ex_013_syminfo_simple_strat.csv",
+        "ex_013_syminfo_simple_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_014_syminfoprefix",
+      "suite": "sample",
+      "filename": "ex_014_syminfoprefix.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_014_syminfoprefix.csv",
+        "ex_014_syminfoprefix_strat.csv",
+        "ex_014_syminfoprefix_trade.csv"
       ]
     },
     {
@@ -226,6 +154,30 @@
       ]
     },
     {
+      "name": "ex_018_syminfo_recommendations",
+      "suite": "sample",
+      "filename": "ex_018_syminfo_recommendations.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_018_syminfo_recommendations.csv",
+        "ex_018_syminfo_recommendations_strat.csv",
+        "ex_018_syminfo_recommendations_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_015_syminfo_recommendations",
+      "suite": "sample",
+      "filename": "ex_015_syminfo_recommendations.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_015_syminfo_recommendations.csv",
+        "ex_015_syminfo_recommendations_strat.csv",
+        "ex_015_syminfo_recommendations_trade.csv"
+      ]
+    },
+    {
       "name": "ex_005_lineall",
       "suite": "sample",
       "filename": "ex_005_lineall.pine",
@@ -235,6 +187,54 @@
         "ex_005_lineall.csv",
         "ex_005_lineall_strat.csv",
         "ex_005_lineall_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_019_syminfo_recommendations",
+      "suite": "sample",
+      "filename": "ex_019_syminfo_recommendations.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_019_syminfo_recommendations.csv",
+        "ex_019_syminfo_recommendations_strat.csv",
+        "ex_019_syminfo_recommendations_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_024_syminfo_simple",
+      "suite": "sample",
+      "filename": "ex_024_syminfo_simple.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_024_syminfo_simple.csv",
+        "ex_024_syminfo_simple_strat.csv",
+        "ex_024_syminfo_simple_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_020_syminfo_recommendations",
+      "suite": "sample",
+      "filename": "ex_020_syminfo_recommendations.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_020_syminfo_recommendations.csv",
+        "ex_020_syminfo_recommendations_strat.csv",
+        "ex_020_syminfo_recommendations_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_022_syminforoot",
+      "suite": "sample",
+      "filename": "ex_022_syminforoot.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_022_syminforoot.csv",
+        "ex_022_syminforoot_strat.csv",
+        "ex_022_syminforoot_trade.csv"
       ]
     },
     {
@@ -276,42 +276,6 @@
       ]
     },
     {
-      "name": "ex_040_strategycash",
-      "suite": "sample",
-      "filename": "ex_040_strategycash.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_040_strategycash.csv",
-        "ex_040_strategycash_strat.csv",
-        "ex_040_strategycash_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_027_syminfo_target_price",
-      "suite": "sample",
-      "filename": "ex_027_syminfo_target_price.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_027_syminfo_target_price.csv",
-        "ex_027_syminfo_target_price_strat.csv",
-        "ex_027_syminfo_target_price_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_025_syminfo_simple",
-      "suite": "sample",
-      "filename": "ex_025_syminfo_simple.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_025_syminfo_simple.csv",
-        "ex_025_syminfo_simple_strat.csv",
-        "ex_025_syminfo_simple_trade.csv"
-      ]
-    },
-    {
       "name": "ex_041_strategyfixed",
       "suite": "sample",
       "filename": "ex_041_strategyfixed.pine",
@@ -336,6 +300,30 @@
       ]
     },
     {
+      "name": "ex_025_syminfo_simple",
+      "suite": "sample",
+      "filename": "ex_025_syminfo_simple.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_025_syminfo_simple.csv",
+        "ex_025_syminfo_simple_strat.csv",
+        "ex_025_syminfo_simple_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_040_strategycash",
+      "suite": "sample",
+      "filename": "ex_040_strategycash.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_040_strategycash.csv",
+        "ex_040_strategycash_strat.csv",
+        "ex_040_strategycash_trade.csv"
+      ]
+    },
+    {
       "name": "ex_006_na",
       "suite": "sample",
       "filename": "ex_006_na.pine",
@@ -346,6 +334,30 @@
         "ex_006_na_strat.csv",
         "ex_006_na_trade.csv",
         "ex_006_na_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_027_syminfo_target_price",
+      "suite": "sample",
+      "filename": "ex_027_syminfo_target_price.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_027_syminfo_target_price.csv",
+        "ex_027_syminfo_target_price_strat.csv",
+        "ex_027_syminfo_target_price_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_029_syminfo_target_price",
+      "suite": "sample",
+      "filename": "ex_029_syminfo_target_price.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_029_syminfo_target_price.csv",
+        "ex_029_syminfo_target_price_strat.csv",
+        "ex_029_syminfo_target_price_trade.csv"
       ]
     },
     {
@@ -370,18 +382,6 @@
         "ex_002_boxall.csv",
         "ex_002_boxall_strat.csv",
         "ex_002_boxall_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_029_syminfo_target_price",
-      "suite": "sample",
-      "filename": "ex_029_syminfo_target_price.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_029_syminfo_target_price.csv",
-        "ex_029_syminfo_target_price_strat.csv",
-        "ex_029_syminfo_target_price_trade.csv"
       ]
     },
     {
@@ -485,16 +485,16 @@
       ]
     },
     {
-      "name": "ex_043_alert_example",
+      "name": "ex_036_price_volume_trend",
       "suite": "sample",
-      "filename": "ex_043_alert_example.pine",
+      "filename": "ex_036_price_volume_trend.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_043_alert_example.csv",
-        "ex_043_alert_example_strat.csv",
-        "ex_043_alert_example_trade.csv",
-        "ex_043_alert_example_plot_meta.json"
+        "ex_036_price_volume_trend.csv",
+        "ex_036_price_volume_trend_strat.csv",
+        "ex_036_price_volume_trend_trade.csv",
+        "ex_036_price_volume_trend_plot_meta.json"
       ]
     },
     {
@@ -511,6 +511,19 @@
       ]
     },
     {
+      "name": "ex_043_alert_example",
+      "suite": "sample",
+      "filename": "ex_043_alert_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_043_alert_example.csv",
+        "ex_043_alert_example_strat.csv",
+        "ex_043_alert_example_trade.csv",
+        "ex_043_alert_example_plot_meta.json"
+      ]
+    },
+    {
       "name": "ex_034_on_balance_volume",
       "suite": "sample",
       "filename": "ex_034_on_balance_volume.pine",
@@ -521,32 +534,6 @@
         "ex_034_on_balance_volume_strat.csv",
         "ex_034_on_balance_volume_trade.csv",
         "ex_034_on_balance_volume_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_036_price_volume_trend",
-      "suite": "sample",
-      "filename": "ex_036_price_volume_trend.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_036_price_volume_trend.csv",
-        "ex_036_price_volume_trend_strat.csv",
-        "ex_036_price_volume_trend_trade.csv",
-        "ex_036_price_volume_trend_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_046_arraybinary_search",
-      "suite": "sample",
-      "filename": "ex_046_arraybinary_search.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_046_arraybinary_search.csv",
-        "ex_046_arraybinary_search_strat.csv",
-        "ex_046_arraybinary_search_trade.csv",
-        "ex_046_arraybinary_search_plot_meta.json"
       ]
     },
     {
@@ -563,16 +550,16 @@
       ]
     },
     {
-      "name": "ex_048_arraybinary_search_rightmost_part2",
+      "name": "ex_046_arraybinary_search",
       "suite": "sample",
-      "filename": "ex_048_arraybinary_search_rightmost_part2.pine",
+      "filename": "ex_046_arraybinary_search.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_048_arraybinary_search_rightmost_part2.csv",
-        "ex_048_arraybinary_search_rightmost_part2_strat.csv",
-        "ex_048_arraybinary_search_rightmost_part2_trade.csv",
-        "ex_048_arraybinary_search_rightmost_part2_plot_meta.json"
+        "ex_046_arraybinary_search.csv",
+        "ex_046_arraybinary_search_strat.csv",
+        "ex_046_arraybinary_search_trade.csv",
+        "ex_046_arraybinary_search_plot_meta.json"
       ]
     },
     {
@@ -589,6 +576,19 @@
       ]
     },
     {
+      "name": "ex_048_arraybinary_search_rightmost_part1",
+      "suite": "sample",
+      "filename": "ex_048_arraybinary_search_rightmost_part1.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_048_arraybinary_search_rightmost_part1.csv",
+        "ex_048_arraybinary_search_rightmost_part1_strat.csv",
+        "ex_048_arraybinary_search_rightmost_part1_trade.csv",
+        "ex_048_arraybinary_search_rightmost_part1_plot_meta.json"
+      ]
+    },
+    {
       "name": "ex_047_arraybinary_search_leftmost_part1",
       "suite": "sample",
       "filename": "ex_047_arraybinary_search_leftmost_part1.pine",
@@ -602,16 +602,16 @@
       ]
     },
     {
-      "name": "ex_048_arraybinary_search_rightmost_part1",
+      "name": "ex_048_arraybinary_search_rightmost_part2",
       "suite": "sample",
-      "filename": "ex_048_arraybinary_search_rightmost_part1.pine",
+      "filename": "ex_048_arraybinary_search_rightmost_part2.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_048_arraybinary_search_rightmost_part1.csv",
-        "ex_048_arraybinary_search_rightmost_part1_strat.csv",
-        "ex_048_arraybinary_search_rightmost_part1_trade.csv",
-        "ex_048_arraybinary_search_rightmost_part1_plot_meta.json"
+        "ex_048_arraybinary_search_rightmost_part2.csv",
+        "ex_048_arraybinary_search_rightmost_part2_strat.csv",
+        "ex_048_arraybinary_search_rightmost_part2_trade.csv",
+        "ex_048_arraybinary_search_rightmost_part2_plot_meta.json"
       ]
     },
     {
@@ -641,19 +641,6 @@
       ]
     },
     {
-      "name": "ex_045_arrayavg_example",
-      "suite": "sample",
-      "filename": "ex_045_arrayavg_example.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_045_arrayavg_example.csv",
-        "ex_045_arrayavg_example_strat.csv",
-        "ex_045_arrayavg_example_trade.csv",
-        "ex_045_arrayavg_example_plot_meta.json"
-      ]
-    },
-    {
       "name": "ex_053_arrayfill_example",
       "suite": "sample",
       "filename": "ex_053_arrayfill_example.pine",
@@ -664,6 +651,19 @@
         "ex_053_arrayfill_example_strat.csv",
         "ex_053_arrayfill_example_trade.csv",
         "ex_053_arrayfill_example_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_045_arrayavg_example",
+      "suite": "sample",
+      "filename": "ex_045_arrayavg_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_045_arrayavg_example.csv",
+        "ex_045_arrayavg_example_strat.csv",
+        "ex_045_arrayavg_example_trade.csv",
+        "ex_045_arrayavg_example_plot_meta.json"
       ]
     },
     {
@@ -757,19 +757,6 @@
       ]
     },
     {
-      "name": "ex_056_arrayget_example",
-      "suite": "sample",
-      "filename": "ex_056_arrayget_example.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_056_arrayget_example.csv",
-        "ex_056_arrayget_example_strat.csv",
-        "ex_056_arrayget_example_trade.csv",
-        "ex_056_arrayget_example_plot_meta.json"
-      ]
-    },
-    {
       "name": "ex_061_arraylast_example",
       "suite": "sample",
       "filename": "ex_061_arraylast_example.pine",
@@ -783,16 +770,16 @@
       ]
     },
     {
-      "name": "ex_062_arraylastindexof_example",
+      "name": "ex_056_arrayget_example",
       "suite": "sample",
-      "filename": "ex_062_arraylastindexof_example.pine",
+      "filename": "ex_056_arrayget_example.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_062_arraylastindexof_example.csv",
-        "ex_062_arraylastindexof_example_strat.csv",
-        "ex_062_arraylastindexof_example_trade.csv",
-        "ex_062_arraylastindexof_example_plot_meta.json"
+        "ex_056_arrayget_example.csv",
+        "ex_056_arrayget_example_strat.csv",
+        "ex_056_arrayget_example_trade.csv",
+        "ex_056_arrayget_example_plot_meta.json"
       ]
     },
     {
@@ -806,6 +793,19 @@
         "ex_063_arraymax_strat.csv",
         "ex_063_arraymax_trade.csv",
         "ex_063_arraymax_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_062_arraylastindexof_example",
+      "suite": "sample",
+      "filename": "ex_062_arraylastindexof_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_062_arraylastindexof_example.csv",
+        "ex_062_arraylastindexof_example_strat.csv",
+        "ex_062_arraylastindexof_example_trade.csv",
+        "ex_062_arraylastindexof_example_plot_meta.json"
       ]
     },
     {
@@ -847,6 +847,19 @@
       ]
     },
     {
+      "name": "ex_069_arraynew_color_example",
+      "suite": "sample",
+      "filename": "ex_069_arraynew_color_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_069_arraynew_color_example.csv",
+        "ex_069_arraynew_color_example_strat.csv",
+        "ex_069_arraynew_color_example_trade.csv",
+        "ex_069_arraynew_color_example_plot_meta.json"
+      ]
+    },
+    {
       "name": "ex_074_arraynew_string_example",
       "suite": "sample",
       "filename": "ex_074_arraynew_string_example.pine",
@@ -859,16 +872,16 @@
       ]
     },
     {
-      "name": "ex_069_arraynew_color_example",
+      "name": "ex_070_arraynew_float_example",
       "suite": "sample",
-      "filename": "ex_069_arraynew_color_example.pine",
+      "filename": "ex_070_arraynew_float_example.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_069_arraynew_color_example.csv",
-        "ex_069_arraynew_color_example_strat.csv",
-        "ex_069_arraynew_color_example_trade.csv",
-        "ex_069_arraynew_color_example_plot_meta.json"
+        "ex_070_arraynew_float_example.csv",
+        "ex_070_arraynew_float_example_strat.csv",
+        "ex_070_arraynew_float_example_trade.csv",
+        "ex_070_arraynew_float_example_plot_meta.json"
       ]
     },
     {
@@ -894,19 +907,6 @@
         "ex_071_arraynew_int_example_strat.csv",
         "ex_071_arraynew_int_example_trade.csv",
         "ex_071_arraynew_int_example_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_070_arraynew_float_example",
-      "suite": "sample",
-      "filename": "ex_070_arraynew_float_example.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_070_arraynew_float_example.csv",
-        "ex_070_arraynew_float_example_strat.csv",
-        "ex_070_arraynew_float_example_trade.csv",
-        "ex_070_arraynew_float_example_plot_meta.json"
       ]
     },
     {
@@ -962,18 +962,6 @@
       ]
     },
     {
-      "name": "ex_076_arraynewstring_example_part4",
-      "suite": "sample",
-      "filename": "ex_076_arraynewstring_example_part4.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_076_arraynewstring_example_part4.csv",
-        "ex_076_arraynewstring_example_part4_strat.csv",
-        "ex_076_arraynewstring_example_part4_trade.csv"
-      ]
-    },
-    {
       "name": "ex_076_arraynewstring_example_part3",
       "suite": "sample",
       "filename": "ex_076_arraynewstring_example_part3.pine",
@@ -997,6 +985,18 @@
         "ex_066_arraymode_example_strat.csv",
         "ex_066_arraymode_example_trade.csv",
         "ex_066_arraymode_example_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_076_arraynewstring_example_part4",
+      "suite": "sample",
+      "filename": "ex_076_arraynewstring_example_part4.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_076_arraynewstring_example_part4.csv",
+        "ex_076_arraynewstring_example_part4_strat.csv",
+        "ex_076_arraynewstring_example_part4_trade.csv"
       ]
     },
     {
@@ -1052,31 +1052,6 @@
       ]
     },
     {
-      "name": "ex_083_arrayshift_example",
-      "suite": "sample",
-      "filename": "ex_083_arrayshift_example.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_083_arrayshift_example.csv",
-        "ex_083_arrayshift_example_strat.csv",
-        "ex_083_arrayshift_example_trade.csv",
-        "ex_083_arrayshift_example_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_086_arraysort_example",
-      "suite": "sample",
-      "filename": "ex_086_arraysort_example.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_086_arraysort_example.csv",
-        "ex_086_arraysort_example_strat.csv",
-        "ex_086_arraysort_example_trade.csv"
-      ]
-    },
-    {
       "name": "ex_093_barcolor_example",
       "suite": "sample",
       "filename": "ex_093_barcolor_example.pine",
@@ -1099,6 +1074,31 @@
         "ex_079_arrayrange_example_strat.csv",
         "ex_079_arrayrange_example_trade.csv",
         "ex_079_arrayrange_example_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_083_arrayshift_example",
+      "suite": "sample",
+      "filename": "ex_083_arrayshift_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_083_arrayshift_example.csv",
+        "ex_083_arrayshift_example_strat.csv",
+        "ex_083_arrayshift_example_trade.csv",
+        "ex_083_arrayshift_example_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_086_arraysort_example",
+      "suite": "sample",
+      "filename": "ex_086_arraysort_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_086_arraysort_example.csv",
+        "ex_086_arraysort_example_strat.csv",
+        "ex_086_arraysort_example_trade.csv"
       ]
     },
     {
@@ -1127,18 +1127,6 @@
       ]
     },
     {
-      "name": "ex_097_example_of_setting_the_box_fon",
-      "suite": "sample",
-      "filename": "ex_097_example_of_setting_the_box_fon.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_097_example_of_setting_the_box_fon.csv",
-        "ex_097_example_of_setting_the_box_fon_strat.csv",
-        "ex_097_example_of_setting_the_box_fon_trade.csv"
-      ]
-    },
-    {
       "name": "ex_091_arrayunshift_example",
       "suite": "sample",
       "filename": "ex_091_arrayunshift_example.pine",
@@ -1152,16 +1140,15 @@
       ]
     },
     {
-      "name": "ex_082_arrayset_example",
+      "name": "ex_097_example_of_setting_the_box_fon",
       "suite": "sample",
-      "filename": "ex_082_arrayset_example.pine",
+      "filename": "ex_097_example_of_setting_the_box_fon.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_082_arrayset_example.csv",
-        "ex_082_arrayset_example_strat.csv",
-        "ex_082_arrayset_example_trade.csv",
-        "ex_082_arrayset_example_plot_meta.json"
+        "ex_097_example_of_setting_the_box_fon.csv",
+        "ex_097_example_of_setting_the_box_fon_strat.csv",
+        "ex_097_example_of_setting_the_box_fon_trade.csv"
       ]
     },
     {
@@ -1178,6 +1165,19 @@
       ]
     },
     {
+      "name": "ex_082_arrayset_example",
+      "suite": "sample",
+      "filename": "ex_082_arrayset_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_082_arrayset_example.csv",
+        "ex_082_arrayset_example_strat.csv",
+        "ex_082_arrayset_example_trade.csv",
+        "ex_082_arrayset_example_plot_meta.json"
+      ]
+    },
+    {
       "name": "ex_094_bgcolor_example",
       "suite": "sample",
       "filename": "ex_094_bgcolor_example.pine",
@@ -1188,19 +1188,6 @@
         "ex_094_bgcolor_example_strat.csv",
         "ex_094_bgcolor_example_trade.csv",
         "ex_094_bgcolor_example_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_098_colorb",
-      "suite": "sample",
-      "filename": "ex_098_colorb.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_098_colorb.csv",
-        "ex_098_colorb_strat.csv",
-        "ex_098_colorb_trade.csv",
-        "ex_098_colorb_plot_meta.json"
       ]
     },
     {
@@ -1227,6 +1214,19 @@
         "ex_085_arrayslice_example_strat.csv",
         "ex_085_arrayslice_example_trade.csv",
         "ex_085_arrayslice_example_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_098_colorb",
+      "suite": "sample",
+      "filename": "ex_098_colorb.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_098_colorb.csv",
+        "ex_098_colorb_strat.csv",
+        "ex_098_colorb_trade.csv",
+        "ex_098_colorb_plot_meta.json"
       ]
     },
     {
@@ -1307,28 +1307,16 @@
       ]
     },
     {
-      "name": "ex_099_colorfrom_gradient",
+      "name": "ex_103_colorrgb",
       "suite": "sample",
-      "filename": "ex_099_colorfrom_gradient.pine",
+      "filename": "ex_103_colorrgb.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_099_colorfrom_gradient.csv",
-        "ex_099_colorfrom_gradient_strat.csv",
-        "ex_099_colorfrom_gradient_trade.csv",
-        "ex_099_colorfrom_gradient_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_105_fill_between_hlines_part1",
-      "suite": "sample",
-      "filename": "ex_105_fill_between_hlines_part1.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_105_fill_between_hlines_part1.csv",
-        "ex_105_fill_between_hlines_part1_strat.csv",
-        "ex_105_fill_between_hlines_part1_trade.csv"
+        "ex_103_colorrgb.csv",
+        "ex_103_colorrgb_strat.csv",
+        "ex_103_colorrgb_trade.csv",
+        "ex_103_colorrgb_plot_meta.json"
       ]
     },
     {
@@ -1344,6 +1332,18 @@
       ]
     },
     {
+      "name": "ex_105_fill_between_hlines_part1",
+      "suite": "sample",
+      "filename": "ex_105_fill_between_hlines_part1.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_105_fill_between_hlines_part1.csv",
+        "ex_105_fill_between_hlines_part1_strat.csv",
+        "ex_105_fill_between_hlines_part1_trade.csv"
+      ]
+    },
+    {
       "name": "ex_127_library",
       "suite": "sample",
       "filename": "ex_127_library.pine",
@@ -1352,16 +1352,16 @@
       "output_files": []
     },
     {
-      "name": "ex_103_colorrgb",
+      "name": "ex_099_colorfrom_gradient",
       "suite": "sample",
-      "filename": "ex_103_colorrgb.pine",
+      "filename": "ex_099_colorfrom_gradient.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_103_colorrgb.csv",
-        "ex_103_colorrgb_strat.csv",
-        "ex_103_colorrgb_trade.csv",
-        "ex_103_colorrgb_plot_meta.json"
+        "ex_099_colorfrom_gradient.csv",
+        "ex_099_colorfrom_gradient_strat.csv",
+        "ex_099_colorfrom_gradient_trade.csv",
+        "ex_099_colorfrom_gradient_plot_meta.json"
       ]
     },
     {
@@ -1377,16 +1377,16 @@
       ]
     },
     {
-      "name": "ex_088_arraystandardize_example",
+      "name": "ex_089_arraystdev_example",
       "suite": "sample",
-      "filename": "ex_088_arraystandardize_example.pine",
+      "filename": "ex_089_arraystdev_example.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_088_arraystandardize_example.csv",
-        "ex_088_arraystandardize_example_strat.csv",
-        "ex_088_arraystandardize_example_trade.csv",
-        "ex_088_arraystandardize_example_plot_meta.json"
+        "ex_089_arraystdev_example.csv",
+        "ex_089_arraystdev_example_strat.csv",
+        "ex_089_arraystdev_example_trade.csv",
+        "ex_089_arraystdev_example_plot_meta.json"
       ]
     },
     {
@@ -1403,16 +1403,16 @@
       ]
     },
     {
-      "name": "ex_089_arraystdev_example",
+      "name": "ex_088_arraystandardize_example",
       "suite": "sample",
-      "filename": "ex_089_arraystdev_example.pine",
+      "filename": "ex_088_arraystandardize_example.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_089_arraystdev_example.csv",
-        "ex_089_arraystdev_example_strat.csv",
-        "ex_089_arraystdev_example_trade.csv",
-        "ex_089_arraystdev_example_plot_meta.json"
+        "ex_088_arraystandardize_example.csv",
+        "ex_088_arraystandardize_example_strat.csv",
+        "ex_088_arraystandardize_example_trade.csv",
+        "ex_088_arraystandardize_example_plot_meta.json"
       ]
     },
     {
@@ -1493,19 +1493,6 @@
       ]
     },
     {
-      "name": "ex_116_inputsource",
-      "suite": "sample",
-      "filename": "ex_116_inputsource.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_116_inputsource.csv",
-        "ex_116_inputsource_strat.csv",
-        "ex_116_inputsource_trade.csv",
-        "ex_116_inputsource_plot_meta.json"
-      ]
-    },
-    {
       "name": "ex_114_inputprice",
       "suite": "sample",
       "filename": "ex_114_inputprice.pine",
@@ -1519,16 +1506,16 @@
       ]
     },
     {
-      "name": "ex_119_inputtext_area",
+      "name": "ex_116_inputsource",
       "suite": "sample",
-      "filename": "ex_119_inputtext_area.pine",
+      "filename": "ex_116_inputsource.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_119_inputtext_area.csv",
-        "ex_119_inputtext_area_strat.csv",
-        "ex_119_inputtext_area_trade.csv",
-        "ex_119_inputtext_area_plot_meta.json"
+        "ex_116_inputsource.csv",
+        "ex_116_inputsource_strat.csv",
+        "ex_116_inputsource_trade.csv",
+        "ex_116_inputsource_plot_meta.json"
       ]
     },
     {
@@ -1545,15 +1532,16 @@
       ]
     },
     {
-      "name": "ex_125_labelnew",
+      "name": "ex_119_inputtext_area",
       "suite": "sample",
-      "filename": "ex_125_labelnew.pine",
+      "filename": "ex_119_inputtext_area.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_125_labelnew.csv",
-        "ex_125_labelnew_strat.csv",
-        "ex_125_labelnew_trade.csv"
+        "ex_119_inputtext_area.csv",
+        "ex_119_inputtext_area_strat.csv",
+        "ex_119_inputtext_area_trade.csv",
+        "ex_119_inputtext_area_plot_meta.json"
       ]
     },
     {
@@ -1566,6 +1554,18 @@
         "ex_126_example_of_setting_the_label_f.csv",
         "ex_126_example_of_setting_the_label_f_strat.csv",
         "ex_126_example_of_setting_the_label_f_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_125_labelnew",
+      "suite": "sample",
+      "filename": "ex_125_labelnew.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_125_labelnew.csv",
+        "ex_125_labelnew_strat.csv",
+        "ex_125_labelnew_trade.csv"
       ]
     },
     {
@@ -1606,19 +1606,6 @@
       ]
     },
     {
-      "name": "ex_108_input",
-      "suite": "sample",
-      "filename": "ex_108_input.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_108_input.csv",
-        "ex_108_input_strat.csv",
-        "ex_108_input_trade.csv",
-        "ex_108_input_plot_meta.json"
-      ]
-    },
-    {
       "name": "ex_129_getprice",
       "suite": "sample",
       "filename": "ex_129_getprice.pine",
@@ -1629,6 +1616,19 @@
         "ex_129_getprice_strat.csv",
         "ex_129_getprice_trade.csv",
         "ex_129_getprice_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_108_input",
+      "suite": "sample",
+      "filename": "ex_108_input.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_108_input.csv",
+        "ex_108_input_strat.csv",
+        "ex_108_input_trade.csv",
+        "ex_108_input_plot_meta.json"
       ]
     },
     {
@@ -1644,6 +1644,18 @@
       ]
     },
     {
+      "name": "ex_128_last_100_bars_price_range",
+      "suite": "sample",
+      "filename": "ex_128_last_100_bars_price_range.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_128_last_100_bars_price_range.csv",
+        "ex_128_last_100_bars_price_range_strat.csv",
+        "ex_128_last_100_bars_price_range_trade.csv"
+      ]
+    },
+    {
       "name": "ex_135_mapclear_example",
       "suite": "sample",
       "filename": "ex_135_mapclear_example.pine",
@@ -1654,18 +1666,6 @@
         "ex_135_mapclear_example_strat.csv",
         "ex_135_mapclear_example_trade.csv",
         "ex_135_mapclear_example_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_128_last_100_bars_price_range",
-      "suite": "sample",
-      "filename": "ex_128_last_100_bars_price_range.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_128_last_100_bars_price_range.csv",
-        "ex_128_last_100_bars_price_range_strat.csv",
-        "ex_128_last_100_bars_price_range_trade.csv"
       ]
     },
     {
@@ -1708,6 +1708,18 @@
       ]
     },
     {
+      "name": "ex_140_mapnewstring_int_example",
+      "suite": "sample",
+      "filename": "ex_140_mapnewstring_int_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_140_mapnewstring_int_example.csv",
+        "ex_140_mapnewstring_int_example_strat.csv",
+        "ex_140_mapnewstring_int_example_trade.csv"
+      ]
+    },
+    {
       "name": "ex_137_mapcopy_example",
       "suite": "sample",
       "filename": "ex_137_mapcopy_example.pine",
@@ -1718,18 +1730,6 @@
         "ex_137_mapcopy_example_strat.csv",
         "ex_137_mapcopy_example_trade.csv",
         "ex_137_mapcopy_example_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_140_mapnewstring_int_example",
-      "suite": "sample",
-      "filename": "ex_140_mapnewstring_int_example.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_140_mapnewstring_int_example.csv",
-        "ex_140_mapnewstring_int_example_strat.csv",
-        "ex_140_mapnewstring_int_example_trade.csv"
       ]
     },
     {
@@ -1912,6 +1912,18 @@
       ]
     },
     {
+      "name": "ex_216_strategy",
+      "suite": "sample",
+      "filename": "ex_216_strategy.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_216_strategy.csv",
+        "ex_216_strategy_strat.csv",
+        "ex_216_strategy_trade.csv"
+      ]
+    },
+    {
       "name": "ex_193_plotcandle_example",
       "suite": "sample",
       "filename": "ex_193_plotcandle_example.pine",
@@ -1921,6 +1933,18 @@
         "ex_193_plotcandle_example.csv",
         "ex_193_plotcandle_example_strat.csv",
         "ex_193_plotcandle_example_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_215_my_strategy",
+      "suite": "sample",
+      "filename": "ex_215_my_strategy.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_215_my_strategy.csv",
+        "ex_215_my_strategy_strat.csv",
+        "ex_215_my_strategy_trade.csv"
       ]
     },
     {
@@ -1934,30 +1958,6 @@
         "ex_188_na_strat.csv",
         "ex_188_na_trade.csv",
         "ex_188_na_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_216_strategy",
-      "suite": "sample",
-      "filename": "ex_216_strategy.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_216_strategy.csv",
-        "ex_216_strategy_strat.csv",
-        "ex_216_strategy_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_215_my_strategy",
-      "suite": "sample",
-      "filename": "ex_215_my_strategy.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_215_my_strategy.csv",
-        "ex_215_my_strategy_strat.csv",
-        "ex_215_my_strategy_trade.csv"
       ]
     },
     {
@@ -2011,30 +2011,6 @@
       ]
     },
     {
-      "name": "ex_211_strrepeat",
-      "suite": "sample",
-      "filename": "ex_211_strrepeat.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_211_strrepeat.csv",
-        "ex_211_strrepeat_strat.csv",
-        "ex_211_strrepeat_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_223_strategyclosedtradesentry_id_e",
-      "suite": "sample",
-      "filename": "ex_223_strategyclosedtradesentry_id_e.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_223_strategyclosedtradesentry_id_e.csv",
-        "ex_223_strategyclosedtradesentry_id_e_strat.csv",
-        "ex_223_strategyclosedtradesentry_id_e_trade.csv"
-      ]
-    },
-    {
       "name": "ex_194_plotchar_example",
       "suite": "sample",
       "filename": "ex_194_plotchar_example.pine",
@@ -2073,15 +2049,27 @@
       ]
     },
     {
-      "name": "ex_214_strtrim",
+      "name": "ex_211_strrepeat",
       "suite": "sample",
-      "filename": "ex_214_strtrim.pine",
+      "filename": "ex_211_strrepeat.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_214_strtrim.csv",
-        "ex_214_strtrim_strat.csv",
-        "ex_214_strtrim_trade.csv"
+        "ex_211_strrepeat.csv",
+        "ex_211_strrepeat_strat.csv",
+        "ex_211_strrepeat_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_223_strategyclosedtradesentry_id_e",
+      "suite": "sample",
+      "filename": "ex_223_strategyclosedtradesentry_id_e.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_223_strategyclosedtradesentry_id_e.csv",
+        "ex_223_strategyclosedtradesentry_id_e_strat.csv",
+        "ex_223_strategyclosedtradesentry_id_e_trade.csv"
       ]
     },
     {
@@ -2110,6 +2098,30 @@
       ]
     },
     {
+      "name": "ex_214_strtrim",
+      "suite": "sample",
+      "filename": "ex_214_strtrim.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_214_strtrim.csv",
+        "ex_214_strtrim_strat.csv",
+        "ex_214_strtrim_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_225_strategyclosedtradesentry_time",
+      "suite": "sample",
+      "filename": "ex_225_strategyclosedtradesentry_time.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_225_strategyclosedtradesentry_time.csv",
+        "ex_225_strategyclosedtradesentry_time_strat.csv",
+        "ex_225_strategyclosedtradesentry_time_trade.csv"
+      ]
+    },
+    {
       "name": "ex_222_strategyclosedtradesentry_comm",
       "suite": "sample",
       "filename": "ex_222_strategyclosedtradesentry_comm.pine",
@@ -2132,18 +2144,6 @@
         "ex_218_partial_close_strategy_strat.csv",
         "ex_218_partial_close_strategy_trade.csv",
         "ex_218_partial_close_strategy_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_225_strategyclosedtradesentry_time",
-      "suite": "sample",
-      "filename": "ex_225_strategyclosedtradesentry_time.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_225_strategyclosedtradesentry_time.csv",
-        "ex_225_strategyclosedtradesentry_time_strat.csv",
-        "ex_225_strategyclosedtradesentry_time_trade.csv"
       ]
     },
     {
@@ -2173,19 +2173,6 @@
       ]
     },
     {
-      "name": "ex_224_strategyclosedtradesentry_pric_part2",
-      "suite": "sample",
-      "filename": "ex_224_strategyclosedtradesentry_pric_part2.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_224_strategyclosedtradesentry_pric_part2.csv",
-        "ex_224_strategyclosedtradesentry_pric_part2_strat.csv",
-        "ex_224_strategyclosedtradesentry_pric_part2_trade.csv",
-        "ex_224_strategyclosedtradesentry_pric_part2_plot_meta.json"
-      ]
-    },
-    {
       "name": "ex_226_strategyclosedtradesexit_bar_i_part1",
       "suite": "sample",
       "filename": "ex_226_strategyclosedtradesexit_bar_i_part1.pine",
@@ -2196,6 +2183,19 @@
         "ex_226_strategyclosedtradesexit_bar_i_part1_strat.csv",
         "ex_226_strategyclosedtradesexit_bar_i_part1_trade.csv",
         "ex_226_strategyclosedtradesexit_bar_i_part1_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_224_strategyclosedtradesentry_pric_part2",
+      "suite": "sample",
+      "filename": "ex_224_strategyclosedtradesentry_pric_part2.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_224_strategyclosedtradesentry_pric_part2.csv",
+        "ex_224_strategyclosedtradesentry_pric_part2_strat.csv",
+        "ex_224_strategyclosedtradesentry_pric_part2_trade.csv",
+        "ex_224_strategyclosedtradesentry_pric_part2_plot_meta.json"
       ]
     },
     {
@@ -2235,18 +2235,6 @@
       ]
     },
     {
-      "name": "ex_230_strategyclosedtradesexit_time__part2",
-      "suite": "sample",
-      "filename": "ex_230_strategyclosedtradesexit_time__part2.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_230_strategyclosedtradesexit_time__part2.csv",
-        "ex_230_strategyclosedtradesexit_time__part2_strat.csv",
-        "ex_230_strategyclosedtradesexit_time__part2_trade.csv"
-      ]
-    },
-    {
       "name": "ex_236_strategyconvert_to_symbol_exam",
       "suite": "sample",
       "filename": "ex_236_strategyconvert_to_symbol_exam.pine",
@@ -2259,16 +2247,15 @@
       ]
     },
     {
-      "name": "ex_229_strategyclosedtradesexit_price_part2",
+      "name": "ex_230_strategyclosedtradesexit_time__part2",
       "suite": "sample",
-      "filename": "ex_229_strategyclosedtradesexit_price_part2.pine",
+      "filename": "ex_230_strategyclosedtradesexit_time__part2.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_229_strategyclosedtradesexit_price_part2.csv",
-        "ex_229_strategyclosedtradesexit_price_part2_strat.csv",
-        "ex_229_strategyclosedtradesexit_price_part2_trade.csv",
-        "ex_229_strategyclosedtradesexit_price_part2_plot_meta.json"
+        "ex_230_strategyclosedtradesexit_time__part2.csv",
+        "ex_230_strategyclosedtradesexit_time__part2_strat.csv",
+        "ex_230_strategyclosedtradesexit_time__part2_trade.csv"
       ]
     },
     {
@@ -2282,6 +2269,19 @@
         "ex_234_strategyclosedtradessize_examp_part1_strat.csv",
         "ex_234_strategyclosedtradessize_examp_part1_trade.csv",
         "ex_234_strategyclosedtradessize_examp_part1_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_229_strategyclosedtradesexit_price_part2",
+      "suite": "sample",
+      "filename": "ex_229_strategyclosedtradesexit_price_part2.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_229_strategyclosedtradesexit_price_part2.csv",
+        "ex_229_strategyclosedtradesexit_price_part2_strat.csv",
+        "ex_229_strategyclosedtradesexit_price_part2_trade.csv",
+        "ex_229_strategyclosedtradesexit_price_part2_plot_meta.json"
       ]
     },
     {
@@ -2371,6 +2371,19 @@
       ]
     },
     {
+      "name": "ex_240_strategyopentradesentry_bar_in_part1",
+      "suite": "sample",
+      "filename": "ex_240_strategyopentradesentry_bar_in_part1.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_240_strategyopentradesentry_bar_in_part1.csv",
+        "ex_240_strategyopentradesentry_bar_in_part1_strat.csv",
+        "ex_240_strategyopentradesentry_bar_in_part1_trade.csv",
+        "ex_240_strategyopentradesentry_bar_in_part1_plot_meta.json"
+      ]
+    },
+    {
       "name": "ex_235_strategyconvert_to_account_exa_part1",
       "suite": "sample",
       "filename": "ex_235_strategyconvert_to_account_exa_part1.pine",
@@ -2397,19 +2410,6 @@
       ]
     },
     {
-      "name": "ex_240_strategyopentradesentry_bar_in_part1",
-      "suite": "sample",
-      "filename": "ex_240_strategyopentradesentry_bar_in_part1.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_240_strategyopentradesentry_bar_in_part1.csv",
-        "ex_240_strategyopentradesentry_bar_in_part1_strat.csv",
-        "ex_240_strategyopentradesentry_bar_in_part1_trade.csv",
-        "ex_240_strategyopentradesentry_bar_in_part1_plot_meta.json"
-      ]
-    },
-    {
       "name": "ex_239_strategyopentradescommission_e_part1",
       "suite": "sample",
       "filename": "ex_239_strategyopentradescommission_e_part1.pine",
@@ -2422,16 +2422,15 @@
       ]
     },
     {
-      "name": "ex_243_strategyopentradesentry_price__part2",
+      "name": "ex_242_strategyopentradesentry_id_exa",
       "suite": "sample",
-      "filename": "ex_243_strategyopentradesentry_price__part2.pine",
+      "filename": "ex_242_strategyopentradesentry_id_exa.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_243_strategyopentradesentry_price__part2.csv",
-        "ex_243_strategyopentradesentry_price__part2_strat.csv",
-        "ex_243_strategyopentradesentry_price__part2_trade.csv",
-        "ex_243_strategyopentradesentry_price__part2_plot_meta.json"
+        "ex_242_strategyopentradesentry_id_exa.csv",
+        "ex_242_strategyopentradesentry_id_exa_strat.csv",
+        "ex_242_strategyopentradesentry_id_exa_trade.csv"
       ]
     },
     {
@@ -2448,6 +2447,19 @@
       ]
     },
     {
+      "name": "ex_243_strategyopentradesentry_price__part2",
+      "suite": "sample",
+      "filename": "ex_243_strategyopentradesentry_price__part2.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_243_strategyopentradesentry_price__part2.csv",
+        "ex_243_strategyopentradesentry_price__part2_strat.csv",
+        "ex_243_strategyopentradesentry_price__part2_trade.csv",
+        "ex_243_strategyopentradesentry_price__part2_plot_meta.json"
+      ]
+    },
+    {
       "name": "ex_243_strategyopentradesentry_price__part1",
       "suite": "sample",
       "filename": "ex_243_strategyopentradesentry_price__part1.pine",
@@ -2458,18 +2470,6 @@
         "ex_243_strategyopentradesentry_price__part1_strat.csv",
         "ex_243_strategyopentradesentry_price__part1_trade.csv",
         "ex_243_strategyopentradesentry_price__part1_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_242_strategyopentradesentry_id_exa",
-      "suite": "sample",
-      "filename": "ex_242_strategyopentradesentry_id_exa.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_242_strategyopentradesentry_id_exa.csv",
-        "ex_242_strategyopentradesentry_id_exa_strat.csv",
-        "ex_242_strategyopentradesentry_id_exa_trade.csv"
       ]
     },
     {
@@ -2538,6 +2538,18 @@
       ]
     },
     {
+      "name": "ex_249_market_order_strategy_part1",
+      "suite": "sample",
+      "filename": "ex_249_market_order_strategy_part1.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_249_market_order_strategy_part1.csv",
+        "ex_249_market_order_strategy_part1_strat.csv",
+        "ex_249_market_order_strategy_part1_trade.csv"
+      ]
+    },
+    {
       "name": "ex_247_strategyopentradesprofit_examp_part3",
       "suite": "sample",
       "filename": "ex_247_strategyopentradesprofit_examp_part3.pine",
@@ -2561,18 +2573,6 @@
         "ex_248_strategyopentradessize_example_part2_strat.csv",
         "ex_248_strategyopentradessize_example_part2_trade.csv",
         "ex_248_strategyopentradessize_example_part2_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_249_market_order_strategy_part1",
-      "suite": "sample",
-      "filename": "ex_249_market_order_strategy_part1.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_249_market_order_strategy_part1.csv",
-        "ex_249_market_order_strategy_part1_strat.csv",
-        "ex_249_market_order_strategy_part1_trade.csv"
       ]
     },
     {
@@ -2625,28 +2625,17 @@
       ]
     },
     {
-      "name": "ex_132_my_strategy",
+      "name": "ex_251_riskmax_cons_loss_days_demo_1",
       "suite": "sample",
-      "filename": "ex_132_my_strategy.pine",
-      "status": "timeout",
+      "filename": "ex_251_riskmax_cons_loss_days_demo_1.pine",
+      "status": "ok",
       "error": "",
-      "output_files": []
-    },
-    {
-      "name": "ex_133_my_strategy",
-      "suite": "sample",
-      "filename": "ex_133_my_strategy.pine",
-      "status": "timeout",
-      "error": "",
-      "output_files": []
-    },
-    {
-      "name": "ex_134_my_strategy",
-      "suite": "sample",
-      "filename": "ex_134_my_strategy.pine",
-      "status": "timeout",
-      "error": "",
-      "output_files": []
+      "output_files": [
+        "ex_251_riskmax_cons_loss_days_demo_1.csv",
+        "ex_251_riskmax_cons_loss_days_demo_1_strat.csv",
+        "ex_251_riskmax_cons_loss_days_demo_1_trade.csv",
+        "ex_251_riskmax_cons_loss_days_demo_1_plot_meta.json"
+      ]
     },
     {
       "name": "ex_252_riskmax_drawdown_demo_1_part1",
@@ -2662,29 +2651,16 @@
       ]
     },
     {
-      "name": "ex_251_riskmax_cons_loss_days_demo_1",
+      "name": "ex_255_riskmax_position_size_demo",
       "suite": "sample",
-      "filename": "ex_251_riskmax_cons_loss_days_demo_1.pine",
+      "filename": "ex_255_riskmax_position_size_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_251_riskmax_cons_loss_days_demo_1.csv",
-        "ex_251_riskmax_cons_loss_days_demo_1_strat.csv",
-        "ex_251_riskmax_cons_loss_days_demo_1_trade.csv",
-        "ex_251_riskmax_cons_loss_days_demo_1_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_254_strategyriskmax_intraday_loss__part2",
-      "suite": "sample",
-      "filename": "ex_254_strategyriskmax_intraday_loss__part2.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_254_strategyriskmax_intraday_loss__part2.csv",
-        "ex_254_strategyriskmax_intraday_loss__part2_strat.csv",
-        "ex_254_strategyriskmax_intraday_loss__part2_trade.csv",
-        "ex_254_strategyriskmax_intraday_loss__part2_plot_meta.json"
+        "ex_255_riskmax_position_size_demo.csv",
+        "ex_255_riskmax_position_size_demo_strat.csv",
+        "ex_255_riskmax_position_size_demo_trade.csv",
+        "ex_255_riskmax_position_size_demo_plot_meta.json"
       ]
     },
     {
@@ -2701,16 +2677,16 @@
       ]
     },
     {
-      "name": "ex_255_riskmax_position_size_demo",
+      "name": "ex_254_strategyriskmax_intraday_loss__part2",
       "suite": "sample",
-      "filename": "ex_255_riskmax_position_size_demo.pine",
+      "filename": "ex_254_strategyriskmax_intraday_loss__part2.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_255_riskmax_position_size_demo.csv",
-        "ex_255_riskmax_position_size_demo_strat.csv",
-        "ex_255_riskmax_position_size_demo_trade.csv",
-        "ex_255_riskmax_position_size_demo_plot_meta.json"
+        "ex_254_strategyriskmax_intraday_loss__part2.csv",
+        "ex_254_strategyriskmax_intraday_loss__part2_strat.csv",
+        "ex_254_strategyriskmax_intraday_loss__part2_trade.csv",
+        "ex_254_strategyriskmax_intraday_loss__part2_plot_meta.json"
       ]
     },
     {
@@ -2740,19 +2716,6 @@
       ]
     },
     {
-      "name": "ex_221_strategyclosedtradesentry_bar_",
-      "suite": "sample",
-      "filename": "ex_221_strategyclosedtradesentry_bar_.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_221_strategyclosedtradesentry_bar_.csv",
-        "ex_221_strategyclosedtradesentry_bar__strat.csv",
-        "ex_221_strategyclosedtradesentry_bar__trade.csv",
-        "ex_221_strategyclosedtradesentry_bar__plot_meta.json"
-      ]
-    },
-    {
       "name": "ex_260_tabarssince",
       "suite": "sample",
       "filename": "ex_260_tabarssince.pine",
@@ -2763,6 +2726,19 @@
         "ex_260_tabarssince_strat.csv",
         "ex_260_tabarssince_trade.csv",
         "ex_260_tabarssince_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_221_strategyclosedtradesentry_bar_",
+      "suite": "sample",
+      "filename": "ex_221_strategyclosedtradesentry_bar_.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_221_strategyclosedtradesentry_bar_.csv",
+        "ex_221_strategyclosedtradesentry_bar__strat.csv",
+        "ex_221_strategyclosedtradesentry_bar__trade.csv",
+        "ex_221_strategyclosedtradesentry_bar__plot_meta.json"
       ]
     },
     {
@@ -2792,19 +2768,6 @@
       ]
     },
     {
-      "name": "ex_263_day_and_direction_change",
-      "suite": "sample",
-      "filename": "ex_263_day_and_direction_change.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_263_day_and_direction_change.csv",
-        "ex_263_day_and_direction_change_strat.csv",
-        "ex_263_day_and_direction_change_trade.csv",
-        "ex_263_day_and_direction_change_plot_meta.json"
-      ]
-    },
-    {
       "name": "ex_246_strategyopentradesmax_runup_ex_part2",
       "suite": "sample",
       "filename": "ex_246_strategyopentradesmax_runup_ex_part2.pine",
@@ -2815,6 +2778,19 @@
         "ex_246_strategyopentradesmax_runup_ex_part2_strat.csv",
         "ex_246_strategyopentradesmax_runup_ex_part2_trade.csv",
         "ex_246_strategyopentradesmax_runup_ex_part2_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_261_tabb",
+      "suite": "sample",
+      "filename": "ex_261_tabb.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_261_tabb.csv",
+        "ex_261_tabb_strat.csv",
+        "ex_261_tabb_trade.csv",
+        "ex_261_tabb_plot_meta.json"
       ]
     },
     {
@@ -2831,16 +2807,29 @@
       ]
     },
     {
-      "name": "ex_261_tabb",
+      "name": "ex_263_day_and_direction_change",
       "suite": "sample",
-      "filename": "ex_261_tabb.pine",
+      "filename": "ex_263_day_and_direction_change.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_261_tabb.csv",
-        "ex_261_tabb_strat.csv",
-        "ex_261_tabb_trade.csv",
-        "ex_261_tabb_plot_meta.json"
+        "ex_263_day_and_direction_change.csv",
+        "ex_263_day_and_direction_change_strat.csv",
+        "ex_263_day_and_direction_change_trade.csv",
+        "ex_263_day_and_direction_change_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_258_taalma",
+      "suite": "sample",
+      "filename": "ex_258_taalma.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_258_taalma.csv",
+        "ex_258_taalma_strat.csv",
+        "ex_258_taalma_trade.csv",
+        "ex_258_taalma_plot_meta.json"
       ]
     },
     {
@@ -2860,47 +2849,38 @@
       "name": "ex_208_strformat",
       "suite": "sample",
       "filename": "ex_208_strformat.pine",
-      "status": "timeout",
-      "error": "",
-      "output_files": []
-    },
-    {
-      "name": "ex_258_taalma",
-      "suite": "sample",
-      "filename": "ex_258_taalma.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_258_taalma.csv",
-        "ex_258_taalma_strat.csv",
-        "ex_258_taalma_trade.csv",
-        "ex_258_taalma_plot_meta.json"
+        "ex_208_strformat.csv",
+        "ex_208_strformat_strat.csv",
+        "ex_208_strformat_trade.csv"
       ]
     },
     {
-      "name": "ex_272_macd_part2",
+      "name": "ex_269_hull_moving_average",
       "suite": "sample",
-      "filename": "ex_272_macd_part2.pine",
+      "filename": "ex_269_hull_moving_average.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_272_macd_part2.csv",
-        "ex_272_macd_part2_strat.csv",
-        "ex_272_macd_part2_trade.csv",
-        "ex_272_macd_part2_plot_meta.json"
+        "ex_269_hull_moving_average.csv",
+        "ex_269_hull_moving_average_strat.csv",
+        "ex_269_hull_moving_average_trade.csv",
+        "ex_269_hull_moving_average_plot_meta.json"
       ]
     },
     {
-      "name": "ex_272_macd_part1",
+      "name": "ex_233_strategyclosedtradesprofit_exa",
       "suite": "sample",
-      "filename": "ex_272_macd_part1.pine",
+      "filename": "ex_233_strategyclosedtradesprofit_exa.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_272_macd_part1.csv",
-        "ex_272_macd_part1_strat.csv",
-        "ex_272_macd_part1_trade.csv",
-        "ex_272_macd_part1_plot_meta.json"
+        "ex_233_strategyclosedtradesprofit_exa.csv",
+        "ex_233_strategyclosedtradesprofit_exa_strat.csv",
+        "ex_233_strategyclosedtradesprofit_exa_trade.csv",
+        "ex_233_strategyclosedtradesprofit_exa_plot_meta.json"
       ]
     },
     {
@@ -2917,19 +2897,6 @@
       ]
     },
     {
-      "name": "ex_271_takcw",
-      "suite": "sample",
-      "filename": "ex_271_takcw.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_271_takcw.csv",
-        "ex_271_takcw_strat.csv",
-        "ex_271_takcw_trade.csv",
-        "ex_271_takcw_plot_meta.json"
-      ]
-    },
-    {
       "name": "ex_265_tacog",
       "suite": "sample",
       "filename": "ex_265_tacog.pine",
@@ -2940,19 +2907,6 @@
         "ex_265_tacog_strat.csv",
         "ex_265_tacog_trade.csv",
         "ex_265_tacog_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_269_hull_moving_average",
-      "suite": "sample",
-      "filename": "ex_269_hull_moving_average.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_269_hull_moving_average.csv",
-        "ex_269_hull_moving_average_strat.csv",
-        "ex_269_hull_moving_average_trade.csv",
-        "ex_269_hull_moving_average_plot_meta.json"
       ]
     },
     {
@@ -2982,28 +2936,16 @@
       ]
     },
     {
-      "name": "ex_233_strategyclosedtradesprofit_exa",
+      "name": "ex_271_takcw",
       "suite": "sample",
-      "filename": "ex_233_strategyclosedtradesprofit_exa.pine",
+      "filename": "ex_271_takcw.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_233_strategyclosedtradesprofit_exa.csv",
-        "ex_233_strategyclosedtradesprofit_exa_strat.csv",
-        "ex_233_strategyclosedtradesprofit_exa_trade.csv",
-        "ex_233_strategyclosedtradesprofit_exa_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_274_weekly_pivots",
-      "suite": "sample",
-      "filename": "ex_274_weekly_pivots.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_274_weekly_pivots.csv",
-        "ex_274_weekly_pivots_strat.csv",
-        "ex_274_weekly_pivots_trade.csv"
+        "ex_271_takcw.csv",
+        "ex_271_takcw_strat.csv",
+        "ex_271_takcw_trade.csv",
+        "ex_271_takcw_plot_meta.json"
       ]
     },
     {
@@ -3020,69 +2962,41 @@
       ]
     },
     {
-      "name": "ex_273_money_flow_index",
+      "name": "ex_272_macd_part1",
       "suite": "sample",
-      "filename": "ex_273_money_flow_index.pine",
+      "filename": "ex_272_macd_part1.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_273_money_flow_index.csv",
-        "ex_273_money_flow_index_strat.csv",
-        "ex_273_money_flow_index_trade.csv",
-        "ex_273_money_flow_index_plot_meta.json"
+        "ex_272_macd_part1.csv",
+        "ex_272_macd_part1_strat.csv",
+        "ex_272_macd_part1_trade.csv",
+        "ex_272_macd_part1_plot_meta.json"
       ]
     },
     {
-      "name": "ex_290_example_of_setting_the_table_c",
+      "name": "ex_272_macd_part2",
       "suite": "sample",
-      "filename": "ex_290_example_of_setting_the_table_c.pine",
+      "filename": "ex_272_macd_part2.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_290_example_of_setting_the_table_c.csv",
-        "ex_290_example_of_setting_the_table_c_strat.csv",
-        "ex_290_example_of_setting_the_table_c_trade.csv"
+        "ex_272_macd_part2.csv",
+        "ex_272_macd_part2_strat.csv",
+        "ex_272_macd_part2_trade.csv",
+        "ex_272_macd_part2_plot_meta.json"
       ]
     },
     {
-      "name": "ex_276_pivotlow",
+      "name": "ex_274_weekly_pivots",
       "suite": "sample",
-      "filename": "ex_276_pivotlow.pine",
+      "filename": "ex_274_weekly_pivots.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_276_pivotlow.csv",
-        "ex_276_pivotlow_strat.csv",
-        "ex_276_pivotlow_trade.csv",
-        "ex_276_pivotlow_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_231_strategyclosedtradesmax_drawdo",
-      "suite": "sample",
-      "filename": "ex_231_strategyclosedtradesmax_drawdo.pine",
-      "status": "timeout",
-      "error": "",
-      "output_files": []
-    },
-    {
-      "name": "ex_232_strategyclosedtradesmax_runup_",
-      "suite": "sample",
-      "filename": "ex_232_strategyclosedtradesmax_runup_.pine",
-      "status": "timeout",
-      "error": "",
-      "output_files": []
-    },
-    {
-      "name": "ex_289_table_example",
-      "suite": "sample",
-      "filename": "ex_289_table_example.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_289_table_example.csv",
-        "ex_289_table_example_strat.csv",
-        "ex_289_table_example_trade.csv"
+        "ex_274_weekly_pivots.csv",
+        "ex_274_weekly_pivots_strat.csv",
+        "ex_274_weekly_pivots_trade.csv"
       ]
     },
     {
@@ -3099,57 +3013,16 @@
       ]
     },
     {
-      "name": "ex_291_table_example",
+      "name": "ex_273_money_flow_index",
       "suite": "sample",
-      "filename": "ex_291_table_example.pine",
+      "filename": "ex_273_money_flow_index.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_291_table_example.csv",
-        "ex_291_table_example_strat.csv",
-        "ex_291_table_example_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_275_pivothigh",
-      "suite": "sample",
-      "filename": "ex_275_pivothigh.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_275_pivothigh.csv",
-        "ex_275_pivothigh_strat.csv",
-        "ex_275_pivothigh_trade.csv",
-        "ex_275_pivothigh_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_234_strategyclosedtradessize_examp_part2",
-      "suite": "sample",
-      "filename": "ex_234_strategyclosedtradessize_examp_part2.pine",
-      "status": "timeout",
-      "error": "",
-      "output_files": []
-    },
-    {
-      "name": "ex_312_library",
-      "suite": "sample",
-      "filename": "ex_312_library.pine",
-      "status": "skip_empty",
-      "error": "",
-      "output_files": []
-    },
-    {
-      "name": "ex_285_simple_vwap_part1",
-      "suite": "sample",
-      "filename": "ex_285_simple_vwap_part1.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_285_simple_vwap_part1.csv",
-        "ex_285_simple_vwap_part1_strat.csv",
-        "ex_285_simple_vwap_part1_trade.csv",
-        "ex_285_simple_vwap_part1_plot_meta.json"
+        "ex_273_money_flow_index.csv",
+        "ex_273_money_flow_index_strat.csv",
+        "ex_273_money_flow_index_trade.csv",
+        "ex_273_money_flow_index_plot_meta.json"
       ]
     },
     {
@@ -3166,27 +3039,16 @@
       ]
     },
     {
-      "name": "ex_292_a_donut",
+      "name": "ex_285_simple_vwap_part1",
       "suite": "sample",
-      "filename": "ex_292_a_donut.pine",
+      "filename": "ex_285_simple_vwap_part1.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_292_a_donut.csv",
-        "ex_292_a_donut_strat.csv",
-        "ex_292_a_donut_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_293_tabledelete_example",
-      "suite": "sample",
-      "filename": "ex_293_tabledelete_example.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_293_tabledelete_example.csv",
-        "ex_293_tabledelete_example_strat.csv",
-        "ex_293_tabledelete_example_trade.csv"
+        "ex_285_simple_vwap_part1.csv",
+        "ex_285_simple_vwap_part1_strat.csv",
+        "ex_285_simple_vwap_part1_trade.csv",
+        "ex_285_simple_vwap_part1_plot_meta.json"
       ]
     },
     {
@@ -3200,6 +3062,32 @@
         "ex_279_tasar_strat.csv",
         "ex_279_tasar_trade.csv",
         "ex_279_tasar_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_276_pivotlow",
+      "suite": "sample",
+      "filename": "ex_276_pivotlow.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_276_pivotlow.csv",
+        "ex_276_pivotlow_strat.csv",
+        "ex_276_pivotlow_trade.csv",
+        "ex_276_pivotlow_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_275_pivothigh",
+      "suite": "sample",
+      "filename": "ex_275_pivothigh.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_275_pivothigh.csv",
+        "ex_275_pivothigh_strat.csv",
+        "ex_275_pivothigh_trade.csv",
+        "ex_275_pivothigh_plot_meta.json"
       ]
     },
     {
@@ -3229,68 +3117,15 @@
       ]
     },
     {
-      "name": "ex_282_pine_script_supertrend",
+      "name": "ex_289_table_example",
       "suite": "sample",
-      "filename": "ex_282_pine_script_supertrend.pine",
+      "filename": "ex_289_table_example.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_282_pine_script_supertrend.csv",
-        "ex_282_pine_script_supertrend_strat.csv",
-        "ex_282_pine_script_supertrend_trade.csv",
-        "ex_282_pine_script_supertrend_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_288_williams_r",
-      "suite": "sample",
-      "filename": "ex_288_williams_r.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_288_williams_r.csv",
-        "ex_288_williams_r_strat.csv",
-        "ex_288_williams_r_trade.csv",
-        "ex_288_williams_r_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_285_simple_vwap_part2",
-      "suite": "sample",
-      "filename": "ex_285_simple_vwap_part2.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_285_simple_vwap_part2.csv",
-        "ex_285_simple_vwap_part2_strat.csv",
-        "ex_285_simple_vwap_part2_trade.csv",
-        "ex_285_simple_vwap_part2_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_286_tavwma",
-      "suite": "sample",
-      "filename": "ex_286_tavwma.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_286_tavwma.csv",
-        "ex_286_tavwma_strat.csv",
-        "ex_286_tavwma_trade.csv",
-        "ex_286_tavwma_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_281_tastdev",
-      "suite": "sample",
-      "filename": "ex_281_tastdev.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_281_tastdev.csv",
-        "ex_281_tastdev_strat.csv",
-        "ex_281_tastdev_trade.csv",
-        "ex_281_tastdev_plot_meta.json"
+        "ex_289_table_example.csv",
+        "ex_289_table_example_strat.csv",
+        "ex_289_table_example_trade.csv"
       ]
     },
     {
@@ -3307,28 +3142,124 @@
       ]
     },
     {
-      "name": "ex_287_tawma",
+      "name": "ex_282_pine_script_supertrend",
       "suite": "sample",
-      "filename": "ex_287_tawma.pine",
+      "filename": "ex_282_pine_script_supertrend.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_287_tawma.csv",
-        "ex_287_tawma_strat.csv",
-        "ex_287_tawma_trade.csv",
-        "ex_287_tawma_plot_meta.json"
+        "ex_282_pine_script_supertrend.csv",
+        "ex_282_pine_script_supertrend_strat.csv",
+        "ex_282_pine_script_supertrend_trade.csv",
+        "ex_282_pine_script_supertrend_plot_meta.json"
       ]
     },
     {
-      "name": "ex_315_if_part4",
+      "name": "ex_285_simple_vwap_part2",
       "suite": "sample",
-      "filename": "ex_315_if_part4.pine",
+      "filename": "ex_285_simple_vwap_part2.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_315_if_part4.csv",
-        "ex_315_if_part4_strat.csv",
-        "ex_315_if_part4_trade.csv"
+        "ex_285_simple_vwap_part2.csv",
+        "ex_285_simple_vwap_part2_strat.csv",
+        "ex_285_simple_vwap_part2_trade.csv",
+        "ex_285_simple_vwap_part2_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_312_library",
+      "suite": "sample",
+      "filename": "ex_312_library.pine",
+      "status": "skip_empty",
+      "error": "",
+      "output_files": []
+    },
+    {
+      "name": "ex_281_tastdev",
+      "suite": "sample",
+      "filename": "ex_281_tastdev.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_281_tastdev.csv",
+        "ex_281_tastdev_strat.csv",
+        "ex_281_tastdev_trade.csv",
+        "ex_281_tastdev_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_290_example_of_setting_the_table_c",
+      "suite": "sample",
+      "filename": "ex_290_example_of_setting_the_table_c.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_290_example_of_setting_the_table_c.csv",
+        "ex_290_example_of_setting_the_table_c_strat.csv",
+        "ex_290_example_of_setting_the_table_c_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_291_table_example",
+      "suite": "sample",
+      "filename": "ex_291_table_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_291_table_example.csv",
+        "ex_291_table_example_strat.csv",
+        "ex_291_table_example_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_286_tavwma",
+      "suite": "sample",
+      "filename": "ex_286_tavwma.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_286_tavwma.csv",
+        "ex_286_tavwma_strat.csv",
+        "ex_286_tavwma_trade.csv",
+        "ex_286_tavwma_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_292_a_donut",
+      "suite": "sample",
+      "filename": "ex_292_a_donut.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_292_a_donut.csv",
+        "ex_292_a_donut_strat.csv",
+        "ex_292_a_donut_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_288_williams_r",
+      "suite": "sample",
+      "filename": "ex_288_williams_r.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_288_williams_r.csv",
+        "ex_288_williams_r_strat.csv",
+        "ex_288_williams_r_trade.csv",
+        "ex_288_williams_r_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_293_tabledelete_example",
+      "suite": "sample",
+      "filename": "ex_293_tabledelete_example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_293_tabledelete_example.csv",
+        "ex_293_tabledelete_example_strat.csv",
+        "ex_293_tabledelete_example_trade.csv"
       ]
     },
     {
@@ -3344,6 +3275,19 @@
       ]
     },
     {
+      "name": "ex_287_tawma",
+      "suite": "sample",
+      "filename": "ex_287_tawma.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_287_tawma.csv",
+        "ex_287_tawma_strat.csv",
+        "ex_287_tawma_trade.csv",
+        "ex_287_tawma_plot_meta.json"
+      ]
+    },
+    {
       "name": "ex_294_tablemerge_cells_example",
       "suite": "sample",
       "filename": "ex_294_tablemerge_cells_example.pine",
@@ -3356,28 +3300,15 @@
       ]
     },
     {
-      "name": "ex_314_forin_part2",
+      "name": "ex_315_if_part4",
       "suite": "sample",
-      "filename": "ex_314_forin_part2.pine",
+      "filename": "ex_315_if_part4.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_314_forin_part2.csv",
-        "ex_314_forin_part2_strat.csv",
-        "ex_314_forin_part2_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_309_timeframe_in_seconds",
-      "suite": "sample",
-      "filename": "ex_309_timeframe_in_seconds.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_309_timeframe_in_seconds.csv",
-        "ex_309_timeframe_in_seconds_strat.csv",
-        "ex_309_timeframe_in_seconds_trade.csv",
-        "ex_309_timeframe_in_seconds_plot_meta.json"
+        "ex_315_if_part4.csv",
+        "ex_315_if_part4_strat.csv",
+        "ex_315_if_part4_trade.csv"
       ]
     },
     {
@@ -3394,28 +3325,16 @@
       ]
     },
     {
-      "name": "ex_313_basic_for_loop_part2",
+      "name": "ex_309_timeframe_in_seconds",
       "suite": "sample",
-      "filename": "ex_313_basic_for_loop_part2.pine",
+      "filename": "ex_309_timeframe_in_seconds.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_313_basic_for_loop_part2.csv",
-        "ex_313_basic_for_loop_part2_strat.csv",
-        "ex_313_basic_for_loop_part2_trade.csv",
-        "ex_313_basic_for_loop_part2_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_318_switch_without_an_expression_part2",
-      "suite": "sample",
-      "filename": "ex_318_switch_without_an_expression_part2.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_318_switch_without_an_expression_part2.csv",
-        "ex_318_switch_without_an_expression_part2_strat.csv",
-        "ex_318_switch_without_an_expression_part2_trade.csv"
+        "ex_309_timeframe_in_seconds.csv",
+        "ex_309_timeframe_in_seconds_strat.csv",
+        "ex_309_timeframe_in_seconds_trade.csv",
+        "ex_309_timeframe_in_seconds_plot_meta.json"
       ]
     },
     {
@@ -3432,16 +3351,67 @@
       ]
     },
     {
-      "name": "ex_315_if_part2",
+      "name": "ex_314_forin_part2",
       "suite": "sample",
-      "filename": "ex_315_if_part2.pine",
+      "filename": "ex_314_forin_part2.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_315_if_part2.csv",
-        "ex_315_if_part2_strat.csv",
-        "ex_315_if_part2_trade.csv",
-        "ex_315_if_part2_plot_meta.json"
+        "ex_314_forin_part2.csv",
+        "ex_314_forin_part2_strat.csv",
+        "ex_314_forin_part2_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_307_new_day_started",
+      "suite": "sample",
+      "filename": "ex_307_new_day_started.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_307_new_day_started.csv",
+        "ex_307_new_day_started_strat.csv",
+        "ex_307_new_day_started_trade.csv",
+        "ex_307_new_day_started_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_306_time",
+      "suite": "sample",
+      "filename": "ex_306_time.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_306_time.csv",
+        "ex_306_time_strat.csv",
+        "ex_306_time_trade.csv",
+        "ex_306_time_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_313_basic_for_loop_part2",
+      "suite": "sample",
+      "filename": "ex_313_basic_for_loop_part2.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_313_basic_for_loop_part2.csv",
+        "ex_313_basic_for_loop_part2_strat.csv",
+        "ex_313_basic_for_loop_part2_trade.csv",
+        "ex_313_basic_for_loop_part2_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_305_time_part1",
+      "suite": "sample",
+      "filename": "ex_305_time_part1.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_305_time_part1.csv",
+        "ex_305_time_part1_strat.csv",
+        "ex_305_time_part1_trade.csv",
+        "ex_305_time_part1_plot_meta.json"
       ]
     },
     {
@@ -3458,16 +3428,16 @@
       ]
     },
     {
-      "name": "ex_315_if_part3",
+      "name": "ex_315_if_part2",
       "suite": "sample",
-      "filename": "ex_315_if_part3.pine",
+      "filename": "ex_315_if_part2.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_315_if_part3.csv",
-        "ex_315_if_part3_strat.csv",
-        "ex_315_if_part3_trade.csv",
-        "ex_315_if_part3_plot_meta.json"
+        "ex_315_if_part2.csv",
+        "ex_315_if_part2_strat.csv",
+        "ex_315_if_part2_trade.csv",
+        "ex_315_if_part2_plot_meta.json"
       ]
     },
     {
@@ -3484,58 +3454,28 @@
       ]
     },
     {
-      "name": "ex_335_series_variable_not_allowed_part1",
+      "name": "ex_315_if_part3",
       "suite": "sample",
-      "filename": "ex_335_series_variable_not_allowed_part1.pine",
-      "status": "skip_empty",
-      "error": "",
-      "output_files": []
-    },
-    {
-      "name": "ex_307_new_day_started",
-      "suite": "sample",
-      "filename": "ex_307_new_day_started.pine",
+      "filename": "ex_315_if_part3.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_307_new_day_started.csv",
-        "ex_307_new_day_started_strat.csv",
-        "ex_307_new_day_started_trade.csv",
-        "ex_307_new_day_started_plot_meta.json"
+        "ex_315_if_part3.csv",
+        "ex_315_if_part3_strat.csv",
+        "ex_315_if_part3_trade.csv",
+        "ex_315_if_part3_plot_meta.json"
       ]
     },
     {
-      "name": "ex_336_can_part1",
+      "name": "ex_318_switch_without_an_expression_part2",
       "suite": "sample",
-      "filename": "ex_336_can_part1.pine",
-      "status": "skip_empty",
-      "error": "",
-      "output_files": []
-    },
-    {
-      "name": "ex_306_time",
-      "suite": "sample",
-      "filename": "ex_306_time.pine",
+      "filename": "ex_318_switch_without_an_expression_part2.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_306_time.csv",
-        "ex_306_time_strat.csv",
-        "ex_306_time_trade.csv",
-        "ex_306_time_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_305_time_part1",
-      "suite": "sample",
-      "filename": "ex_305_time_part1.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_305_time_part1.csv",
-        "ex_305_time_part1_strat.csv",
-        "ex_305_time_part1_trade.csv",
-        "ex_305_time_part1_plot_meta.json"
+        "ex_318_switch_without_an_expression_part2.csv",
+        "ex_318_switch_without_an_expression_part2_strat.csv",
+        "ex_318_switch_without_an_expression_part2_trade.csv"
       ]
     },
     {
@@ -3578,17 +3518,12 @@
       ]
     },
     {
-      "name": "ex_321_varip_part1",
+      "name": "ex_335_series_variable_not_allowed_part1",
       "suite": "sample",
-      "filename": "ex_321_varip_part1.pine",
-      "status": "ok",
+      "filename": "ex_335_series_variable_not_allowed_part1.pine",
+      "status": "skip_empty",
       "error": "",
-      "output_files": [
-        "ex_321_varip_part1.csv",
-        "ex_321_varip_part1_strat.csv",
-        "ex_321_varip_part1_trade.csv",
-        "ex_321_varip_part1_plot_meta.json"
-      ]
+      "output_files": []
     },
     {
       "name": "ex_320_var_keyword_example",
@@ -3604,16 +3539,24 @@
       ]
     },
     {
-      "name": "ex_321_varip_part2",
+      "name": "ex_336_can_part1",
       "suite": "sample",
-      "filename": "ex_321_varip_part2.pine",
+      "filename": "ex_336_can_part1.pine",
+      "status": "skip_empty",
+      "error": "",
+      "output_files": []
+    },
+    {
+      "name": "ex_321_varip_part1",
+      "suite": "sample",
+      "filename": "ex_321_varip_part1.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_321_varip_part2.csv",
-        "ex_321_varip_part2_strat.csv",
-        "ex_321_varip_part2_trade.csv",
-        "ex_321_varip_part2_plot_meta.json"
+        "ex_321_varip_part1.csv",
+        "ex_321_varip_part1_strat.csv",
+        "ex_321_varip_part1_trade.csv",
+        "ex_321_varip_part1_plot_meta.json"
       ]
     },
     {
@@ -3630,16 +3573,16 @@
       ]
     },
     {
-      "name": "ex_323_array",
+      "name": "ex_321_varip_part2",
       "suite": "sample",
-      "filename": "ex_323_array.pine",
+      "filename": "ex_321_varip_part2.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_323_array.csv",
-        "ex_323_array_strat.csv",
-        "ex_323_array_trade.csv",
-        "ex_323_array_plot_meta.json"
+        "ex_321_varip_part2.csv",
+        "ex_321_varip_part2_strat.csv",
+        "ex_321_varip_part2_trade.csv",
+        "ex_321_varip_part2_plot_meta.json"
       ]
     },
     {
@@ -3656,6 +3599,43 @@
       ]
     },
     {
+      "name": "ex_323_array",
+      "suite": "sample",
+      "filename": "ex_323_array.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_323_array.csv",
+        "ex_323_array_strat.csv",
+        "ex_323_array_trade.csv",
+        "ex_323_array_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_330_label",
+      "suite": "sample",
+      "filename": "ex_330_label.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_330_label.csv",
+        "ex_330_label_strat.csv",
+        "ex_330_label_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_332_linefill",
+      "suite": "sample",
+      "filename": "ex_332_linefill.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_332_linefill.csv",
+        "ex_332_linefill_strat.csv",
+        "ex_332_linefill_trade.csv"
+      ]
+    },
+    {
       "name": "ex_327_custom_plot_title_part1",
       "suite": "sample",
       "filename": "ex_327_custom_plot_title_part1.pine",
@@ -3669,14 +3649,6 @@
       ]
     },
     {
-      "name": "ex_348_library",
-      "suite": "sample",
-      "filename": "ex_348_library.pine",
-      "status": "skip_empty",
-      "error": "",
-      "output_files": []
-    },
-    {
       "name": "ex_326_color",
       "suite": "sample",
       "filename": "ex_326_color.pine",
@@ -3687,6 +3659,65 @@
         "ex_326_color_strat.csv",
         "ex_326_color_trade.csv",
         "ex_326_color_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_327_custom_plot_title_part2",
+      "suite": "sample",
+      "filename": "ex_327_custom_plot_title_part2.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_327_custom_plot_title_part2.csv",
+        "ex_327_custom_plot_title_part2_strat.csv",
+        "ex_327_custom_plot_title_part2_trade.csv",
+        "ex_327_custom_plot_title_part2_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_328_float",
+      "suite": "sample",
+      "filename": "ex_328_float.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_328_float.csv",
+        "ex_328_float_strat.csv",
+        "ex_328_float_trade.csv",
+        "ex_328_float_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_329_int",
+      "suite": "sample",
+      "filename": "ex_329_int.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_329_int.csv",
+        "ex_329_int_strat.csv",
+        "ex_329_int_trade.csv",
+        "ex_329_int_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_348_library",
+      "suite": "sample",
+      "filename": "ex_348_library.pine",
+      "status": "skip_empty",
+      "error": "",
+      "output_files": []
+    },
+    {
+      "name": "ex_333_map",
+      "suite": "sample",
+      "filename": "ex_333_map.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_333_map.csv",
+        "ex_333_map_strat.csv",
+        "ex_333_map_trade.csv"
       ]
     },
     {
@@ -3714,40 +3745,15 @@
       "output_files": []
     },
     {
-      "name": "ex_332_linefill",
+      "name": "ex_331_line",
       "suite": "sample",
-      "filename": "ex_332_linefill.pine",
+      "filename": "ex_331_line.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_332_linefill.csv",
-        "ex_332_linefill_strat.csv",
-        "ex_332_linefill_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_330_label",
-      "suite": "sample",
-      "filename": "ex_330_label.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_330_label.csv",
-        "ex_330_label_strat.csv",
-        "ex_330_label_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_327_custom_plot_title_part2",
-      "suite": "sample",
-      "filename": "ex_327_custom_plot_title_part2.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_327_custom_plot_title_part2.csv",
-        "ex_327_custom_plot_title_part2_strat.csv",
-        "ex_327_custom_plot_title_part2_trade.csv",
-        "ex_327_custom_plot_title_part2_plot_meta.json"
+        "ex_331_line.csv",
+        "ex_331_line_strat.csv",
+        "ex_331_line_trade.csv"
       ]
     },
     {
@@ -3763,6 +3769,32 @@
       ]
     },
     {
+      "name": "ex_335_series_variable_not_allowed_part2",
+      "suite": "sample",
+      "filename": "ex_335_series_variable_not_allowed_part2.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_335_series_variable_not_allowed_part2.csv",
+        "ex_335_series_variable_not_allowed_part2_strat.csv",
+        "ex_335_series_variable_not_allowed_part2_trade.csv",
+        "ex_335_series_variable_not_allowed_part2_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_231_strategyclosedtradesmax_drawdo",
+      "suite": "sample",
+      "filename": "ex_231_strategyclosedtradesmax_drawdo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_231_strategyclosedtradesmax_drawdo.csv",
+        "ex_231_strategyclosedtradesmax_drawdo_strat.csv",
+        "ex_231_strategyclosedtradesmax_drawdo_trade.csv",
+        "ex_231_strategyclosedtradesmax_drawdo_plot_meta.json"
+      ]
+    },
+    {
       "name": "ex_338_table",
       "suite": "sample",
       "filename": "ex_338_table.pine",
@@ -3772,44 +3804,6 @@
         "ex_338_table.csv",
         "ex_338_table_strat.csv",
         "ex_338_table_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_328_float",
-      "suite": "sample",
-      "filename": "ex_328_float.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_328_float.csv",
-        "ex_328_float_strat.csv",
-        "ex_328_float_trade.csv",
-        "ex_328_float_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_333_map",
-      "suite": "sample",
-      "filename": "ex_333_map.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_333_map.csv",
-        "ex_333_map_strat.csv",
-        "ex_333_map_trade.csv"
-      ]
-    },
-    {
-      "name": "ex_329_int",
-      "suite": "sample",
-      "filename": "ex_329_int.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_329_int.csv",
-        "ex_329_int_strat.csv",
-        "ex_329_int_trade.csv",
-        "ex_329_int_plot_meta.json"
       ]
     },
     {
@@ -3839,28 +3833,16 @@
       ]
     },
     {
-      "name": "ex_335_series_variable_not_allowed_part2",
+      "name": "ex_232_strategyclosedtradesmax_runup_",
       "suite": "sample",
-      "filename": "ex_335_series_variable_not_allowed_part2.pine",
+      "filename": "ex_232_strategyclosedtradesmax_runup_.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_335_series_variable_not_allowed_part2.csv",
-        "ex_335_series_variable_not_allowed_part2_strat.csv",
-        "ex_335_series_variable_not_allowed_part2_trade.csv",
-        "ex_335_series_variable_not_allowed_part2_plot_meta.json"
-      ]
-    },
-    {
-      "name": "ex_331_line",
-      "suite": "sample",
-      "filename": "ex_331_line.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_331_line.csv",
-        "ex_331_line_strat.csv",
-        "ex_331_line_trade.csv"
+        "ex_232_strategyclosedtradesmax_runup_.csv",
+        "ex_232_strategyclosedtradesmax_runup__strat.csv",
+        "ex_232_strategyclosedtradesmax_runup__trade.csv",
+        "ex_232_strategyclosedtradesmax_runup__plot_meta.json"
       ]
     },
     {
@@ -3890,6 +3872,19 @@
       ]
     },
     {
+      "name": "ex_342_",
+      "suite": "sample",
+      "filename": "ex_342_.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_342_.csv",
+        "ex_342__strat.csv",
+        "ex_342__trade.csv",
+        "ex_342__plot_meta.json"
+      ]
+    },
+    {
       "name": "ex_343_",
       "suite": "sample",
       "filename": "ex_343_.pine",
@@ -3903,16 +3898,16 @@
       ]
     },
     {
-      "name": "ex_342_",
+      "name": "ex_341_",
       "suite": "sample",
-      "filename": "ex_342_.pine",
+      "filename": "ex_341_.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_342_.csv",
-        "ex_342__strat.csv",
-        "ex_342__trade.csv",
-        "ex_342__plot_meta.json"
+        "ex_341_.csv",
+        "ex_341__strat.csv",
+        "ex_341__trade.csv",
+        "ex_341__plot_meta.json"
       ]
     },
     {
@@ -3942,19 +3937,6 @@
       ]
     },
     {
-      "name": "ex_341_",
-      "suite": "sample",
-      "filename": "ex_341_.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "ex_341_.csv",
-        "ex_341__strat.csv",
-        "ex_341__trade.csv",
-        "ex_341__plot_meta.json"
-      ]
-    },
-    {
       "name": "ex_346_",
       "suite": "sample",
       "filename": "ex_346_.pine",
@@ -3965,6 +3947,18 @@
         "ex_346__strat.csv",
         "ex_346__trade.csv",
         "ex_346__plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_350_new_high_over_the_last_20_bars",
+      "suite": "sample",
+      "filename": "ex_350_new_high_over_the_last_20_bars.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_350_new_high_over_the_last_20_bars.csv",
+        "ex_350_new_high_over_the_last_20_bars_strat.csv",
+        "ex_350_new_high_over_the_last_20_bars_trade.csv"
       ]
     },
     {
@@ -3981,6 +3975,18 @@
       ]
     },
     {
+      "name": "ex_355_new_high_over_the_last_20_bars",
+      "suite": "sample",
+      "filename": "ex_355_new_high_over_the_last_20_bars.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_355_new_high_over_the_last_20_bars.csv",
+        "ex_355_new_high_over_the_last_20_bars_strat.csv",
+        "ex_355_new_high_over_the_last_20_bars_trade.csv"
+      ]
+    },
+    {
       "name": "ex_357_pine_v6_indicator",
       "suite": "sample",
       "filename": "ex_357_pine_v6_indicator.pine",
@@ -3991,6 +3997,18 @@
         "ex_357_pine_v6_indicator_strat.csv",
         "ex_357_pine_v6_indicator_trade.csv",
         "ex_357_pine_v6_indicator_plot_meta.json"
+      ]
+    },
+    {
+      "name": "ex_356_new_high_over_the_last_20_bars",
+      "suite": "sample",
+      "filename": "ex_356_new_high_over_the_last_20_bars.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_356_new_high_over_the_last_20_bars.csv",
+        "ex_356_new_high_over_the_last_20_bars_strat.csv",
+        "ex_356_new_high_over_the_last_20_bars_trade.csv"
       ]
     },
     {
@@ -4007,39 +4025,52 @@
       ]
     },
     {
-      "name": "ex_356_new_high_over_the_last_20_bars",
+      "name": "ex_234_strategyclosedtradessize_examp_part2",
       "suite": "sample",
-      "filename": "ex_356_new_high_over_the_last_20_bars.pine",
+      "filename": "ex_234_strategyclosedtradessize_examp_part2.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_356_new_high_over_the_last_20_bars.csv",
-        "ex_356_new_high_over_the_last_20_bars_strat.csv",
-        "ex_356_new_high_over_the_last_20_bars_trade.csv"
+        "ex_234_strategyclosedtradessize_examp_part2.csv",
+        "ex_234_strategyclosedtradessize_examp_part2_strat.csv",
+        "ex_234_strategyclosedtradessize_examp_part2_trade.csv",
+        "ex_234_strategyclosedtradessize_examp_part2_plot_meta.json"
       ]
     },
     {
-      "name": "ex_350_new_high_over_the_last_20_bars",
+      "name": "ex_133_my_strategy",
       "suite": "sample",
-      "filename": "ex_350_new_high_over_the_last_20_bars.pine",
+      "filename": "ex_133_my_strategy.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_350_new_high_over_the_last_20_bars.csv",
-        "ex_350_new_high_over_the_last_20_bars_strat.csv",
-        "ex_350_new_high_over_the_last_20_bars_trade.csv"
+        "ex_133_my_strategy.csv",
+        "ex_133_my_strategy_strat.csv",
+        "ex_133_my_strategy_trade.csv"
       ]
     },
     {
-      "name": "ex_355_new_high_over_the_last_20_bars",
+      "name": "ex_132_my_strategy",
       "suite": "sample",
-      "filename": "ex_355_new_high_over_the_last_20_bars.pine",
+      "filename": "ex_132_my_strategy.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "ex_355_new_high_over_the_last_20_bars.csv",
-        "ex_355_new_high_over_the_last_20_bars_strat.csv",
-        "ex_355_new_high_over_the_last_20_bars_trade.csv"
+        "ex_132_my_strategy.csv",
+        "ex_132_my_strategy_strat.csv",
+        "ex_132_my_strategy_trade.csv"
+      ]
+    },
+    {
+      "name": "ex_134_my_strategy",
+      "suite": "sample",
+      "filename": "ex_134_my_strategy.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "ex_134_my_strategy.csv",
+        "ex_134_my_strategy_strat.csv",
+        "ex_134_my_strategy_trade.csv"
       ]
     },
     {
@@ -4064,19 +4095,6 @@
       "output_files": []
     },
     {
-      "name": "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo",
-      "suite": "sample_pds",
-      "filename": "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo.csv",
-        "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo_strat.csv",
-        "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo_trade.csv",
-        "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo_plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_003_Persistent_declarations_demo",
       "suite": "sample_pds",
       "filename": "expds_003_Persistent_declarations_demo.pine",
@@ -4087,32 +4105,6 @@
         "expds_003_Persistent_declarations_demo_strat.csv",
         "expds_003_Persistent_declarations_demo_trade.csv",
         "expds_003_Persistent_declarations_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_019_Cannot_reassign__const__variable_demo",
-      "suite": "sample_pds",
-      "filename": "expds_019_Cannot_reassign__const__variable_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_019_Cannot_reassign__const__variable_demo.csv",
-        "expds_019_Cannot_reassign__const__variable_demo_strat.csv",
-        "expds_019_Cannot_reassign__const__variable_demo_trade.csv",
-        "expds_019_Cannot_reassign__const__variable_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_001_Bar-by-bar_execution_demo",
-      "suite": "sample_pds",
-      "filename": "expds_001_Bar-by-bar_execution_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_001_Bar-by-bar_execution_demo.csv",
-        "expds_001_Bar-by-bar_execution_demo_strat.csv",
-        "expds_001_Bar-by-bar_execution_demo_trade.csv",
-        "expds_001_Bar-by-bar_execution_demo_plot_meta.json"
       ]
     },
     {
@@ -4129,29 +4121,42 @@
       ]
     },
     {
-      "name": "expds_023__series__keyword_demo",
+      "name": "expds_019_Cannot_reassign__const__variable_demo",
       "suite": "sample_pds",
-      "filename": "expds_023__series__keyword_demo.pine",
+      "filename": "expds_019_Cannot_reassign__const__variable_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_023__series__keyword_demo.csv",
-        "expds_023__series__keyword_demo_strat.csv",
-        "expds_023__series__keyword_demo_trade.csv",
-        "expds_023__series__keyword_demo_plot_meta.json"
+        "expds_019_Cannot_reassign__const__variable_demo.csv",
+        "expds_019_Cannot_reassign__const__variable_demo_strat.csv",
+        "expds_019_Cannot_reassign__const__variable_demo_trade.csv",
+        "expds_019_Cannot_reassign__const__variable_demo_plot_meta.json"
       ]
     },
     {
-      "name": "expds_022_Cannot_assign_a",
+      "name": "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo",
       "suite": "sample_pds",
-      "filename": "expds_022_Cannot_assign_a.pine",
+      "filename": "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_022_Cannot_assign_a.csv",
-        "expds_022_Cannot_assign_a_strat.csv",
-        "expds_022_Cannot_assign_a_trade.csv",
-        "expds_022_Cannot_assign_a_plot_meta.json"
+        "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo.csv",
+        "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo_strat.csv",
+        "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo_trade.csv",
+        "expds_020_Cannot_assign_values_with_stronger_qualifiers_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_001_Bar-by-bar_execution_demo",
+      "suite": "sample_pds",
+      "filename": "expds_001_Bar-by-bar_execution_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_001_Bar-by-bar_execution_demo.csv",
+        "expds_001_Bar-by-bar_execution_demo_strat.csv",
+        "expds_001_Bar-by-bar_execution_demo_trade.csv",
+        "expds_001_Bar-by-bar_execution_demo_plot_meta.json"
       ]
     },
     {
@@ -4181,16 +4186,29 @@
       ]
     },
     {
-      "name": "expds_014_Max_bars_back_error_demo",
+      "name": "expds_023__series__keyword_demo",
       "suite": "sample_pds",
-      "filename": "expds_014_Max_bars_back_error_demo.pine",
+      "filename": "expds_023__series__keyword_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_014_Max_bars_back_error_demo.csv",
-        "expds_014_Max_bars_back_error_demo_strat.csv",
-        "expds_014_Max_bars_back_error_demo_trade.csv",
-        "expds_014_Max_bars_back_error_demo_plot_meta.json"
+        "expds_023__series__keyword_demo.csv",
+        "expds_023__series__keyword_demo_strat.csv",
+        "expds_023__series__keyword_demo_trade.csv",
+        "expds_023__series__keyword_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_022_Cannot_assign_a",
+      "suite": "sample_pds",
+      "filename": "expds_022_Cannot_assign_a.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_022_Cannot_assign_a.csv",
+        "expds_022_Cannot_assign_a_strat.csv",
+        "expds_022_Cannot_assign_a_trade.csv",
+        "expds_022_Cannot_assign_a_plot_meta.json"
       ]
     },
     {
@@ -4204,6 +4222,19 @@
         "expds_015_Manual_buffer_sizing_demo_strat.csv",
         "expds_015_Manual_buffer_sizing_demo_trade.csv",
         "expds_015_Manual_buffer_sizing_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_014_Max_bars_back_error_demo",
+      "suite": "sample_pds",
+      "filename": "expds_014_Max_bars_back_error_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_014_Max_bars_back_error_demo.csv",
+        "expds_014_Max_bars_back_error_demo_strat.csv",
+        "expds_014_Max_bars_back_error_demo_trade.csv",
+        "expds_014_Max_bars_back_error_demo_plot_meta.json"
       ]
     },
     {
@@ -4230,32 +4261,6 @@
         "expds_004_Storing_and_using_data_from_previous_bars_demo_strat.csv",
         "expds_004_Storing_and_using_data_from_previous_bars_demo_trade.csv",
         "expds_004_Storing_and_using_data_from_previous_bars_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_011_Caching_demo",
-      "suite": "sample_pds",
-      "filename": "expds_011_Caching_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_011_Caching_demo.csv",
-        "expds_011_Caching_demo_strat.csv",
-        "expds_011_Caching_demo_trade.csv",
-        "expds_011_Caching_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_018__ta______functions_in_scopes_demo",
-      "suite": "sample_pds",
-      "filename": "expds_018__ta______functions_in_scopes_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_018__ta______functions_in_scopes_demo.csv",
-        "expds_018__ta______functions_in_scopes_demo_strat.csv",
-        "expds_018__ta______functions_in_scopes_demo_trade.csv",
-        "expds_018__ta______functions_in_scopes_demo_plot_meta.json"
       ]
     },
     {
@@ -4295,6 +4300,32 @@
         "expds_021_Built-in_strat.csv",
         "expds_021_Built-in_trade.csv",
         "expds_021_Built-in_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_011_Caching_demo",
+      "suite": "sample_pds",
+      "filename": "expds_011_Caching_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_011_Caching_demo.csv",
+        "expds_011_Caching_demo_strat.csv",
+        "expds_011_Caching_demo_trade.csv",
+        "expds_011_Caching_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_018__ta______functions_in_scopes_demo",
+      "suite": "sample_pds",
+      "filename": "expds_018__ta______functions_in_scopes_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_018__ta______functions_in_scopes_demo.csv",
+        "expds_018__ta______functions_in_scopes_demo_strat.csv",
+        "expds_018__ta______functions_in_scopes_demo_trade.csv",
+        "expds_018__ta______functions_in_scopes_demo_plot_meta.json"
       ]
     },
     {
@@ -4350,19 +4381,6 @@
       ]
     },
     {
-      "name": "expds_008_Calculation_after_order_fill_on_historical_bars_demo",
-      "suite": "sample_pds",
-      "filename": "expds_008_Calculation_after_order_fill_on_historical_bars_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_008_Calculation_after_order_fill_on_historical_bars_demo.csv",
-        "expds_008_Calculation_after_order_fill_on_historical_bars_demo_strat.csv",
-        "expds_008_Calculation_after_order_fill_on_historical_bars_demo_trade.csv",
-        "expds_008_Calculation_after_order_fill_on_historical_bars_demo_plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_007_Default_strategy_behavior_on_historical_bars_demo",
       "suite": "sample_pds",
       "filename": "expds_007_Default_strategy_behavior_on_historical_bars_demo.pine",
@@ -4373,6 +4391,19 @@
         "expds_007_Default_strategy_behavior_on_historical_bars_demo_strat.csv",
         "expds_007_Default_strategy_behavior_on_historical_bars_demo_trade.csv",
         "expds_007_Default_strategy_behavior_on_historical_bars_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_008_Calculation_after_order_fill_on_historical_bars_demo",
+      "suite": "sample_pds",
+      "filename": "expds_008_Calculation_after_order_fill_on_historical_bars_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_008_Calculation_after_order_fill_on_historical_bars_demo.csv",
+        "expds_008_Calculation_after_order_fill_on_historical_bars_demo_strat.csv",
+        "expds_008_Calculation_after_order_fill_on_historical_bars_demo_trade.csv",
+        "expds_008_Calculation_after_order_fill_on_historical_bars_demo_plot_meta.json"
       ]
     },
     {
@@ -4450,18 +4481,6 @@
       ]
     },
     {
-      "name": "expds_049_Triangle",
-      "suite": "sample_pds",
-      "filename": "expds_049_Triangle.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_049_Triangle.csv",
-        "expds_049_Triangle_strat.csv",
-        "expds_049_Triangle_trade.csv"
-      ]
-    },
-    {
       "name": "expds_028_plot_fill_demo",
       "suite": "sample_pds",
       "filename": "expds_028_plot_fill_demo.pine",
@@ -4472,19 +4491,6 @@
         "expds_028_plot_fill_demo_strat.csv",
         "expds_028_plot_fill_demo_trade.csv",
         "expds_028_plot_fill_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_027_Enum_types_demo",
-      "suite": "sample_pds",
-      "filename": "expds_027_Enum_types_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_027_Enum_types_demo.csv",
-        "expds_027_Enum_types_demo_strat.csv",
-        "expds_027_Enum_types_demo_trade.csv",
-        "expds_027_Enum_types_demo_plot_meta.json"
       ]
     },
     {
@@ -4501,16 +4507,28 @@
       ]
     },
     {
-      "name": "expds_033_Explicit_casting_demo",
+      "name": "expds_027_Enum_types_demo",
       "suite": "sample_pds",
-      "filename": "expds_033_Explicit_casting_demo.pine",
+      "filename": "expds_027_Enum_types_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_033_Explicit_casting_demo.csv",
-        "expds_033_Explicit_casting_demo_strat.csv",
-        "expds_033_Explicit_casting_demo_trade.csv",
-        "expds_033_Explicit_casting_demo_plot_meta.json"
+        "expds_027_Enum_types_demo.csv",
+        "expds_027_Enum_types_demo_strat.csv",
+        "expds_027_Enum_types_demo_trade.csv",
+        "expds_027_Enum_types_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_049_Triangle",
+      "suite": "sample_pds",
+      "filename": "expds_049_Triangle.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_049_Triangle.csv",
+        "expds_049_Triangle_strat.csv",
+        "expds_049_Triangle_trade.csv"
       ]
     },
     {
@@ -4524,6 +4542,32 @@
         "expds_032_Invalid_type_demo_strat.csv",
         "expds_032_Invalid_type_demo_trade.csv",
         "expds_032_Invalid_type_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_033_Explicit_casting_demo",
+      "suite": "sample_pds",
+      "filename": "expds_033_Explicit_casting_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_033_Explicit_casting_demo.csv",
+        "expds_033_Explicit_casting_demo_strat.csv",
+        "expds_033_Explicit_casting_demo_trade.csv",
+        "expds_033_Explicit_casting_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_040_Value_type_independence_demo",
+      "suite": "sample_pds",
+      "filename": "expds_040_Value_type_independence_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_040_Value_type_independence_demo.csv",
+        "expds_040_Value_type_independence_demo_strat.csv",
+        "expds_040_Value_type_independence_demo_trade.csv",
+        "expds_040_Value_type_independence_demo_plot_meta.json"
       ]
     },
     {
@@ -4550,19 +4594,6 @@
         "expds_038_Cannot_modify_global_variables_in_functions_demo_strat.csv",
         "expds_038_Cannot_modify_global_variables_in_functions_demo_trade.csv",
         "expds_038_Cannot_modify_global_variables_in_functions_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_040_Value_type_independence_demo",
-      "suite": "sample_pds",
-      "filename": "expds_040_Value_type_independence_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_040_Value_type_independence_demo.csv",
-        "expds_040_Value_type_independence_demo_strat.csv",
-        "expds_040_Value_type_independence_demo_trade.csv",
-        "expds_040_Value_type_independence_demo_plot_meta.json"
       ]
     },
     {
@@ -4605,19 +4636,6 @@
       ]
     },
     {
-      "name": "expds_044_Invalid_reassignment_demo",
-      "suite": "sample_pds",
-      "filename": "expds_044_Invalid_reassignment_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_044_Invalid_reassignment_demo.csv",
-        "expds_044_Invalid_reassignment_demo_strat.csv",
-        "expds_044_Invalid_reassignment_demo_trade.csv",
-        "expds_044_Invalid_reassignment_demo_plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_045_Valid_modification_demo",
       "suite": "sample_pds",
       "filename": "expds_045_Valid_modification_demo.pine",
@@ -4628,6 +4646,19 @@
         "expds_045_Valid_modification_demo_strat.csv",
         "expds_045_Valid_modification_demo_trade.csv",
         "expds_045_Valid_modification_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_044_Invalid_reassignment_demo",
+      "suite": "sample_pds",
+      "filename": "expds_044_Invalid_reassignment_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_044_Invalid_reassignment_demo.csv",
+        "expds_044_Invalid_reassignment_demo_strat.csv",
+        "expds_044_Invalid_reassignment_demo_trade.csv",
+        "expds_044_Invalid_reassignment_demo_plot_meta.json"
       ]
     },
     {
@@ -4681,19 +4712,6 @@
       ]
     },
     {
-      "name": "expds_050_Underscore_demo",
-      "suite": "sample_pds",
-      "filename": "expds_050_Underscore_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_050_Underscore_demo.csv",
-        "expds_050_Underscore_demo_strat.csv",
-        "expds_050_Underscore_demo_trade.csv",
-        "expds_050_Underscore_demo_plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_055_Compound_assignment_operators_demo",
       "suite": "sample_pds",
       "filename": "expds_055_Compound_assignment_operators_demo.pine",
@@ -4730,6 +4748,19 @@
       ]
     },
     {
+      "name": "expds_050_Underscore_demo",
+      "suite": "sample_pds",
+      "filename": "expds_050_Underscore_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_050_Underscore_demo.csv",
+        "expds_050_Underscore_demo_strat.csv",
+        "expds_050_Underscore_demo_trade.csv",
+        "expds_050_Underscore_demo_plot_meta.json"
+      ]
+    },
+    {
       "name": "expds_062_Loop_scope_demo",
       "suite": "sample_pds",
       "filename": "expds_062_Loop_scope_demo.pine",
@@ -4754,15 +4785,15 @@
       ]
     },
     {
-      "name": "expds_052_Inefficient_version",
+      "name": "expds_064_Loop_keywords_and_variable_assignment_demo",
       "suite": "sample_pds",
-      "filename": "expds_052_Inefficient_version.pine",
+      "filename": "expds_064_Loop_keywords_and_variable_assignment_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_052_Inefficient_version.csv",
-        "expds_052_Inefficient_version_strat.csv",
-        "expds_052_Inefficient_version_trade.csv"
+        "expds_064_Loop_keywords_and_variable_assignment_demo.csv",
+        "expds_064_Loop_keywords_and_variable_assignment_demo_strat.csv",
+        "expds_064_Loop_keywords_and_variable_assignment_demo_trade.csv"
       ]
     },
     {
@@ -4778,15 +4809,27 @@
       ]
     },
     {
-      "name": "expds_064_Loop_keywords_and_variable_assignment_demo",
+      "name": "expds_052_Inefficient_version",
       "suite": "sample_pds",
-      "filename": "expds_064_Loop_keywords_and_variable_assignment_demo.pine",
+      "filename": "expds_052_Inefficient_version.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_064_Loop_keywords_and_variable_assignment_demo.csv",
-        "expds_064_Loop_keywords_and_variable_assignment_demo_strat.csv",
-        "expds_064_Loop_keywords_and_variable_assignment_demo_trade.csv"
+        "expds_052_Inefficient_version.csv",
+        "expds_052_Inefficient_version_strat.csv",
+        "expds_052_Inefficient_version_trade.csv"
+      ]
+    },
+    {
+      "name": "expds_065_Simple__for__loop_demo",
+      "suite": "sample_pds",
+      "filename": "expds_065_Simple__for__loop_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_065_Simple__for__loop_demo.csv",
+        "expds_065_Simple__for__loop_demo_strat.csv",
+        "expds_065_Simple__for__loop_demo_trade.csv"
       ]
     },
     {
@@ -4800,18 +4843,6 @@
         "expds_054_Modulo_function_strat.csv",
         "expds_054_Modulo_function_trade.csv",
         "expds_054_Modulo_function_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_065_Simple__for__loop_demo",
-      "suite": "sample_pds",
-      "filename": "expds_065_Simple__for__loop_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_065_Simple__for__loop_demo.csv",
-        "expds_065_Simple__for__loop_demo_strat.csv",
-        "expds_065_Simple__for__loop_demo_trade.csv"
       ]
     },
     {
@@ -4840,6 +4871,18 @@
       ]
     },
     {
+      "name": "expds_076_Looping_through_map_demo",
+      "suite": "sample_pds",
+      "filename": "expds_076_Looping_through_map_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_076_Looping_through_map_demo.csv",
+        "expds_076_Looping_through_map_demo_strat.csv",
+        "expds_076_Looping_through_map_demo_trade.csv"
+      ]
+    },
+    {
       "name": "expds_072__for__index__item__in_array__demo",
       "suite": "sample_pds",
       "filename": "expds_072__for__index__item__in_array__demo.pine",
@@ -4865,18 +4908,6 @@
       ]
     },
     {
-      "name": "expds_076_Looping_through_map_demo",
-      "suite": "sample_pds",
-      "filename": "expds_076_Looping_through_map_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_076_Looping_through_map_demo.csv",
-        "expds_076_Looping_through_map_demo_strat.csv",
-        "expds_076_Looping_through_map_demo_trade.csv"
-      ]
-    },
-    {
       "name": "expds_066__for__loop_demo",
       "suite": "sample_pds",
       "filename": "expds_066__for__loop_demo.pine",
@@ -4887,19 +4918,6 @@
         "expds_066__for__loop_demo_strat.csv",
         "expds_066__for__loop_demo_trade.csv",
         "expds_066__for__loop_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_068__for__loop_with_dynamic__to_num__demo",
-      "suite": "sample_pds",
-      "filename": "expds_068__for__loop_with_dynamic__to_num__demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_068__for__loop_with_dynamic__to_num__demo.csv",
-        "expds_068__for__loop_with_dynamic__to_num__demo_strat.csv",
-        "expds_068__for__loop_with_dynamic__to_num__demo_trade.csv",
-        "expds_068__for__loop_with_dynamic__to_num__demo_plot_meta.json"
       ]
     },
     {
@@ -4916,16 +4934,16 @@
       ]
     },
     {
-      "name": "expds_059_Unnecessary_loops_demo",
+      "name": "expds_068__for__loop_with_dynamic__to_num__demo",
       "suite": "sample_pds",
-      "filename": "expds_059_Unnecessary_loops_demo.pine",
+      "filename": "expds_068__for__loop_with_dynamic__to_num__demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_059_Unnecessary_loops_demo.csv",
-        "expds_059_Unnecessary_loops_demo_strat.csv",
-        "expds_059_Unnecessary_loops_demo_trade.csv",
-        "expds_059_Unnecessary_loops_demo_plot_meta.json"
+        "expds_068__for__loop_with_dynamic__to_num__demo.csv",
+        "expds_068__for__loop_with_dynamic__to_num__demo_strat.csv",
+        "expds_068__for__loop_with_dynamic__to_num__demo_trade.csv",
+        "expds_068__for__loop_with_dynamic__to_num__demo_plot_meta.json"
       ]
     },
     {
@@ -4942,6 +4960,19 @@
       ]
     },
     {
+      "name": "expds_059_Unnecessary_loops_demo",
+      "suite": "sample_pds",
+      "filename": "expds_059_Unnecessary_loops_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_059_Unnecessary_loops_demo.csv",
+        "expds_059_Unnecessary_loops_demo_strat.csv",
+        "expds_059_Unnecessary_loops_demo_trade.csv",
+        "expds_059_Unnecessary_loops_demo_plot_meta.json"
+      ]
+    },
+    {
       "name": "expds_078_Single-line_function_with_more_than_one_statement_demo",
       "suite": "sample_pds",
       "filename": "expds_078_Single-line_function_with_more_than_one_statement_demo.pine",
@@ -4955,6 +4986,18 @@
       ]
     },
     {
+      "name": "expds_090_Inaccessible_scope_demo",
+      "suite": "sample_pds",
+      "filename": "expds_090_Inaccessible_scope_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_090_Inaccessible_scope_demo.csv",
+        "expds_090_Inaccessible_scope_demo_strat.csv",
+        "expds_090_Inaccessible_scope_demo_trade.csv"
+      ]
+    },
+    {
       "name": "expds_079_Multiline_function_demo",
       "suite": "sample_pds",
       "filename": "expds_079_Multiline_function_demo.pine",
@@ -4965,18 +5008,6 @@
         "expds_079_Multiline_function_demo_strat.csv",
         "expds_079_Multiline_function_demo_trade.csv",
         "expds_079_Multiline_function_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_090_Inaccessible_scope_demo",
-      "suite": "sample_pds",
-      "filename": "expds_090_Inaccessible_scope_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_090_Inaccessible_scope_demo.csv",
-        "expds_090_Inaccessible_scope_demo_strat.csv",
-        "expds_090_Inaccessible_scope_demo_trade.csv"
       ]
     },
     {
@@ -5019,6 +5050,19 @@
       ]
     },
     {
+      "name": "expds_082_Using_____in_a_tuple_declaration_demo",
+      "suite": "sample_pds",
+      "filename": "expds_082_Using_____in_a_tuple_declaration_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_082_Using_____in_a_tuple_declaration_demo.csv",
+        "expds_082_Using_____in_a_tuple_declaration_demo_strat.csv",
+        "expds_082_Using_____in_a_tuple_declaration_demo_trade.csv",
+        "expds_082_Using_____in_a_tuple_declaration_demo_plot_meta.json"
+      ]
+    },
+    {
       "name": "expds_085_Qualifier_inheritance_demo",
       "suite": "sample_pds",
       "filename": "expds_085_Qualifier_inheritance_demo.pine",
@@ -5029,6 +5073,19 @@
         "expds_085_Qualifier_inheritance_demo_strat.csv",
         "expds_085_Qualifier_inheritance_demo_trade.csv",
         "expds_085_Qualifier_inheritance_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_080_Multiline_function_with_conditional_structure_demo",
+      "suite": "sample_pds",
+      "filename": "expds_080_Multiline_function_with_conditional_structure_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_080_Multiline_function_with_conditional_structure_demo.csv",
+        "expds_080_Multiline_function_with_conditional_structure_demo_strat.csv",
+        "expds_080_Multiline_function_with_conditional_structure_demo_trade.csv",
+        "expds_080_Multiline_function_with_conditional_structure_demo_plot_meta.json"
       ]
     },
     {
@@ -5058,19 +5115,6 @@
       ]
     },
     {
-      "name": "expds_082_Using_____in_a_tuple_declaration_demo",
-      "suite": "sample_pds",
-      "filename": "expds_082_Using_____in_a_tuple_declaration_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_082_Using_____in_a_tuple_declaration_demo.csv",
-        "expds_082_Using_____in_a_tuple_declaration_demo_strat.csv",
-        "expds_082_Using_____in_a_tuple_declaration_demo_trade.csv",
-        "expds_082_Using_____in_a_tuple_declaration_demo_plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_088_Inconsistent_behavior_demo",
       "suite": "sample_pds",
       "filename": "expds_088_Inconsistent_behavior_demo.pine",
@@ -5084,16 +5128,16 @@
       ]
     },
     {
-      "name": "expds_080_Multiline_function_with_conditional_structure_demo",
+      "name": "expds_093_Cannot_modify_global_variables_demo",
       "suite": "sample_pds",
-      "filename": "expds_080_Multiline_function_with_conditional_structure_demo.pine",
+      "filename": "expds_093_Cannot_modify_global_variables_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_080_Multiline_function_with_conditional_structure_demo.csv",
-        "expds_080_Multiline_function_with_conditional_structure_demo_strat.csv",
-        "expds_080_Multiline_function_with_conditional_structure_demo_trade.csv",
-        "expds_080_Multiline_function_with_conditional_structure_demo_plot_meta.json"
+        "expds_093_Cannot_modify_global_variables_demo.csv",
+        "expds_093_Cannot_modify_global_variables_demo_strat.csv",
+        "expds_093_Cannot_modify_global_variables_demo_trade.csv",
+        "expds_093_Cannot_modify_global_variables_demo_plot_meta.json"
       ]
     },
     {
@@ -5107,19 +5151,6 @@
         "expds_089_Promoting_consistency_with_qualifier_keywords_demo_strat.csv",
         "expds_089_Promoting_consistency_with_qualifier_keywords_demo_trade.csv",
         "expds_089_Promoting_consistency_with_qualifier_keywords_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_093_Cannot_modify_global_variables_demo",
-      "suite": "sample_pds",
-      "filename": "expds_093_Cannot_modify_global_variables_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_093_Cannot_modify_global_variables_demo.csv",
-        "expds_093_Cannot_modify_global_variables_demo_strat.csv",
-        "expds_093_Cannot_modify_global_variables_demo_trade.csv",
-        "expds_093_Cannot_modify_global_variables_demo_plot_meta.json"
       ]
     },
     {
@@ -5201,6 +5232,19 @@
       ]
     },
     {
+      "name": "expds_099_Moving_nested_definitions_to_the_global_scope_demo",
+      "suite": "sample_pds",
+      "filename": "expds_099_Moving_nested_definitions_to_the_global_scope_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_099_Moving_nested_definitions_to_the_global_scope_demo.csv",
+        "expds_099_Moving_nested_definitions_to_the_global_scope_demo_strat.csv",
+        "expds_099_Moving_nested_definitions_to_the_global_scope_demo_trade.csv",
+        "expds_099_Moving_nested_definitions_to_the_global_scope_demo_plot_meta.json"
+      ]
+    },
+    {
       "name": "expds_101_Replacing_recursion_with_loops_demo",
       "suite": "sample_pds",
       "filename": "expds_101_Replacing_recursion_with_loops_demo.pine",
@@ -5224,19 +5268,6 @@
         "expds_100_Invalid_recursive_function_demo_strat.csv",
         "expds_100_Invalid_recursive_function_demo_trade.csv",
         "expds_100_Invalid_recursive_function_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_099_Moving_nested_definitions_to_the_global_scope_demo",
-      "suite": "sample_pds",
-      "filename": "expds_099_Moving_nested_definitions_to_the_global_scope_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_099_Moving_nested_definitions_to_the_global_scope_demo.csv",
-        "expds_099_Moving_nested_definitions_to_the_global_scope_demo_strat.csv",
-        "expds_099_Moving_nested_definitions_to_the_global_scope_demo_trade.csv",
-        "expds_099_Moving_nested_definitions_to_the_global_scope_demo_plot_meta.json"
       ]
     },
     {
@@ -5304,19 +5335,6 @@
       ]
     },
     {
-      "name": "expds_105_Using_____in_a_tuple_declaration_demo",
-      "suite": "sample_pds",
-      "filename": "expds_105_Using_____in_a_tuple_declaration_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_105_Using_____in_a_tuple_declaration_demo.csv",
-        "expds_105_Using_____in_a_tuple_declaration_demo_strat.csv",
-        "expds_105_Using_____in_a_tuple_declaration_demo_trade.csv",
-        "expds_105_Using_____in_a_tuple_declaration_demo_plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_107_Declared_parameter_type_demo",
       "suite": "sample_pds",
       "filename": "expds_107_Declared_parameter_type_demo.pine",
@@ -5330,16 +5348,29 @@
       ]
     },
     {
-      "name": "expds_109_Qualifier_promotion_demo",
+      "name": "expds_110_Declared_parameter_qualifier_demo",
       "suite": "sample_pds",
-      "filename": "expds_109_Qualifier_promotion_demo.pine",
+      "filename": "expds_110_Declared_parameter_qualifier_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_109_Qualifier_promotion_demo.csv",
-        "expds_109_Qualifier_promotion_demo_strat.csv",
-        "expds_109_Qualifier_promotion_demo_trade.csv",
-        "expds_109_Qualifier_promotion_demo_plot_meta.json"
+        "expds_110_Declared_parameter_qualifier_demo.csv",
+        "expds_110_Declared_parameter_qualifier_demo_strat.csv",
+        "expds_110_Declared_parameter_qualifier_demo_trade.csv",
+        "expds_110_Declared_parameter_qualifier_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_105_Using_____in_a_tuple_declaration_demo",
+      "suite": "sample_pds",
+      "filename": "expds_105_Using_____in_a_tuple_declaration_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_105_Using_____in_a_tuple_declaration_demo.csv",
+        "expds_105_Using_____in_a_tuple_declaration_demo_strat.csv",
+        "expds_105_Using_____in_a_tuple_declaration_demo_trade.csv",
+        "expds_105_Using_____in_a_tuple_declaration_demo_plot_meta.json"
       ]
     },
     {
@@ -5369,16 +5400,16 @@
       ]
     },
     {
-      "name": "expds_110_Declared_parameter_qualifier_demo",
+      "name": "expds_109_Qualifier_promotion_demo",
       "suite": "sample_pds",
-      "filename": "expds_110_Declared_parameter_qualifier_demo.pine",
+      "filename": "expds_109_Qualifier_promotion_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_110_Declared_parameter_qualifier_demo.csv",
-        "expds_110_Declared_parameter_qualifier_demo_strat.csv",
-        "expds_110_Declared_parameter_qualifier_demo_trade.csv",
-        "expds_110_Declared_parameter_qualifier_demo_plot_meta.json"
+        "expds_109_Qualifier_promotion_demo.csv",
+        "expds_109_Qualifier_promotion_demo_strat.csv",
+        "expds_109_Qualifier_promotion_demo_trade.csv",
+        "expds_109_Qualifier_promotion_demo_plot_meta.json"
       ]
     },
     {
@@ -5392,6 +5423,19 @@
         "expds_111_Inconsistent_behavior_demo_strat.csv",
         "expds_111_Inconsistent_behavior_demo_trade.csv",
         "expds_111_Inconsistent_behavior_demo_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_112_Promoting_consistency_with_qualifier_keywords_demo",
+      "suite": "sample_pds",
+      "filename": "expds_112_Promoting_consistency_with_qualifier_keywords_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_112_Promoting_consistency_with_qualifier_keywords_demo.csv",
+        "expds_112_Promoting_consistency_with_qualifier_keywords_demo_strat.csv",
+        "expds_112_Promoting_consistency_with_qualifier_keywords_demo_trade.csv",
+        "expds_112_Promoting_consistency_with_qualifier_keywords_demo_plot_meta.json"
       ]
     },
     {
@@ -5421,16 +5465,16 @@
       ]
     },
     {
-      "name": "expds_112_Promoting_consistency_with_qualifier_keywords_demo",
+      "name": "expds_115_Global_variables_in_functions_demo",
       "suite": "sample_pds",
-      "filename": "expds_112_Promoting_consistency_with_qualifier_keywords_demo.pine",
+      "filename": "expds_115_Global_variables_in_functions_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_112_Promoting_consistency_with_qualifier_keywords_demo.csv",
-        "expds_112_Promoting_consistency_with_qualifier_keywords_demo_strat.csv",
-        "expds_112_Promoting_consistency_with_qualifier_keywords_demo_trade.csv",
-        "expds_112_Promoting_consistency_with_qualifier_keywords_demo_plot_meta.json"
+        "expds_115_Global_variables_in_functions_demo.csv",
+        "expds_115_Global_variables_in_functions_demo_strat.csv",
+        "expds_115_Global_variables_in_functions_demo_trade.csv",
+        "expds_115_Global_variables_in_functions_demo_plot_meta.json"
       ]
     },
     {
@@ -5444,19 +5488,6 @@
         "expds_114_Function_variable_vs__global_variable_demo_strat.csv",
         "expds_114_Function_variable_vs__global_variable_demo_trade.csv",
         "expds_114_Function_variable_vs__global_variable_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_115_Global_variables_in_functions_demo",
-      "suite": "sample_pds",
-      "filename": "expds_115_Global_variables_in_functions_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_115_Global_variables_in_functions_demo.csv",
-        "expds_115_Global_variables_in_functions_demo_strat.csv",
-        "expds_115_Global_variables_in_functions_demo_trade.csv",
-        "expds_115_Global_variables_in_functions_demo_plot_meta.json"
       ]
     },
     {
@@ -5646,6 +5677,18 @@
       ]
     },
     {
+      "name": "expds_147_Negative_indexing_demo",
+      "suite": "sample_pds",
+      "filename": "expds_147_Negative_indexing_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_147_Negative_indexing_demo.csv",
+        "expds_147_Negative_indexing_demo_strat.csv",
+        "expds_147_Negative_indexing_demo_trade.csv"
+      ]
+    },
+    {
       "name": "expds_137_Using__var_",
       "suite": "sample_pds",
       "filename": "expds_137_Using__var_.pine",
@@ -5656,18 +5699,6 @@
         "expds_137_Using__var__strat.csv",
         "expds_137_Using__var__trade.csv",
         "expds_137_Using__var__plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_147_Negative_indexing_demo",
-      "suite": "sample_pds",
-      "filename": "expds_147_Negative_indexing_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_147_Negative_indexing_demo.csv",
-        "expds_147_Negative_indexing_demo_strat.csv",
-        "expds_147_Negative_indexing_demo_trade.csv"
       ]
     },
     {
@@ -5697,16 +5728,15 @@
       ]
     },
     {
-      "name": "expds_142_History_referencing",
+      "name": "expds_148__array_concat___",
       "suite": "sample_pds",
-      "filename": "expds_142_History_referencing.pine",
+      "filename": "expds_148__array_concat___.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_142_History_referencing.csv",
-        "expds_142_History_referencing_strat.csv",
-        "expds_142_History_referencing_trade.csv",
-        "expds_142_History_referencing_plot_meta.json"
+        "expds_148__array_concat___.csv",
+        "expds_148__array_concat____strat.csv",
+        "expds_148__array_concat____trade.csv"
       ]
     },
     {
@@ -5722,15 +5752,16 @@
       ]
     },
     {
-      "name": "expds_148__array_concat___",
+      "name": "expds_142_History_referencing",
       "suite": "sample_pds",
-      "filename": "expds_148__array_concat___.pine",
+      "filename": "expds_142_History_referencing.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_148__array_concat___.csv",
-        "expds_148__array_concat____strat.csv",
-        "expds_148__array_concat____trade.csv"
+        "expds_142_History_referencing.csv",
+        "expds_142_History_referencing_strat.csv",
+        "expds_142_History_referencing_trade.csv",
+        "expds_142_History_referencing_plot_meta.json"
       ]
     },
     {
@@ -5758,6 +5789,18 @@
       ]
     },
     {
+      "name": "expds_144__array_clear____example",
+      "suite": "sample_pds",
+      "filename": "expds_144__array_clear____example.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_144__array_clear____example.csv",
+        "expds_144__array_clear____example_strat.csv",
+        "expds_144__array_clear____example_trade.csv"
+      ]
+    },
+    {
       "name": "expds_145_Lows_from_new_highs",
       "suite": "sample_pds",
       "filename": "expds_145_Lows_from_new_highs.pine",
@@ -5768,18 +5811,6 @@
         "expds_145_Lows_from_new_highs_strat.csv",
         "expds_145_Lows_from_new_highs_trade.csv",
         "expds_145_Lows_from_new_highs_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_144__array_clear____example",
-      "suite": "sample_pds",
-      "filename": "expds_144__array_clear____example.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_144__array_clear____example.csv",
-        "expds_144__array_clear____example_strat.csv",
-        "expds_144__array_clear____example_trade.csv"
       ]
     },
     {
@@ -5857,19 +5888,6 @@
       ]
     },
     {
-      "name": "expds_156_Out_of_bounds_index",
-      "suite": "sample_pds",
-      "filename": "expds_156_Out_of_bounds_index.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_156_Out_of_bounds_index.csv",
-        "expds_156_Out_of_bounds_index_strat.csv",
-        "expds_156_Out_of_bounds_index_trade.csv",
-        "expds_156_Out_of_bounds_index_plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_159_Array_methods_on__na__array",
       "suite": "sample_pds",
       "filename": "expds_159_Array_methods_on__na__array.pine",
@@ -5894,15 +5912,16 @@
       ]
     },
     {
-      "name": "expds_217_Putting_and_getting_objects_demo",
+      "name": "expds_156_Out_of_bounds_index",
       "suite": "sample_pds",
-      "filename": "expds_217_Putting_and_getting_objects_demo.pine",
+      "filename": "expds_156_Out_of_bounds_index.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_217_Putting_and_getting_objects_demo.csv",
-        "expds_217_Putting_and_getting_objects_demo_strat.csv",
-        "expds_217_Putting_and_getting_objects_demo_trade.csv"
+        "expds_156_Out_of_bounds_index.csv",
+        "expds_156_Out_of_bounds_index_strat.csv",
+        "expds_156_Out_of_bounds_index_trade.csv",
+        "expds_156_Out_of_bounds_index_plot_meta.json"
       ]
     },
     {
@@ -5919,6 +5938,18 @@
       ]
     },
     {
+      "name": "expds_217_Putting_and_getting_objects_demo",
+      "suite": "sample_pds",
+      "filename": "expds_217_Putting_and_getting_objects_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_217_Putting_and_getting_objects_demo.csv",
+        "expds_217_Putting_and_getting_objects_demo_strat.csv",
+        "expds_217_Putting_and_getting_objects_demo_trade.csv"
+      ]
+    },
+    {
       "name": "expds_218_Keys_and_values_demo",
       "suite": "sample_pds",
       "filename": "expds_218_Keys_and_values_demo.pine",
@@ -5928,19 +5959,6 @@
         "expds_218_Keys_and_values_demo.csv",
         "expds_218_Keys_and_values_demo_strat.csv",
         "expds_218_Keys_and_values_demo_trade.csv"
-      ]
-    },
-    {
-      "name": "expds_158_Protected_array_size",
-      "suite": "sample_pds",
-      "filename": "expds_158_Protected_array_size.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_158_Protected_array_size.csv",
-        "expds_158_Protected_array_size_strat.csv",
-        "expds_158_Protected_array_size_trade.csv",
-        "expds_158_Protected_array_size_plot_meta.json"
       ]
     },
     {
@@ -5956,6 +5974,18 @@
       ]
     },
     {
+      "name": "expds_221_Removing_key-value_pairs_demo",
+      "suite": "sample_pds",
+      "filename": "expds_221_Removing_key-value_pairs_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_221_Removing_key-value_pairs_demo.csv",
+        "expds_221_Removing_key-value_pairs_demo_strat.csv",
+        "expds_221_Removing_key-value_pairs_demo_trade.csv"
+      ]
+    },
+    {
       "name": "expds_222_Combining_maps_demo",
       "suite": "sample_pds",
       "filename": "expds_222_Combining_maps_demo.pine",
@@ -5968,15 +5998,16 @@
       ]
     },
     {
-      "name": "expds_221_Removing_key-value_pairs_demo",
+      "name": "expds_158_Protected_array_size",
       "suite": "sample_pds",
-      "filename": "expds_221_Removing_key-value_pairs_demo.pine",
+      "filename": "expds_158_Protected_array_size.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_221_Removing_key-value_pairs_demo.csv",
-        "expds_221_Removing_key-value_pairs_demo_strat.csv",
-        "expds_221_Removing_key-value_pairs_demo_trade.csv"
+        "expds_158_Protected_array_size.csv",
+        "expds_158_Protected_array_size_strat.csv",
+        "expds_158_Protected_array_size_trade.csv",
+        "expds_158_Protected_array_size_plot_meta.json"
       ]
     },
     {
@@ -6017,15 +6048,15 @@
       ]
     },
     {
-      "name": "expds_228_Keys_and_values_demo",
+      "name": "expds_220_Inspecting_keys_demo",
       "suite": "sample_pds",
-      "filename": "expds_228_Keys_and_values_demo.pine",
+      "filename": "expds_220_Inspecting_keys_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_228_Keys_and_values_demo.csv",
-        "expds_228_Keys_and_values_demo_strat.csv",
-        "expds_228_Keys_and_values_demo_trade.csv"
+        "expds_220_Inspecting_keys_demo.csv",
+        "expds_220_Inspecting_keys_demo_strat.csv",
+        "expds_220_Inspecting_keys_demo_trade.csv"
       ]
     },
     {
@@ -6042,15 +6073,15 @@
       ]
     },
     {
-      "name": "expds_220_Inspecting_keys_demo",
+      "name": "expds_228_Keys_and_values_demo",
       "suite": "sample_pds",
-      "filename": "expds_220_Inspecting_keys_demo.pine",
+      "filename": "expds_228_Keys_and_values_demo.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_220_Inspecting_keys_demo.csv",
-        "expds_220_Inspecting_keys_demo_strat.csv",
-        "expds_220_Inspecting_keys_demo_trade.csv"
+        "expds_228_Keys_and_values_demo.csv",
+        "expds_228_Keys_and_values_demo_strat.csv",
+        "expds_228_Keys_and_values_demo_trade.csv"
       ]
     },
     {
@@ -6079,18 +6110,6 @@
       ]
     },
     {
-      "name": "expds_231_Removing_key-value_pairs_demo",
-      "suite": "sample_pds",
-      "filename": "expds_231_Removing_key-value_pairs_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_231_Removing_key-value_pairs_demo.csv",
-        "expds_231_Removing_key-value_pairs_demo_strat.csv",
-        "expds_231_Removing_key-value_pairs_demo_trade.csv"
-      ]
-    },
-    {
       "name": "expds_232_Combining_maps_demo",
       "suite": "sample_pds",
       "filename": "expds_232_Combining_maps_demo.pine",
@@ -6100,6 +6119,18 @@
         "expds_232_Combining_maps_demo.csv",
         "expds_232_Combining_maps_demo_strat.csv",
         "expds_232_Combining_maps_demo_trade.csv"
+      ]
+    },
+    {
+      "name": "expds_231_Removing_key-value_pairs_demo",
+      "suite": "sample_pds",
+      "filename": "expds_231_Removing_key-value_pairs_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_231_Removing_key-value_pairs_demo.csv",
+        "expds_231_Removing_key-value_pairs_demo_strat.csv",
+        "expds_231_Removing_key-value_pairs_demo_trade.csv"
       ]
     },
     {
@@ -6152,18 +6183,6 @@
       ]
     },
     {
-      "name": "expds_238_Timeframe_warning_table_demo",
-      "suite": "sample_pds",
-      "filename": "expds_238_Timeframe_warning_table_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_238_Timeframe_warning_table_demo.csv",
-        "expds_238_Timeframe_warning_table_demo_strat.csv",
-        "expds_238_Timeframe_warning_table_demo_trade.csv"
-      ]
-    },
-    {
       "name": "expds_242_Single-color_candles",
       "suite": "sample_pds",
       "filename": "expds_242_Single-color_candles.pine",
@@ -6188,6 +6207,18 @@
       ]
     },
     {
+      "name": "expds_238_Timeframe_warning_table_demo",
+      "suite": "sample_pds",
+      "filename": "expds_238_Timeframe_warning_table_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_238_Timeframe_warning_table_demo.csv",
+        "expds_238_Timeframe_warning_table_demo_strat.csv",
+        "expds_238_Timeframe_warning_table_demo_trade.csv"
+      ]
+    },
+    {
       "name": "expds_241_barcolor_example",
       "suite": "sample_pds",
       "filename": "expds_241_barcolor_example.pine",
@@ -6197,6 +6228,18 @@
         "expds_241_barcolor_example.csv",
         "expds_241_barcolor_example_strat.csv",
         "expds_241_barcolor_example_trade.csv"
+      ]
+    },
+    {
+      "name": "expds_245_Dual-color_bars",
+      "suite": "sample_pds",
+      "filename": "expds_245_Dual-color_bars.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_245_Dual-color_bars.csv",
+        "expds_245_Dual-color_bars_strat.csv",
+        "expds_245_Dual-color_bars_trade.csv"
       ]
     },
     {
@@ -6210,18 +6253,6 @@
         "expds_236__bgcolor____and__barcolor____demo_strat.csv",
         "expds_236__bgcolor____and__barcolor____demo_trade.csv",
         "expds_236__bgcolor____and__barcolor____demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_245_Dual-color_bars",
-      "suite": "sample_pds",
-      "filename": "expds_245_Dual-color_bars.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_245_Dual-color_bars.csv",
-        "expds_245_Dual-color_bars_strat.csv",
-        "expds_245_Dual-color_bars_trade.csv"
       ]
     },
     {
@@ -6242,6 +6273,19 @@
         "expds_244_Smoothed_candles.csv",
         "expds_244_Smoothed_candles_strat.csv",
         "expds_244_Smoothed_candles_trade.csv"
+      ]
+    },
+    {
+      "name": "expds_247_Conditional_colors",
+      "suite": "sample_pds",
+      "filename": "expds_247_Conditional_colors.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_247_Conditional_colors.csv",
+        "expds_247_Conditional_colors_strat.csv",
+        "expds_247_Conditional_colors_trade.csv",
+        "expds_247_Conditional_colors_plot_meta.json"
       ]
     },
     {
@@ -6270,19 +6314,6 @@
       ]
     },
     {
-      "name": "expds_247_Conditional_colors",
-      "suite": "sample_pds",
-      "filename": "expds_247_Conditional_colors.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_247_Conditional_colors.csv",
-        "expds_247_Conditional_colors_strat.csv",
-        "expds_247_Conditional_colors_trade.csv",
-        "expds_247_Conditional_colors_plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_252_Color_picker_showcase",
       "suite": "sample_pds",
       "filename": "expds_252_Color_picker_showcase.pine",
@@ -6296,19 +6327,6 @@
       ]
     },
     {
-      "name": "expds_253_Color_picker_showcase",
-      "suite": "sample_pds",
-      "filename": "expds_253_Color_picker_showcase.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_253_Color_picker_showcase.csv",
-        "expds_253_Color_picker_showcase_strat.csv",
-        "expds_253_Color_picker_showcase_trade.csv",
-        "expds_253_Color_picker_showcase_plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_249_Volume",
       "suite": "sample_pds",
       "filename": "expds_249_Volume.pine",
@@ -6319,6 +6337,19 @@
         "expds_249_Volume_strat.csv",
         "expds_249_Volume_trade.csv",
         "expds_249_Volume_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_253_Color_picker_showcase",
+      "suite": "sample_pds",
+      "filename": "expds_253_Color_picker_showcase.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_253_Color_picker_showcase.csv",
+        "expds_253_Color_picker_showcase_strat.csv",
+        "expds_253_Color_picker_showcase_trade.csv",
+        "expds_253_Color_picker_showcase_plot_meta.json"
       ]
     },
     {
@@ -6387,6 +6418,18 @@
       ]
     },
     {
+      "name": "expds_280_Realtime_behavior_demo",
+      "suite": "sample_pds",
+      "filename": "expds_280_Realtime_behavior_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_280_Realtime_behavior_demo.csv",
+        "expds_280_Realtime_behavior_demo_strat.csv",
+        "expds_280_Realtime_behavior_demo_trade.csv"
+      ]
+    },
+    {
       "name": "expds_260_TSI",
       "suite": "sample_pds",
       "filename": "expds_260_TSI.pine",
@@ -6423,18 +6466,6 @@
         "expds_265_Reading_line_values_demo_strat.csv",
         "expds_265_Reading_line_values_demo_trade.csv",
         "expds_265_Reading_line_values_demo_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_280_Realtime_behavior_demo",
-      "suite": "sample_pds",
-      "filename": "expds_280_Realtime_behavior_demo.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_280_Realtime_behavior_demo.csv",
-        "expds_280_Realtime_behavior_demo_strat.csv",
-        "expds_280_Realtime_behavior_demo_trade.csv"
       ]
     },
     {
@@ -6501,6 +6532,18 @@
       ]
     },
     {
+      "name": "expds_293_Chart_background",
+      "suite": "sample_pds",
+      "filename": "expds_293_Chart_background.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_293_Chart_background.csv",
+        "expds_293_Chart_background_strat.csv",
+        "expds_293_Chart_background_trade.csv"
+      ]
+    },
+    {
       "name": "expds_285_Volume_change",
       "suite": "sample_pds",
       "filename": "expds_285_Volume_change.pine",
@@ -6511,18 +6554,6 @@
         "expds_285_Volume_change_strat.csv",
         "expds_285_Volume_change_trade.csv",
         "expds_285_Volume_change_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_293_Chart_background",
-      "suite": "sample_pds",
-      "filename": "expds_293_Chart_background.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_293_Chart_background.csv",
-        "expds_293_Chart_background_strat.csv",
-        "expds_293_Chart_background_trade.csv"
       ]
     },
     {
@@ -6562,14 +6593,6 @@
         "expds_289_RSI_trade.csv",
         "expds_289_RSI_plot_meta.json"
       ]
-    },
-    {
-      "name": "expds_134_Empirical_Distribution",
-      "suite": "sample_pds",
-      "filename": "expds_134_Empirical_Distribution.pine",
-      "status": "timeout",
-      "error": "",
-      "output_files": []
     },
     {
       "name": "expds_287_Pivot_plots",
@@ -6662,6 +6685,19 @@
       ]
     },
     {
+      "name": "expds_296_Four_displays_of_text",
+      "suite": "sample_pds",
+      "filename": "expds_296_Four_displays_of_text.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_296_Four_displays_of_text.csv",
+        "expds_296_Four_displays_of_text_strat.csv",
+        "expds_296_Four_displays_of_text_trade.csv",
+        "expds_296_Four_displays_of_text_plot_meta.json"
+      ]
+    },
+    {
       "name": "expds_297_Lift_text",
       "suite": "sample_pds",
       "filename": "expds_297_Lift_text.pine",
@@ -6675,16 +6711,16 @@
       ]
     },
     {
-      "name": "expds_296_Four_displays_of_text",
+      "name": "expds_134_Empirical_Distribution",
       "suite": "sample_pds",
-      "filename": "expds_296_Four_displays_of_text.pine",
+      "filename": "expds_134_Empirical_Distribution.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_296_Four_displays_of_text.csv",
-        "expds_296_Four_displays_of_text_strat.csv",
-        "expds_296_Four_displays_of_text_trade.csv",
-        "expds_296_Four_displays_of_text_plot_meta.json"
+        "expds_134_Empirical_Distribution.csv",
+        "expds_134_Empirical_Distribution_strat.csv",
+        "expds_134_Empirical_Distribution_trade.csv",
+        "expds_134_Empirical_Distribution_plot_meta.json"
       ]
     },
     {
@@ -6713,19 +6749,6 @@
       ]
     },
     {
-      "name": "expds_300_All__alert____calls",
-      "suite": "sample_pds",
-      "filename": "expds_300_All__alert____calls.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_300_All__alert____calls.csv",
-        "expds_300_All__alert____calls_strat.csv",
-        "expds_300_All__alert____calls_trade.csv",
-        "expds_300_All__alert____calls_plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_251_CCI_DC",
       "suite": "sample_pds",
       "filename": "expds_251_CCI_DC.pine",
@@ -6736,6 +6759,19 @@
         "expds_251_CCI_DC_strat.csv",
         "expds_251_CCI_DC_trade.csv",
         "expds_251_CCI_DC_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_300_All__alert____calls",
+      "suite": "sample_pds",
+      "filename": "expds_300_All__alert____calls.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_300_All__alert____calls.csv",
+        "expds_300_All__alert____calls_strat.csv",
+        "expds_300_All__alert____calls_trade.csv",
+        "expds_300_All__alert____calls_plot_meta.json"
       ]
     },
     {
@@ -6817,19 +6853,6 @@
       ]
     },
     {
-      "name": "expds_312__input___",
-      "suite": "sample_pds",
-      "filename": "expds_312__input___.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_312__input___.csv",
-        "expds_312__input____strat.csv",
-        "expds_312__input____trade.csv",
-        "expds_312__input____plot_meta.json"
-      ]
-    },
-    {
       "name": "expds_310_MA",
       "suite": "sample_pds",
       "filename": "expds_310_MA.pine",
@@ -6867,6 +6890,19 @@
       ]
     },
     {
+      "name": "expds_312__input___",
+      "suite": "sample_pds",
+      "filename": "expds_312__input___.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_312__input___.csv",
+        "expds_312__input____strat.csv",
+        "expds_312__input____trade.csv",
+        "expds_312__input____plot_meta.json"
+      ]
+    },
+    {
       "name": "expds_313_MA",
       "suite": "sample_pds",
       "filename": "expds_313_MA.pine",
@@ -6890,19 +6926,6 @@
         "expds_314_MA_strat.csv",
         "expds_314_MA_trade.csv",
         "expds_314_MA_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_315_MA",
-      "suite": "sample_pds",
-      "filename": "expds_315_MA.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_315_MA.csv",
-        "expds_315_MA_strat.csv",
-        "expds_315_MA_trade.csv",
-        "expds_315_MA_plot_meta.json"
       ]
     },
     {
@@ -6932,16 +6955,16 @@
       ]
     },
     {
-      "name": "expds_316_MA",
+      "name": "expds_315_MA",
       "suite": "sample_pds",
-      "filename": "expds_316_MA.pine",
+      "filename": "expds_315_MA.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_316_MA.csv",
-        "expds_316_MA_strat.csv",
-        "expds_316_MA_trade.csv",
-        "expds_316_MA_plot_meta.json"
+        "expds_315_MA.csv",
+        "expds_315_MA_strat.csv",
+        "expds_315_MA_trade.csv",
+        "expds_315_MA_plot_meta.json"
       ]
     },
     {
@@ -6958,6 +6981,19 @@
       ]
     },
     {
+      "name": "expds_316_MA",
+      "suite": "sample_pds",
+      "filename": "expds_316_MA.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_316_MA.csv",
+        "expds_316_MA_strat.csv",
+        "expds_316_MA_trade.csv",
+        "expds_316_MA_plot_meta.json"
+      ]
+    },
+    {
       "name": "expds_317_MA",
       "suite": "sample_pds",
       "filename": "expds_317_MA.pine",
@@ -6968,19 +7004,6 @@
         "expds_317_MA_strat.csv",
         "expds_317_MA_trade.csv",
         "expds_317_MA_plot_meta.json"
-      ]
-    },
-    {
-      "name": "expds_322_Session_input",
-      "suite": "sample_pds",
-      "filename": "expds_322_Session_input.pine",
-      "status": "ok",
-      "error": "",
-      "output_files": [
-        "expds_322_Session_input.csv",
-        "expds_322_Session_input_strat.csv",
-        "expds_322_Session_input_trade.csv",
-        "expds_322_Session_input_plot_meta.json"
       ]
     },
     {
@@ -6997,16 +7020,16 @@
       ]
     },
     {
-      "name": "expds_327_Enum_input_demo",
+      "name": "expds_322_Session_input",
       "suite": "sample_pds",
-      "filename": "expds_327_Enum_input_demo.pine",
+      "filename": "expds_322_Session_input.pine",
       "status": "ok",
       "error": "",
       "output_files": [
-        "expds_327_Enum_input_demo.csv",
-        "expds_327_Enum_input_demo_strat.csv",
-        "expds_327_Enum_input_demo_trade.csv",
-        "expds_327_Enum_input_demo_plot_meta.json"
+        "expds_322_Session_input.csv",
+        "expds_322_Session_input_strat.csv",
+        "expds_322_Session_input_trade.csv",
+        "expds_322_Session_input_plot_meta.json"
       ]
     },
     {
@@ -7020,6 +7043,19 @@
         "expds_329_Aligned_inputs_strat.csv",
         "expds_329_Aligned_inputs_trade.csv",
         "expds_329_Aligned_inputs_plot_meta.json"
+      ]
+    },
+    {
+      "name": "expds_327_Enum_input_demo",
+      "suite": "sample_pds",
+      "filename": "expds_327_Enum_input_demo.pine",
+      "status": "ok",
+      "error": "",
+      "output_files": [
+        "expds_327_Enum_input_demo.csv",
+        "expds_327_Enum_input_demo_strat.csv",
+        "expds_327_Enum_input_demo_trade.csv",
+        "expds_327_Enum_input_demo_plot_meta.json"
       ]
     },
     {
