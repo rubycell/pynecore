@@ -19,5 +19,8 @@
   "Centerline": {
     "type": "plot",
     "color": "#B2B5BE"
+  },
+  "bgcolor": {
+    "type": "bgcolor"
   }
 }

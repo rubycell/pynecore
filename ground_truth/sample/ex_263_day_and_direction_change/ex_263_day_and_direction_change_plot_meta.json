@@ -1,4 +1,7 @@
 {
+  "bgcolor": {
+    "type": "bgcolor"
+  },
   "Direction Change": {
     "type": "plotshape"
   }

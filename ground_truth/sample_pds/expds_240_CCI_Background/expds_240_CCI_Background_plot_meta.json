@@ -7,5 +7,8 @@
   "CCI 0": {
     "type": "plot",
     "color": "#363A45"
+  },
+  "bgcolor": {
+    "type": "bgcolor"
   }
 }

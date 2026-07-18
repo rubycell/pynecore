@@ -1,4 +1,7 @@
 {
+  "bgcolor": {
+    "type": "bgcolor"
+  },
   "lastHiBar": {
     "type": "plotchar",
     "char": "",

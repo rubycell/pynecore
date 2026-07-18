@@ -8,5 +8,8 @@
     "type": "plot",
     "color": "#00BCD4",
     "linewidth": 2
+  },
+  "Historical highlight": {
+    "type": "bgcolor"
   }
 }

@@ -3,5 +3,8 @@
     "type": "plot",
     "color": "#FFFFFF",
     "linewidth": 3
+  },
+  "Realtime highlight": {
+    "type": "bgcolor"
   }
 }

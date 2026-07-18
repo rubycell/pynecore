@@ -1,5 +1,8 @@
 {
   "Capital held": {
     "type": "plot"
+  },
+  "bgcolor": {
+    "type": "bgcolor"
   }
 }

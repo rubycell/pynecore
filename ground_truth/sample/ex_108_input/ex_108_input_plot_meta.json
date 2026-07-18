@@ -5,6 +5,9 @@
   "Plot 0": {
     "type": "plot"
   },
+  "bgcolor": {
+    "type": "bgcolor"
+  },
   "Plot 1": {
     "type": "plot",
     "color": "#F23645"
