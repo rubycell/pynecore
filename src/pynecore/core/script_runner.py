@@ -132,13 +132,14 @@ def _set_lib_syminfo_properties(syminfo: SymInfo, lib: ModuleType):
     lib.syminfo._session_starts = syminfo.session_starts
     lib.syminfo._session_ends = syminfo.session_ends
 
+    # mincontract (real exchange minQty) is already set from syminfo.mincontract by the generic loop
+    # above. _size_round_factor is a separate concern (qty display-rounding precision) and must not
+    # override mincontract, as it previously did for crypto symbols.
     if syminfo.type == 'crypto':
         decimals = 6 if syminfo.basecurrency == 'BTC' else 4  # TODO: is it correct?
         lib.syminfo._size_round_factor = 10 ** decimals
-        lib.syminfo.mincontract = 1.0 / (10 ** decimals)
     else:
         lib.syminfo._size_round_factor = 1
-        lib.syminfo.mincontract = syminfo.mincontract
 
 
 def _reset_lib_vars(lib: ModuleType):
