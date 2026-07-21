@@ -6,6 +6,7 @@ and ranks results by a chosen metric. Supports parallel execution via --workers.
 
 import csv
 import gc
+import hashlib
 import json
 import os
 import sys
@@ -395,6 +396,44 @@ def _combo_to_key(
     return tuple(str(combo.get(name, "")) for name in param_names)
 
 
+def _run_signature(
+    script: Path,
+    data: Path,
+    params_dict: dict[str, Any],
+    time_from: datetime | None,
+    time_to: datetime | None,
+    chunk: str | None,
+) -> str:
+    """Compute a signature that uniquely identifies an optimization invocation.
+
+    Two invocations share a result CSV only when this signature matches. It
+    covers every input that changes the computed numbers — script, data file,
+    parameter spec, and date window — so results from an unrelated run are never
+    silently reused (see resume logic in ``optimize``). The metric is
+    deliberately excluded: it only affects sort order, not the values.
+
+    :param script: Resolved strategy script path.
+    :param data: Resolved OHLCV data file path.
+    :param params_dict: Full parameter specification (as parsed from JSON).
+    :param time_from: Start of the backtest window, if any.
+    :param time_to: End of the backtest window, if any.
+    :param chunk: Grid chunk selector (e.g. ``"2/4"``), if any.
+    :return: Hex signature string.
+    """
+    payload = json.dumps(
+        {
+            "script": str(script.resolve()),
+            "data": str(data.resolve()),
+            "params": params_dict,
+            "from": time_from.isoformat() if time_from else "",
+            "to": time_to.isoformat() if time_to else "",
+            "chunk": chunk or "",
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _sort_and_rewrite_csv(
     csv_path: Path,
     metric_attr: str,
@@ -663,10 +702,25 @@ def optimize(
         csv_path = output or (app_state.output_dir / f"{script.stem}_optimize.csv")
 
     # --- Resume support: check for partial results ---
+    # Only resume from a CSV that belongs to THIS exact invocation. The run
+    # signature covers script, data, params and date window, so results from an
+    # unrelated run against the same script name are never silently reused.
     stat_fields = [f.name for f in dataclass_fields(StrategyStatistics)]
-    completed_keys, existing_rows, _ = _load_completed_keys(
-        csv_path, param_names,
-    )
+    run_sig = _run_signature(script, data, params_dict, time_from, time_to, chunk)
+    sig_path = csv_path.with_name(csv_path.name + ".runmeta")
+    can_resume = sig_path.exists() and sig_path.read_text().strip() == run_sig
+
+    if can_resume:
+        completed_keys, existing_rows, _ = _load_completed_keys(
+            csv_path, param_names,
+        )
+    else:
+        if csv_path.exists() and csv_path.stat().st_size > 0:
+            console.print(
+                "[yellow]Existing results CSV is from a different run "
+                "(script/data/params/date window changed) — starting fresh.[/yellow]"
+            )
+        completed_keys, existing_rows = set(), []
     resumed_count = len(completed_keys)
 
     if resumed_count > 0:
@@ -702,6 +756,9 @@ def optimize(
     if write_header:
         csv_writer.writerow(csv_header)
         csv_file.flush()
+        # Stamp this fresh CSV with its run signature so a later invocation can
+        # tell whether the file belongs to it before resuming from it.
+        sig_path.write_text(run_sig)
 
     # --- Run optimization ---
     results: list[tuple[dict[str, Any], StrategyStatistics]] = []
