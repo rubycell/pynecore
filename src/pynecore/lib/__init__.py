@@ -1,8 +1,7 @@
 """
 Builtin library of Pyne
 """
-from typing import TYPE_CHECKING, TypeAlias, Any
-from types import GenericAlias
+from typing import TYPE_CHECKING, TypeAlias, Any, get_origin
 
 if TYPE_CHECKING:
     from pynecore.types.type_checker import *
@@ -761,8 +760,14 @@ def is_na(source: Any = None) -> bool | NA:
     """
     if source is None:
         return _na_none
-    # If the source is a type or GenericAlias (like list[float]), return NA of that type
-    if isinstance(source, (type, GenericAlias)) and source is not NA:
+    # If the source is a type or a subscripted generic, return NA of that type.
+    # Match generics via get_origin so BOTH builtin generics (list[float] →
+    # types.GenericAlias) and typing generics from user Generic classes
+    # (Matrix[float] → typing._GenericAlias) are covered — the old
+    # `isinstance(source, GenericAlias)` only caught the builtin kind, so
+    # `na(Matrix[float])` fell through and returned False (a bool), which then
+    # broke matrix.copy(m) etc. with `'bool' object has no attribute 'copy'`.
+    if source is not NA and (isinstance(source, type) or get_origin(source) is not None):
         # na.pyi deliberately types NA(x) as x itself (so na sentinels flow as
         # values in user scripts), which contradicts the honest annotation here
         return NA(source)  # pyright: ignore[reportReturnType]
