@@ -35,7 +35,10 @@ def random(min: TFI | NA[TFI] = 0, max: TFI | NA[TFI] = 1, seed: PyneInt = NA(in
     """
     prng: Persistent[_PineRandom | None] = None
     if prng is None:  # Lazy init: the PRNG must not be created before the seed is known
-        prng = _PineRandom(seed)
+        # An unseeded Pine `math.random(min, max)` arrives here with seed == na,
+        # not None; pass None so PineRandom time-seeds instead of building its
+        # state from an NA (which would XOR to NA and make every draw na).
+        prng = _PineRandom(None if isinstance(seed, NA) else seed)
     res = prng.random(min, max)
     return res
 

@@ -99,6 +99,9 @@ class Color:
         :param transp: Transparency percentage (0-100, 0: not transparent, 100: invisible)
         :return: Color object
         """
+        # Pine accepts float channels (e.g. from math.random) and rounds them to
+        # the nearest integer, so normalise before the range check / hex format.
+        r, g, b = int(round(r)), int(round(g)), int(round(b))
         if not (0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
             raise ValueError("RGB values must be between 0 and 255")
         return cls(f'#{r:02X}{g:02X}{b:02X}{int((1 - transp / 100.0) * 255):02X}')
