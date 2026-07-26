@@ -1,9 +1,25 @@
-from dataclasses import dataclass, replace as udt_copy
+import copy as _copy
+from dataclasses import dataclass, replace as _dataclass_replace, is_dataclass
 from typing import TypeVar, Type, Any, dataclass_transform
 
 __all__ = ['udt', 'udt_copy']
 
 T = TypeVar('T')
+
+
+def udt_copy(obj: T, **changes: Any) -> T:
+    """
+    Copy a UDT or object value (used by the transpiler for Pine `.copy()`).
+
+    A dataclass UDT is copied with ``dataclasses.replace`` (honouring optional
+    field overrides). Non-dataclass objects — the drawing types (Label, Box,
+    Line, …) are plain classes, not dataclasses — are deep-copied instead, so
+    `.copy()` on e.g. a `map<string, label>` value works rather than raising
+    "replace() should be called on dataclass instances".
+    """
+    if is_dataclass(obj):
+        return _dataclass_replace(obj, **changes)
+    return _copy.deepcopy(obj)
 
 
 @dataclass_transform()
