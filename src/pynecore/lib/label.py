@@ -325,6 +325,21 @@ def set_xy(id: Label, x: int, y: int | float) -> None:
 
 
 # noinspection PyShadowingBuiltins
+def set_xloc(id: Label, x: int, xloc: _xloc.XLoc) -> None:
+    """
+    Sets the x-location of the label, and the new bar index/time
+
+    :param id: Label object
+    :param x: Bar index or bar time, interpreted according to xloc
+    :param xloc: New x-location value
+    """
+    if isinstance(id, NA):
+        return
+    id.x = x
+    id.xloc = xloc
+
+
+# noinspection PyShadowingBuiltins
 def set_yloc(id: Label, yloc: _yloc.YLoc) -> None:
     """
     Sets the y-location of the label

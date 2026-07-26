@@ -38,5 +38,12 @@ class OpenTradesModule(int):
 
     def size(self, trade_num: int) -> PyneFloat: ...
 
+    #
+    # Properties
+    #
+
+    @property
+    def capital_held(self) -> PyneFloat: ...
+
 
 opentrades: OpenTradesModule
