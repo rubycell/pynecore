@@ -324,7 +324,13 @@ def get(id: list[T] | SequenceView[T], index: int) -> T:
     :param index: Index of the element to return
     :return: Element at the specified index in the array
     """
-    return id[index]
+    # A na index (e.g. an index derived from a warmup ta.* value) yields na
+    # rather than crashing, matching Pine's na-propagation.
+    if isinstance(index, NA) or (isinstance(index, float) and math.isnan(index)):
+        return NA(None)  # type: ignore[return-value]
+    # Pine floors a float index (documented: `array.get()` uses floor(index)),
+    # whereas Python cannot index a list with a float.
+    return id[int(index)]
 
 
 # noinspection PyShadowingBuiltins
