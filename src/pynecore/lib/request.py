@@ -244,8 +244,13 @@ def seed(source=None, symbol=None, expression=None,
     :param expression: Expression to evaluate in the seed context
     :param ignore_invalid_symbol: If True, return na for invalid symbols
     :param calc_bars_count: Number of bars to calculate (unused)
-    :return: na — seed data is not available in PyneCore
+    :return: na — seed data is not available in PyneCore. When ``expression`` is a
+        tuple of series (e.g. ``request.seed(id, sym, [close, ta.sma(close, 10)])``),
+        Pine returns a tuple, so return a tuple of ``na`` of the same arity to keep
+        the tuple destructuring valid; ``na()``-guarding scripts then see na as usual.
     """
+    if isinstance(expression, (list, tuple)):
+        return tuple(NA(None) for _ in expression)
     return NA(None)
 
 
