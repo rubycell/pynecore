@@ -19,6 +19,15 @@ class Matrix(Generic[T]):
         self.cols = cols
         self.data = [[initial_value for _ in range(cols)] for _ in range(rows)]
 
+    def __iter__(self):
+        """Iterate over the matrix rows (Pine `for row in myMatrix`), each row
+        being the underlying list of that row's values."""
+        return iter(self.data)
+
+    def __len__(self) -> int:
+        """The number of rows (so len(matrix) mirrors matrix.rows())."""
+        return len(self.data)
+
     @property
     def rows(self) -> int:
         """Return the number of rows in the matrix."""
