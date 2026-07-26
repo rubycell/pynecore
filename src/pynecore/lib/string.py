@@ -554,6 +554,10 @@ def split(string: str, separator: str) -> list[str]:
     :param separator: Separator
     :return: Array of substrings
     """
+    # Pine splits into individual characters when the separator is empty,
+    # whereas Python's str.split("") raises "empty separator".
+    if separator == "":
+        return list(string)
     return string.split(separator)
 
 
