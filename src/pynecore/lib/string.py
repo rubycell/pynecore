@@ -386,13 +386,15 @@ def format(formatString: str, *args: Any) -> str:
 
 # noinspection PyProtectedMember
 def format_time(time: int | NA[int], fmt: str | None = None,
-                tz: str | None = None) -> str:
+                timezone: str | None = None) -> str:
     """
     Format timestamp according to format string and timezone
 
     :param time: UNIX timestamp in milliseconds
     :param fmt: Format string (Pine format)
-    :param tz: Timezone string (UTC±HHMM, GMT±HHMM or IANA name)
+    :param timezone: Timezone string (UTC±HHMM, GMT±HHMM or IANA name). Named
+        ``timezone`` to match Pine's ``str.format_time(time, format, timezone)``
+        keyword argument.
     :return: Formatted time string, or na when ``time`` is na
     """
     # na timestamp formats to na (Pine na-propagation)
@@ -406,7 +408,7 @@ def format_time(time: int | NA[int], fmt: str | None = None,
     dt = datetime.fromtimestamp(time / 1000, UTC)
 
     # Convert timezone using _parse_timezone
-    dt = dt.astimezone(_parse_timezone(tz or _syminfo.timezone))
+    dt = dt.astimezone(_parse_timezone(timezone or _syminfo.timezone))
 
     # Convert format and apply
     py_fmt = _datatime_fmt_tv2py(fmt)
