@@ -4052,8 +4052,13 @@ def entry(id: str, direction: direction.Direction, qty: int | PyneFloat = na_flo
             market_sizing_price = float(exec_price)
         qty = _default_entry_qty(exec_price)
 
-    # qty must be greater than 0
-    if qty <= 0.0:
+    # qty must be greater than 0. Written as `not (qty > 0.0)` so a NaN qty is
+    # also skipped: default-sizing (`_default_entry_qty`) returns NaN when the
+    # sizing price is NaN (e.g. an entry evaluated before a valid price exists),
+    # and `qty <= 0.0` is False for NaN — which let NaN flow into `_size_round`
+    # / `_judge_money_entry` and raised `cannot convert float NaN to integer`.
+    # TradingView places no order when the default size cannot be computed.
+    if not (qty > 0.0):
         return
 
     size = qty * direction_sign
@@ -4523,8 +4528,13 @@ def order(id: str, direction: direction.Direction, qty: int | PyneFloat = na_flo
             market_sizing_price = exec_price
         qty = _default_entry_qty(exec_price)
 
-    # qty must be greater than 0
-    if qty <= 0.0:
+    # qty must be greater than 0. Written as `not (qty > 0.0)` so a NaN qty is
+    # also skipped: default-sizing (`_default_entry_qty`) returns NaN when the
+    # sizing price is NaN (e.g. an entry evaluated before a valid price exists),
+    # and `qty <= 0.0` is False for NaN — which let NaN flow into `_size_round`
+    # / `_judge_money_entry` and raised `cannot convert float NaN to integer`.
+    # TradingView places no order when the default size cannot be computed.
+    if not (qty > 0.0):
         return
 
     size = qty * direction_sign
