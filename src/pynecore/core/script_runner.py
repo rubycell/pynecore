@@ -16,7 +16,8 @@ from pynecore.types.ohlcv import OHLCV
 from pynecore.types.na import na_float
 from pynecore.core.syminfo import SymInfo, mintick_decimals
 from pynecore.core.csv_file import CSVWriter
-from pynecore.core.strategy_stats import calculate_strategy_statistics, write_strategy_statistics_csv
+from pynecore.core.strategy_stats import (
+    calculate_strategy_statistics, write_strategy_statistics_csv, StrategyStatistics)
 from pynecore.core import viz
 from pynecore.core.viz import VizWriter
 
@@ -458,7 +459,7 @@ class ScriptRunner:
                  'bar_index', 'tz', 'plot_writer', 'strat_writer', 'trades_writer', 'last_bar_index',
                  'last_bar_time',
                  'viz_writer', 'viz_journal', '_viz_shadow', 'viz_events',
-                 'equity_curve', 'first_price', 'last_price',
+                 'equity_curve', 'first_price', 'last_price', 'stats',
                  '_script_path', '_security_data', '_magnifier_iter', '_magnifier_source_tf',
                  '_chart_provider_name', '_chart_provider_instance', '_chart_data_path',
                  '_time_from', '_sec_syminfos', '_signal_rate_sources_fn',
@@ -793,6 +794,10 @@ class ScriptRunner:
         self.equity_curve: list[float] = []
         self.first_price: float | None = None
         self.last_price: float | None = None
+
+        # Final strategy statistics, cached after run() so callers (e.g. `pyne
+        # optimize`) can read runner.stats without a strat CSV writer.
+        self.stats: StrategyStatistics | None = None
 
         self.plot_writer = CSVWriter(
             plot_path, float_fmt=f".8g"
@@ -2309,27 +2314,26 @@ class ScriptRunner:
                                 f"{max(0, -pnl_percent):.2f}",
                             )
 
-                # Write strategy statistics
-                if self.strat_writer and position:
-                    try:
-                        # Open strat writer and write statistics
-                        self.strat_writer.open()
-
-                        # Calculate comprehensive statistics
-                        stats = calculate_strategy_statistics(
-                            position,
-                            self.script.initial_capital,
-                            self.equity_curve if self.equity_curve else None,
-                            self.first_price,
-                            self.last_price
-                        )
-
-                        write_strategy_statistics_csv(stats, self.strat_writer)
-                        self.strat_writer.close()
-
-                    finally:
-                        # Close strat writer
-                        self.strat_writer.close()
+                # Calculate strategy statistics ALWAYS (when a strategy has a
+                # position) and cache them on ``self.stats`` so callers such as
+                # ``pyne optimize`` can read ``runner.stats`` after ``run()`` even
+                # when no strat CSV writer was passed. Write to CSV only if a
+                # strat writer exists.
+                if is_strat and position:
+                    self.stats = calculate_strategy_statistics(
+                        position,
+                        self.script.initial_capital,
+                        self.equity_curve if self.equity_curve else None,
+                        self.first_price,
+                        self.last_price
+                    )
+                    if self.strat_writer:
+                        try:
+                            self.strat_writer.open()
+                            write_strategy_statistics_csv(self.stats, self.strat_writer)
+                        finally:
+                            # Close strat writer
+                            self.strat_writer.close()
 
             # Close the plot writer
             if self.plot_writer:
