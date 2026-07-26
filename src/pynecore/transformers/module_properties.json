@@ -240,6 +240,9 @@
     "SequenceView": {
       "type": "variable"
     },
+    "Table": {
+      "type": "variable"
+    },
     "abs": {
       "type": "variable"
     },
@@ -349,6 +352,9 @@
       "type": "variable"
     },
     "new_string": {
+      "type": "variable"
+    },
+    "new_table": {
       "type": "variable"
     },
     "percentile_linear_interpolation": {
@@ -1170,6 +1176,9 @@
       "type": "variable"
     },
     "set_x": {
+      "type": "variable"
+    },
+    "set_xloc": {
       "type": "variable"
     },
     "set_xy": {
@@ -2244,6 +2253,12 @@
     "closedtrades": {
       "type": "property"
     },
+    "convert_to_account": {
+      "type": "variable"
+    },
+    "convert_to_symbol": {
+      "type": "variable"
+    },
     "copy": {
       "type": "variable"
     },
@@ -2290,6 +2305,9 @@
       "type": "variable"
     },
     "losstrades": {
+      "type": "property"
+    },
+    "margin_liquidation_price": {
       "type": "property"
     },
     "math": {
@@ -2482,6 +2500,9 @@
     "PyneStr": {
       "type": "variable"
     },
+    "capital_held": {
+      "type": "property"
+    },
     "commission": {
       "type": "variable"
     },
@@ -2528,6 +2549,9 @@
       "type": "variable"
     },
     "size": {
+      "type": "variable"
+    },
+    "syminfo": {
       "type": "variable"
     }
   },

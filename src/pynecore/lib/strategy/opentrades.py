@@ -1,6 +1,7 @@
 from ...types.na import NA, na_float
 from ...types import PyneFloat, PyneInt, PyneStr
 from ... import lib
+from .. import syminfo
 
 from ...core.module_property import module_property
 
@@ -244,8 +245,27 @@ def size(trade_num: int) -> PyneFloat:
 
 
 #
-# Module property
+# Module properties
 #
+
+# noinspection PyProtectedMember
+@module_property
+def capital_held() -> PyneFloat:
+    """
+    Returns the amount of capital held in open positions, expressed in
+    strategy.account_currency.
+
+    :return: The capital tied up by the currently open trades
+    """
+    if lib._script is None or lib._script.position is None:
+        return 0.0
+    position = lib._script.position
+    # pointvalue converts contracts -> account currency (1 for spot/stocks,
+    # but e.g. 100000 for VN30 futures); omitting it understates the held
+    # capital by that factor on non-unit-pointvalue instruments.
+    return sum(abs(trade.size) * trade.entry_price * syminfo.pointvalue
+               for trade in position.open_trades)
+
 
 # noinspection PyProtectedMember
 @module_property

@@ -29,7 +29,8 @@ __all__ = [
     "long", "short", 'direction',
 
     'Trade', 'Order', 'PositionBase', 'SimPosition',
-    "cancel", "cancel_all", "close", "close_all", "entry", "exit", "order",
+    "cancel", "cancel_all", "close", "close_all", "convert_to_account", "convert_to_symbol",
+    "entry", "exit", "order",
 
     "closedtrades", "opentrades",
 ]
@@ -3644,6 +3645,34 @@ def close_all(comment: PyneStr = na_str, alert_message: PyneStr = na_str, immedi
         position._deferred_immediate_closes.append(order)
 
 
+def convert_to_account(value: PyneFloat) -> PyneFloat:
+    """
+    Converts a value from the symbol's quote currency to strategy.account_currency.
+
+    PyneCore runs single-currency: the account currency IS the symbol's quote
+    currency (there is no FX conversion layer — see request.currency_rate, which
+    returns na for the same reason), so the rate is always 1 and the value passes
+    through unchanged. Kept so scripts using the TradingView idiom run.
+
+    :param value: A value expressed in the symbol's currency
+    :return: The same value, expressed in the account currency
+    """
+    return value
+
+
+def convert_to_symbol(value: PyneFloat) -> PyneFloat:
+    """
+    Converts a value from strategy.account_currency to the symbol's quote currency.
+
+    The inverse of convert_to_account, and identity for the same reason: PyneCore
+    is single-currency, so no rate is applied.
+
+    :param value: A value expressed in the account currency
+    :return: The same value, expressed in the symbol's currency
+    """
+    return value
+
+
 # noinspection PyProtectedMember
 def _default_entry_budget(price: float) -> tuple[float, float] | None:
     """Money amount and per-unit cost of a default-sized entry at ``price``.
@@ -4562,6 +4591,20 @@ def losstrades() -> int:
     if lib._script is None:
         return 0
     return lib._script.position.losstrades
+
+
+# noinspection PyProtectedMember
+@module_property
+def margin_liquidation_price() -> PyneFloat:
+    """
+    The price at which the open position would be liquidated by a margin call.
+
+    NOT IMPLEMENTED: PyneCore does not model margin calls (see the margin_long /
+    margin_short strategy() arguments, which it accepts but does not enforce), so
+    there is no liquidation level to report. Returns na, which is also what
+    TradingView returns when no position is open or margin is not in use.
+    """
+    return na_float
 
 
 # noinspection PyProtectedMember
