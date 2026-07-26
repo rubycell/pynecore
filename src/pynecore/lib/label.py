@@ -284,6 +284,19 @@ def set_tooltip(id: Label, tooltip: str) -> None:
 
 
 # noinspection PyShadowingBuiltins
+def set_text_formatting(id: Label, text_formatting: _text.FormatEnum) -> None:
+    """
+    Sets the formatting attributes the label applies to its displayed text.
+
+    :param id: Label object
+    :param text_formatting: New text formatting (e.g. text.format_bold, text.format_italic)
+    """
+    if isinstance(id, NA):
+        return
+    id.text_formatting = text_formatting
+
+
+# noinspection PyShadowingBuiltins
 def set_x(id: Label, x: int) -> None:
     """
     Sets bar index or bar time (depending on the xloc) of the label
@@ -322,6 +335,24 @@ def set_xy(id: Label, x: int, y: int | float) -> None:
         return
     id.x = x
     id.y = y
+
+
+# noinspection PyShadowingBuiltins
+def set_point(id: Label, point: ChartPoint) -> None:
+    """
+    Sets the location of the label's anchor to point, using the x-coordinate
+    field selected by the label's current xloc (bar index or bar time).
+
+    :param id: Label object
+    :param point: Chart point providing the new x (index/time) and y (price)
+    """
+    if isinstance(id, NA):
+        return
+    if id.xloc == _xloc.bar_time:
+        id.x = point.time
+    else:
+        id.x = point.index
+    id.y = point.price
 
 
 # noinspection PyShadowingBuiltins
