@@ -3,9 +3,6 @@
     "DateStr": {
       "type": "variable"
     },
-    "GenericAlias": {
-      "type": "variable"
-    },
     "HLine": {
       "type": "variable"
     },
@@ -1157,6 +1154,9 @@
     "set_color": {
       "type": "variable"
     },
+    "set_point": {
+      "type": "variable"
+    },
     "set_size": {
       "type": "variable"
     },
@@ -1164,6 +1164,9 @@
       "type": "variable"
     },
     "set_text": {
+      "type": "variable"
+    },
+    "set_text_formatting": {
       "type": "variable"
     },
     "set_textalign": {
@@ -2266,6 +2269,9 @@
       "type": "variable"
     },
     "datetime": {
+      "type": "variable"
+    },
+    "default_entry_qty": {
       "type": "variable"
     },
     "defaultdict": {
