@@ -28,6 +28,9 @@ dependencies = [
 [project.entry-points."pyne.plugin"]
 dnse = "pynecore_dnse.provider:DNSEProvider"
 dnse_broker = "pynecore_dnse.broker:DNSEBroker"
+# TESTING ONLY (#101): event-paced bar delivery for the staged probes —
+# opt-in by NAME; production dnse_broker runs are structurally untouched.
+dnse_event = "pynecore_dnse.event_clock:EventClockBroker"
 
 [tool.setuptools.packages.find]
 include = ["pynecore_dnse*"]
