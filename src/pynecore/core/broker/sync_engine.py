@@ -78,6 +78,7 @@ from pynecore.lib.log import (
 )
 from pynecore.core.broker.models import (
     VENUE_DRIVEN_CANCEL_REASONS,
+    CANCEL_REASON_VENUE_EXPIRED,
     BracketAttachRejectContext,
     BrokerEvent,
     CancelDispositionOutcome,
@@ -6423,7 +6424,31 @@ class OrderSyncEngine:
                 # Runs AFTER the teardown so a ``halt`` raise leaves no live
                 # mapping behind, mirroring
                 # :meth:`_halt_if_defensive_close_terminal`.
-                self._apply_unexpected_cancel_policy(event, key)
+                if event.cancel_reason == CANCEL_REASON_VENUE_EXPIRED:
+                    # #94: the VENUE ended the order's validity (DAY close /
+                    # GTD lapse) — a lifecycle end, not an actor's cancel.
+                    # The teardown above retired the leg; the next sync
+                    # re-dispatches whatever Pine still declares. Never the
+                    # re-place-duel policy: DNSE DAY orders expire at 14:45
+                    # EVERY session, and the default 'stop' policy
+                    # quarantined the run at the ordinary close
+                    # (probe-measured 2026-09-09).
+                    _blog_info(
+                        "venue expiry consumed for %s (%s) — leg retired, "
+                        "no quarantine", format_intent_key(key), event,
+                    )
+                    if self._store_ctx is not None:
+                        self._store_ctx.log_event(
+                            'venue_driven_cancel',
+                            client_order_id=(
+                                event.order.client_order_id
+                                if event.order is not None else None
+                            ),
+                            intent_key=key,
+                            payload={'cancel_reason': event.cancel_reason},
+                        )
+                else:
+                    self._apply_unexpected_cancel_policy(event, key)
             elif event.order.id in self._strategy_cancel_expected_ids:
                 # The strategy asked to cancel this order; ``_dispatch_cancel``
                 # already tore down the mapping on the confirmed cancel, so the

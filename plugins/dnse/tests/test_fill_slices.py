@@ -298,3 +298,34 @@ def __test_expired_row_emits_cancelled_event_and_prunes__(fake_client, tmp_path)
         f"Expired must route as a terminal 'cancelled' event, got "
         f"{[e.event_type for e in events]}")
     assert b._order_ids["L"] == [], "no-fill terminal must be pruned (#87 S3)"
+
+
+def __test_expired_event_is_distinguishable_from_an_external_cancel__(
+        fake_client, tmp_path):
+    """RED (#94, 2026-09-09 review): the EXPIRED row routes as a bare
+    'cancelled' event with cancel_reason=None — to the engine that is
+    indistinguishable from an operator cancel, so the unexpected-cancel
+    policy (DNSE inherits 'stop') QUARANTINES the run at the ordinary
+    14:45 DAY expiry (probe-measured with the real engine). Contract:
+    an expiry must carry a venue-lifecycle marker — either its own
+    'expired' event type or a cancel_reason in
+    VENUE_DRIVEN_CANCEL_REASONS."""
+    from pynecore.core.broker.models import VENUE_DRIVEN_CANCEL_REASONS
+
+    b = _broker(fake_client, tmp_path)
+    _own(b)
+    b._order_ids["L"] = ["437346"]
+
+    events = _scan(b, {"id": "437346", "symbol": "VN30F1M", "side": "NB",
+                       "quantity": 1, "fillQuantity": 0,
+                       "orderStatus": "Expired"})
+
+    assert events, "the expiry must emit an event"
+    event = events[0]
+    venue_marked = (event.event_type == "expired"
+                    or (event.cancel_reason is not None
+                        and event.cancel_reason in VENUE_DRIVEN_CANCEL_REASONS))
+    assert venue_marked, (
+        f"expiry event (type={event.event_type!r}, "
+        f"cancel_reason={event.cancel_reason!r}) is indistinguishable from "
+        f"an external cancel — the engine quarantines at 14:45 (#94)")

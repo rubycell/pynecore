@@ -32,6 +32,7 @@ from pynecore.core.plugin import override
 from pynecore.core.plugin.broker import BrokerPlugin
 from pynecore.core.broker.models import (
     CancelDispositionOutcome, CapabilityLevel, ExchangeCapabilities,
+    CANCEL_REASON_VENUE_EXPIRED,
     ExchangeOrder, ExchangePosition, LegType, OrderEvent, OrderStatus,
     OrderType,
 )
@@ -1512,9 +1513,15 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         # #87 S3 (restricted): an id whose cancel ANSWERED terminally is
         # historical — prune it so the next per-key cancel/modify never
         # re-aggregates it (measured: bar 509 re-swept both bar-503/504
-        # rejects). UNKNOWN stays mapped for the engine's retry.
+        # rejects). UNKNOWN stays mapped for the engine's retry, and
+        # ALREADY_FILLED stays mapped too (#95, mirroring _scan_row's own
+        # FILLED exemption): pruning a filled parent severed _adopt_child's
+        # 'parent_id in ids' join (the #41 child never entered the key
+        # scope) and degraded the next per-key ask to UNKNOWN — engine
+        # legs stuck in cancel_tentative over an open position (#55).
         for order_id, outcome in zip(ids, outcomes):
-            if outcome is not CancelDispositionOutcome.UNKNOWN:
+            if outcome not in (CancelDispositionOutcome.UNKNOWN,
+                               CancelDispositionOutcome.ALREADY_FILLED):
                 self._prune_order_id(str(order_id))
         return _aggregate_dispositions(outcomes)
 
@@ -2016,9 +2023,15 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                       else "rejected" if order.status is OrderStatus.REJECTED
                       # #87 panel precondition: EXPIRED fell through to
                       # "created", so a GTD-expired order never retired its
-                      # engine-side tracking. No-fill expiry == cancelled.
+                      # engine-side tracking. No-fill expiry == cancelled —
+                      # but MARKED venue-driven (#94): a bare cancel is
+                      # indistinguishable from an operator's, and the
+                      # unexpected-cancel policy quarantined the run at the
+                      # ordinary 14:45 expiry (probe-measured).
                       else "cancelled" if order.status is OrderStatus.EXPIRED
                       else "created")
+        cancel_reason = (CANCEL_REASON_VENUE_EXPIRED
+                         if order.status is OrderStatus.EXPIRED else None)
         if delta > 0 and slice_events:
             events = []
             for index, (slice_qty, slice_price) in enumerate(slice_events):
@@ -2028,13 +2041,15 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                     event_type=event_type if final_slice else "partial",
                     fill_price=slice_price or None,
                     fill_qty=slice_qty or None, timestamp=int(time.time()),
-                    pine_id=pine_id, from_entry=from_entry, leg_type=leg_type))
+                    pine_id=pine_id, from_entry=from_entry, leg_type=leg_type,
+                    cancel_reason=cancel_reason if final_slice else None))
             return events
         return [OrderEvent(
             order=order, event_type=event_type,
             fill_price=average_price or None,
             fill_qty=delta or None, timestamp=int(time.time()),
-            pine_id=pine_id, from_entry=from_entry, leg_type=leg_type)]
+            pine_id=pine_id, from_entry=from_entry, leg_type=leg_type,
+            cancel_reason=cancel_reason)]
 
     async def _fill_slice_events(self, order_id: str, previous: float,
                                  cumulative: float, average_price: float

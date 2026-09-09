@@ -35,6 +35,7 @@ __all__ = [
     'CANCEL_REASON_VENUE_REDUCE_ONLY',
     'CANCEL_REASON_VENUE_OCA',
     'CANCEL_REASON_VENUE_POSITION_CLEARED',
+    'CANCEL_REASON_VENUE_EXPIRED',
     'VENUE_DRIVEN_CANCEL_REASONS',
     'ExchangePosition',
     'PositionLeg',
@@ -248,10 +249,16 @@ CANCEL_REASON_VENUE_OCA = 'venue_oca'
 """The sibling leg of a venue-linked TP/SL pair triggered."""
 CANCEL_REASON_VENUE_POSITION_CLEARED = 'venue_position_cleared'
 """Position-attached protection dropped because the position was cleared."""
+CANCEL_REASON_VENUE_EXPIRED = 'venue_expired'
+"""The order reached its validity horizon (DAY close / GTD lapse) and the
+venue expired it — an ordinary lifecycle end, never an actor's cancel (#94:
+routing an expiry as a bare cancel fired the unexpected-cancel policy and
+quarantined the run at the 14:45 session close)."""
 VENUE_DRIVEN_CANCEL_REASONS = frozenset({
     CANCEL_REASON_VENUE_REDUCE_ONLY,
     CANCEL_REASON_VENUE_OCA,
     CANCEL_REASON_VENUE_POSITION_CLEARED,
+    CANCEL_REASON_VENUE_EXPIRED,
 })
 
 

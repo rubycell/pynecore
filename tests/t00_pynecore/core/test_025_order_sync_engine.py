@@ -14221,3 +14221,49 @@ def __test_default_capability_still_arms_the_watch_control__():
 
     assert engine._entry_stop_engine.has_watch("E"), (
         "default capability must keep the engine's both-set watch")
+
+
+def __test_venue_expired_cancel_reason_does_not_quarantine__():
+    """#94 (probe-measured regression): a resting DAY order expiring at the
+    14:45 close arrived as a bare 'cancelled' event — indistinguishable
+    from an operator cancel — and the on_unexpected_cancel='stop' policy
+    QUARANTINED the run. A cancelled event carrying the venue-lifecycle
+    reason must trim the leg and keep trading. The control below pins the
+    other direction: a bare cancel still quarantines."""
+    import dataclasses
+    from pynecore.core.broker.models import CANCEL_REASON_VENUE_EXPIRED
+
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["E"] = _entry_order("E", 1.0, limit=50_000.0)
+    engine.sync(BAR_TS)
+    order_id = engine._order_mapping["E"][0]
+
+    event = _fill_event('buy', 1.0, 0.0, pine_id="E", xchg_id=order_id,
+                        event_type='cancelled', filled_qty=0.0)
+    engine._route_event(dataclasses.replace(
+        event, cancel_reason=CANCEL_REASON_VENUE_EXPIRED))
+
+    assert not engine._quarantined, (
+        "a venue EXPIRY quarantined the run — an ordinary lifecycle end "
+        "must never fire the unexpected-cancel policy (#94)")
+    assert "E" not in engine._order_mapping, "the expired leg must be trimmed"
+
+
+def __test_bare_external_cancel_still_quarantines_control__():
+    """#94 control (discriminating in the other direction): a cancelled
+    event with NO reason remains an unexpected external cancel under the
+    default 'stop' policy — the #94 fix must not blunt that protection."""
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["E"] = _entry_order("E", 1.0, limit=50_000.0)
+    engine.sync(BAR_TS)
+    order_id = engine._order_mapping["E"][0]
+
+    engine._route_event(_fill_event('buy', 1.0, 0.0, pine_id="E",
+                                    xchg_id=order_id,
+                                    event_type='cancelled', filled_qty=0.0))
+
+    assert engine._quarantined, (
+        "a bare external cancel no longer quarantines — the #94 fix must "
+        "only exempt VENUE-marked lifecycle ends")
