@@ -567,7 +567,10 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                     else Path("workdir/data")
                 ltf_dir = root / "ltf"
                 ltf_dir.mkdir(parents=True, exist_ok=True)
-                path = ltf_dir / f"dnsebroker_{self.symbol}_{timeframe}.ohlcv"
+                # Same naming as the CLI warmup leg (run.py #100 skip):
+                # ONE store per (symbol, tf), warmup reads what live wrote.
+                path = type(self).get_ohlcv_path(
+                    str(self.symbol), timeframe, ltf_dir)
                 self._ltf_writer = OHLCVWriter(path, timeframe).open()
             self._ltf_writer.write(OHLCV(
                 timestamp=bar.time * 1000, open=bar.open, high=bar.high,
