@@ -328,3 +328,46 @@ def __test_answered_terminal_ids_pruned_from_cancel_scope__(fake_client, tmp_pat
         "(#87: the measured 24-POST waste)")
     assert second is CancelDispositionOutcome.UNKNOWN, (
         "an empty scope is UNKNOWN — never a fabricated verdict")
+
+
+# --- #95 (RED): ALREADY_FILLED prune severs the #41 child adoption join ------
+
+def __test_already_filled_parent_stays_mapped_for_child_adoption__(
+        fake_client, tmp_path):
+    """RED (#95, 2026-09-09 review): execute_cancel_with_outcome prunes
+    EVERY non-UNKNOWN outcome — including ALREADY_FILLED — contradicting
+    _scan_row's own FILLED exemption (#55). Consequences (probe-measured
+    vs base): _adopt_child's 'parent_id in ids' join finds nothing, so the
+    filled NORMAL child never enters the key scope; and the next per-key
+    ask answers UNKNOWN instead of ALREADY_FILLED, leaving engine legs in
+    cancel_tentative over an open position (the #55 hazard)."""
+    def _cancel(_acct, _oid, _mkt, _tok, order_category=None):
+        return (400, {"code": "CO-ORD-013"})
+
+    def _detail(_acct, oid, _mkt, order_category=None):
+        if order_category in ("STOP", "OCO"):
+            return (200, {"id": oid, "orderStatus": "Activated",
+                          "externalOrderId": "437346"})
+        return (200, {"id": oid, "symbol": "VN30F1M", "side": "NB",
+                      "quantity": 1, "fillQuantity": 1.0,
+                      "orderStatus": "Filled"})
+
+    b = _broker(fake_client, tmp_path,
+                cancel_order=_cancel, get_order_detail=_detail)
+    b._order_ids["K"] = ["dafparent1"]
+    b._order_category["dafparent1"] = "STOP"
+
+    first = asyncio.run(b.execute_cancel_with_outcome(_cancel_envelope()))
+    assert first is CancelDispositionOutcome.ALREADY_FILLED
+
+    from pynecore.core.broker.models import LegType
+    asyncio.run(b._adopt_child("dafparent1", "K", None, LegType.ENTRY,
+                               category="STOP"))
+    assert "437346" in b._order_ids.get("K", []), (
+        "the filled NORMAL child never joined the key scope — the parent "
+        "was pruned before adoption (#95; #41 join is 'parent_id in ids')")
+
+    second = asyncio.run(b.execute_cancel_with_outcome(_cancel_envelope()))
+    assert second is CancelDispositionOutcome.ALREADY_FILLED, (
+        f"the per-key answer degraded to {second.value!r} — the engine "
+        f"needs ALREADY_FILLED to restore legs from cancel_tentative (#55)")
