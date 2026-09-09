@@ -27,7 +27,8 @@ def main() -> int:
     b = DNSEBroker(symbol="VN30F1M", timeframe="1", config=cfg)
     # Newest OCO umbrella on the account that is OURS (journal-rooted).
     from flatten import owned_live_ids
-    owned = owned_live_ids(REPO / "workdir/output/logs/broker.sqlite")
+    owned = owned_live_ids(REPO / "workdir/output/logs/broker.sqlite",
+                            cfg.account_no or b.account_id)
     if owned is None:
         print("attribution unavailable — refusing to probe"); return 2
     status, body = b.client.get_orders(b.account_id, b.market_type,
