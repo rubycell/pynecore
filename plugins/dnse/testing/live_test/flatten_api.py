@@ -30,7 +30,7 @@ def main() -> int:
                         REPO / "workdir/config/plugins/dnse_broker.toml")
     broker = DNSEBroker(symbol="VN30F1M", timeframe="1", config=cfg)
     symbol = broker.symbol or "VN30F1M"
-    owned = owned_live_ids(STORE)
+    owned = owned_live_ids(STORE, cfg.account_no or broker.account_id)
     if owned is None:
         print(f"attribution UNAVAILABLE (store: {STORE})")
     else:

@@ -206,14 +206,17 @@ def __test_unresolved_disposition_degrades_loudly_to_exit_1__(
         f"one write; got {books}")
 
 
-def __test_owned_live_ids_reads_real_schema_and_never_creates_the_store__(
-        tmp_path):
-    """Attribution contract: (a) a missing store returns None WITHOUT
-    creating the file (BrokerStore's constructor would — absence must
-    never read as 'clean'); (b) the query returns exactly the un-closed
-    rows with venue ids for the symbol, against the real column names."""
+def __test_owned_live_ids_scoped_contract__(tmp_path):
+    """#96 attribution contract: (a) missing store -> None, file NEVER
+    created; (b) unknown account -> None (never an empty 'clean' set —
+    the #91 vacuous-pass guard); (c) account-scoped; (d) digit (NORMAL-
+    class) ids need TODAY activity on MAX(created,updated) — a reopened
+    row (old created, fresh updated) STAYS owned (#77/T16 pattern), a
+    stale prior-day digit id drops; (e) string (conditional) ids are
+    day-unscoped; (f) still NO symbol filter (#77 wire-symbol lesson)."""
+    import time
     missing = tmp_path / "nope" / "broker.sqlite"
-    assert tool.owned_live_ids(missing) is None
+    assert tool.owned_live_ids(missing, "ACC001") is None
     assert not missing.exists(), (
         "owned_live_ids CREATED the store file — absence now reads as a "
         "clean account (#91 seat 2 guard)")
@@ -221,16 +224,76 @@ def __test_owned_live_ids_reads_real_schema_and_never_creates_the_store__(
     db = tmp_path / "broker.sqlite"
     conn = sqlite3.connect(db)
     conn.execute("CREATE TABLE orders (exchange_order_id TEXT, symbol TEXT,"
-                 " closed_ts_ms INTEGER)")
-    conn.executemany(
-        "INSERT INTO orders VALUES (?,?,?)",
-        [("prot-cond-1", "41I1G9000", None),    # live, ours (WIRE symbol!)
-         ("old-done-9", "41I1G9000", 123),      # closed -> excluded
-         ("", "41I1G9000", None),                # no venue id -> excluded
-         ("other-sym-1", "HPG", None)])          # other symbol: INCLUDED —
-    conn.commit()                                # the store speaks WIRE
-    conn.close()                                 # symbols (#77), so SQL
-                                                 # never filters by symbol;
-                                                 # the venue-working-order
-                                                 # intersection scopes it.
-    assert tool.owned_live_ids(db) == {"prot-cond-1", "other-sym-1"}
+                 " closed_ts_ms INTEGER, created_ts_ms INTEGER,"
+                 " updated_ts_ms INTEGER, run_instance_id INTEGER)")
+    conn.execute("CREATE TABLE runs (run_instance_id INTEGER,"
+                 " account_id TEXT, plugin_name TEXT)")
+    old_ms = int((time.time() - 26 * 3600) * 1000)
+    now_ms = int(time.time() * 1000)
+    conn.executemany("INSERT INTO orders VALUES (?,?,?,?,?,?)", [
+        ("115586", "41I1G9000", None, old_ms, old_ms, 1),    # stale digit -> OUT
+        ("222222", "41I1G9000", None, old_ms, now_ms, 1),    # reopened -> OWNED
+        ("333333", "41I1G9000", None, now_ms, now_ms, 1),    # today -> OWNED
+        ("daf-old-cond", "41I1G9000", None, old_ms, old_ms, 1),  # string -> OWNED
+        ("444444", "HPG", None, now_ms, now_ms, 1),          # other WIRE sym -> OWNED
+        ("999999", "41I1G9000", None, now_ms, now_ms, 9),    # OTHER account -> OUT
+        ("closed1", "41I1G9000", 123, now_ms, now_ms, 1),    # closed -> OUT
+    ])
+    conn.executemany("INSERT INTO runs VALUES (?,?,?)", [
+        (1, "ACC001", "DNSE Broker"), (9, "OTHER", "Binance Broker")])
+    conn.commit(); conn.close()
+
+    assert tool.owned_live_ids(db, "ACC001") == {
+        "222222", "333333", "daf-old-cond", "444444"}
+    assert tool.owned_live_ids(db, "NO-SUCH-ACCOUNT") is None, (
+        "an unmatched account key must be UNAVAILABLE (exit 2), never a "
+        "clean empty set (#96 seat 1 guard)")
+
+
+def __test_stale_prior_day_row_must_not_claim_a_foreign_order__(
+        fake_client, tmp_path, monkeypatch):
+    """RED (#96, 2026-09-09 review finding 2): DNSE REUSES NORMAL ids
+    across days (measured: 09-08 issued LOWER ids than 09-07) and the
+    store holds multiple account identities. A stale un-closed journal
+    row from a PRIOR day whose id the venue reissued TODAY to a FOREIGN
+    order makes the unscoped attribution claim it — and the sweep cancels
+    the operator's order on a shared netting account. Contract: a row
+    from another day (or another account's run) must not contribute to
+    the owned set the sweep acts on."""
+    import sqlite3, time
+    monkeypatch.setattr(tool.time, "sleep", lambda _s: None)
+
+    db = tmp_path / "broker.sqlite"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE orders (exchange_order_id TEXT, symbol TEXT,"
+                 " closed_ts_ms INTEGER, created_ts_ms INTEGER,"
+                 " updated_ts_ms INTEGER, run_instance_id INTEGER)")
+    conn.execute("CREATE TABLE runs (run_instance_id INTEGER,"
+                 " account_id TEXT, plugin_name TEXT)")
+    yesterday_ms = int((time.time() - 26 * 3600) * 1000)
+    today_ms = int(time.time() * 1000)
+    conn.executemany("INSERT INTO orders VALUES (?,?,?,?,?,?)", [
+        ("115586", "41I1G9000", None, yesterday_ms, yesterday_ms, 1),  # STALE
+        ("fresh-1", "41I1G9000", None, today_ms, today_ms, 2),         # today
+    ])
+    conn.executemany("INSERT INTO runs VALUES (?,?,?)", [
+        (1, "ACC001", "dnse_broker"), (2, "ACC001", "dnse_broker")])
+    conn.commit(); conn.close()
+
+    owned = tool.owned_live_ids(db, "ACC001")
+    assert owned is not None
+
+    # TODAY the venue reissued id 115586 to the OPERATOR's order:
+    b = _broker(fake_client, tmp_path,
+                get_positions=(200, {"positions": []}),
+                get_orders=(200, {"orders": [
+                    {"id": "115586", "symbol": "VN30F1M", "side": "NB",
+                     "quantity": 3, "fillQuantity": 0,
+                     "orderStatus": "New"}], "totalPages": 1}))
+    rc = tool.flatten(b, "VN30F1M", owned)
+
+    cancels = [c for c in b._client.calls if c[0] == "cancel_order"]
+    assert not cancels, (
+        "the sweep cancelled the OPERATOR's order via a stale prior-day "
+        "id collision (#96) — attribution must be scoped by day/account")
+    assert rc == 0

@@ -53,38 +53,69 @@ _RESOLVED = frozenset({
 })
 
 
-def owned_live_ids(store_path) -> "set[str] | None":
-    """Venue ids the BOT owns, from the journal store — read-only.
+def owned_live_ids(store_path, account_id: str) -> "set[str] | None":
+    """Venue ids the BOT owns on THIS account, from the journal — read-only.
 
-    Every un-closed ``orders`` row with a venue id in this store was
-    written by the bot (the store is the bot's journal; foreign book rows
-    are never journalled, #36). Deliberately NO symbol filter: the store's
-    ``symbol`` column holds the WIRE symbol (``41I1G9000`` — measured on
-    the live store; the #77 wire-symbol join lesson), so a Pine-symbol
-    filter silently matches NOTHING and the sweep passes vacuously. The
-    sweep intersects this set with the venue's working orders for the
-    target symbol, so cross-symbol ids are inert. ``None`` = attribution
-    UNAVAILABLE (store missing or unreadable) — the caller must treat
-    that as exit 2, never as an empty owned set. The file is NEVER
-    created here.
+    Scoping (#96, panel-adjudicated): rows join to their run's
+    ``account_id`` (the real custody boundary — the shared store holds
+    other venues' runs; plugin_name is NOT used because probe subclasses
+    journal under their own display names and their leftovers must stay
+    sweepable). Digit-shaped (NORMAL-class) ids additionally require
+    activity TODAY — ``MAX(created_ts_ms, updated_ts_ms)`` on the current
+    ICT calendar date — because DNSE REUSES NORMAL ids across days
+    (measured: 09-08 issued lower ids than 09-07) and a stale row could
+    claim a foreign order the venue reissued. MAX, never created alone: a
+    reopened deterministic-coid row (#77/T16) carries TODAY's venue id
+    under YESTERDAY's created date, and dropping it would leave OUR OWN
+    protection out of the sweep. String (conditional hash) ids have no
+    reuse class and stay day-unscoped (multi-day GTD conditionals).
+
+    Deliberately NO symbol filter (the store speaks WIRE symbols — the
+    #77 lesson); the sweep's venue-working intersection scopes symbols.
+
+    ``None`` = attribution UNAVAILABLE: store missing/unreadable, OR no
+    ``runs`` rows exist for this account (an unmatched key must exit 2,
+    never read as a clean empty set — the #91 vacuous-pass guard). The
+    file is NEVER created here.
     """
+    from datetime import datetime, timezone, timedelta
     path = Path(store_path)
     if not path.is_file():
         return None
+    tz = timezone(timedelta(hours=7))
+    day_start_ms = int(datetime.now(tz).replace(
+        hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
     try:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         try:
+            known = conn.execute(
+                "SELECT COUNT(*) FROM runs WHERE account_id = ?",
+                (account_id,)).fetchone()[0]
+            if not known:
+                print(f"attribution UNAVAILABLE: no journalled runs for "
+                      f"this account in {path.name}")
+                return None
             rows = conn.execute(
-                "SELECT DISTINCT exchange_order_id FROM orders "
-                "WHERE closed_ts_ms IS NULL "
-                "  AND exchange_order_id IS NOT NULL "
-                "  AND exchange_order_id != ''").fetchall()
+                "SELECT DISTINCT o.exchange_order_id, "
+                "       MAX(COALESCE(o.created_ts_ms,0), COALESCE(o.updated_ts_ms,0)) "
+                "FROM orders o JOIN runs r "
+                "  ON r.run_instance_id = o.run_instance_id "
+                "WHERE o.closed_ts_ms IS NULL "
+                "  AND o.exchange_order_id IS NOT NULL "
+                "  AND o.exchange_order_id != '' "
+                "  AND r.account_id = ?", (account_id,)).fetchall()
         finally:
             conn.close()
     except sqlite3.Error as exc:
         print(f"attribution UNAVAILABLE: store read failed: {exc}")
         return None
-    return {str(row[0]) for row in rows}
+    owned: set = set()
+    for venue_id, last_ms in rows:
+        vid = str(venue_id)
+        if vid.isdigit() and (last_ms or 0) < day_start_ms:
+            continue        # stale NORMAL-class id: the cross-day reuse trap
+        owned.add(vid)
+    return owned
 
 
 def _read_position_size(broker, symbol: str) -> "float | None":
