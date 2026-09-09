@@ -17,7 +17,12 @@
 //   state 5  F6  short STOP-LIMIT  (stop low[1],  limit -2 ticks-ish)
 //   state 6  F7  OCA both sides — UP leg near (fills), DOWN far (must CANCEL)
 //   state 7  F8  OCA both sides — DOWN leg near (fills), UP far (must CANCEL)
-//   state 8  done
+//   state 8  F9  BRACKET TRAILING (#93): long MARKET + TP/SL bracket (native OCO);
+//                during the hold, re-issue the exit with a RAISED SL on wait bars
+//                1 and 2 — post-#93 each re-issue must take the LOUD PARK (warn on
+//                the first, throttled after; venue keeps the ORIGINAL bracket —
+//                verify at the venue). Then the normal external-flatten protocol.
+//   state 9  done
 //
 // Per-stage lifecycle: PLACE (entry "E" [+ sibling "B" for OCA] + protection exit "P",
 // armed at placement — exits reach the venue pre-fill, measured 2026-08-13) -> FILL
@@ -52,7 +57,7 @@ strategy("STAGED FILL (L3+oracle)", overlay=true, pyramiding=0, initial_capital=
 
 winStart   = input.time(timestamp("2030-01-01T00:00:00+07:00"), "Trade window START")
 winEnd     = input.time(timestamp("2030-01-01T23:59:00+07:00"), "Trade window END")
-startState = input.int(0, "Start at state (0=F1 .. 7=F8)", minval=0, maxval=7)
+startState = input.int(0, "Start at state (0=F1 .. 8=F9)", minval=0, maxval=8)
 // true  = LIVE: the operator closes manually; the strategy never sends a close.
 // false = ORACLE/backtest: the strategy closes itself (no operator exists).
 operatorCloses = input.bool(true, "Operator closes the position manually")
@@ -63,6 +68,8 @@ MAX_RETRIES       = 1
 CLOSE_WAIT_BARS   = 5
 
 var int   state      = startState
+var float f9TP       = na   // F9 frozen bracket levels (a moving level would amend)
+var float f9SL       = na
 var int   placedBar  = na       // na = nothing placed for this stage yet
 var int   retries    = 0
 var bool  flattening = false
@@ -87,7 +94,7 @@ if started
              strategy.position_size)
 
 // ---------------------------------------------------------------- placement
-if canPlace and not pending and not flattening and state < 8
+if canPlace and not pending and not flattening and state < 9
     protLvl := isLongStage ? low[1] : high[1]
     if state == 0
         strategy.entry("E", strategy.long, comment="F1 mkt long")
@@ -132,9 +139,22 @@ if canPlace and not pending and not flattening and state < 8
         log.info("[F] F8 PLACE OCA mirror: near dn-stop {0} + far up-stop {1}",
                  str.tostring(low[1], format.mintick),
                  str.tostring(high[1] * 1.05, format.mintick))
-    // protection armed at placement (reaches the venue pre-fill; frozen level)
-    strategy.exit("P", from_entry="E", stop=protLvl,
-                  comment_loss="P SL@" + str.tostring(protLvl, format.mintick))
+    else if state == 8
+        f9TP := close * 1.01
+        f9SL := low[1]
+        strategy.entry("E", strategy.long, comment="F9 mkt long")
+        log.info("[F] F9 PLACE long MARKET + BRACKET tp={0} sl={1} (native OCO) — during " +
+                 "the hold the SL is re-issued HIGHER on wait bars 1 and 2: post-#93 " +
+                 "each modify must LOUD-PARK (venue keeps the ORIGINAL bracket)",
+                 str.tostring(f9TP, format.mintick), str.tostring(f9SL, format.mintick))
+    // protection armed at placement (reaches the venue pre-fill; frozen level).
+    // F9 (state 8) arms the BRACKET form — TP+SL, the native OCO (#93 target).
+    if state == 8
+        strategy.exit("P", from_entry="E", limit=f9TP, stop=f9SL,
+                      comment_profit="P TP", comment_loss="P SL")
+    else
+        strategy.exit("P", from_entry="E", stop=protLvl,
+                      comment_loss="P SL@" + str.tostring(protLvl, format.mintick))
     placedBar := bar_index
 
 // ---------------------------------------------------------------- fill -> flatten
@@ -174,6 +194,16 @@ if flattening and strategy.position_size != 0 and operatorCloses and not halted
         log.info("[F] F{0} waiting for the manual close ({1}/{2}) — engine still " +
                  "sees pos={3}", state + 1, waitBars, CLOSE_WAIT_BARS,
                  strategy.position_size)
+        if state == 8 and waitBars <= 2
+            // #93 grade: trail the SL up — the modify must LOUD-PARK, never
+            // fabricate success; the venue bracket stays at the ORIGINAL levels.
+            strategy.exit("P", from_entry="E", limit=f9TP,
+                          stop=f9SL + waitBars * (close * 0.001),
+                          comment_profit="P TP", comment_loss="P SLtrail")
+            log.info("[F] F9 TRAIL {0}: re-issue SL -> {1} — expect the #93 park " +
+                     "(WARNING on trail 1, throttled after); venue keeps sl={2}",
+                     waitBars, str.tostring(f9SL + waitBars * (close * 0.001), format.mintick),
+                     str.tostring(f9SL, format.mintick))
 
 if flattening and strategy.position_size == 0
     // Flat: retire the protection. Left armed it would be an orphan stop that
@@ -184,8 +214,8 @@ if flattening and strategy.position_size == 0
     flattening := false
     retries    := 0
     state      := state + 1
-    if state == 8
-        log.info("[F] === ALL 8 FILL CASES DONE. Verify at the venue: flat, nothing " +
+    if state == 9
+        log.info("[F] === ALL 9 FILL CASES DONE. Verify at the venue: flat, nothing " +
                  "working. ===")
 
 // ---------------------------------------------------------------- fill timeout

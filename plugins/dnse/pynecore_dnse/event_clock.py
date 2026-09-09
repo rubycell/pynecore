@@ -33,6 +33,10 @@ code-verified):
    (store_helpers.py:658-676) — so the grid seeds from launch wall-clock
    milliseconds and only ever moves forward.
 
+Setup: the CLI resolves config by entry-point name, so
+``workdir/config/plugins/dnse_event.toml`` must exist — mirror it from
+``dnse_broker.toml`` (same credentials; copy the file, never echo it).
+
 Bars are FLAT synthetics at the last real close (probes price levels as
 percent offsets from close — a flat close keeps every level stable), and
 are print-independent: event-clock probes run in venue phases where no
