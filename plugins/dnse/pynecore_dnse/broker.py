@@ -208,6 +208,11 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         #: limitation (exit park) — once per key per episode; an entry
         #: replace clears its key so the next episode warns again.
         self._modify_warned_keys: set = set()
+        #: #93 G1: venue id -> INTENT-time book ("OCO"/"STOP"/"NORMAL").
+        #: The tracked category of a resolved OCO child is "NORMAL", which
+        #: erases the bracket origin exit-modify routing needs; this map
+        #: (journal-rooted, restart-hydrated) preserves it.
+        self._placed_category: dict = {}
         #: #81 bar-feed poll-failure ladder — counters on the INSTANCE (the
         #: runner re-enters watch_ohlcv every ≤2 s, so coroutine locals
         #: reset per entry). Warn after N consecutive failures, re-warn
@@ -373,6 +378,10 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                 self._order_category[venue_id] = (
                     "NORMAL" if venue_id == journal_row.child_id
                     else journal_row.category)
+                # #93 G1: the placed shape survives restart — without it a
+                # relaunch silently re-opens the bracket-modify CRITICAL.
+                self._placed_category.setdefault(
+                    venue_id, journal_row.placed_category)
                 if working and journal_row.intent_key:
                     self._order_ids.setdefault(
                         journal_row.intent_key, []).append(venue_id)
@@ -941,6 +950,7 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         key = getattr(intent, "intent_key", None)
         if key:
             self._order_ids.setdefault(key, []).append(order.id)
+        self._placed_category[str(order.id)] = category   # #93 G1
         self._identity[order.id] = (
             getattr(intent, "pine_id", None),
             getattr(intent, "from_entry", None),
@@ -1589,28 +1599,64 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         # cancelled STOP as `New` for >12 s.
         if (self._order_category_for(order_id) or "NORMAL") != "NORMAL":
             if is_exit:
-                if old.intent.intent_key not in self._modify_warned_keys:
-                    self._modify_warned_keys.add(old.intent.intent_key)
-                    log.broker_warning(
-                        "conditional EXIT %s cannot be amended on DNSE "
-                        "(venue limitation, #18/#85): the protective stop "
-                        "stays ARMED at its ORIGINAL level %s — trailing "
-                        "exits do not move on this venue. Parking the "
-                        "modify; manage trailing via strategy logic if "
-                        "the stale level is unacceptable.",
-                        old.intent.intent_key, order_id)
-                raise OrderDispositionUnknownError(
-                    f"DNSE conditional exit amend unsupported (#18) — "
-                    f"parked, old order {order_id} stays armed",
-                    client_order_id=order_id)
+                self._park_exit_modify(old, order_id)
             return await self._cancel_replace_entry(old, new, order_id)
+        # #93 (CRITICAL, review 2026-09-09): a TP+SL bracket's working child
+        # is tracked NORMAL, but its SL lives in the OCO UMBRELLA — no
+        # child PUT can move it. Routing by the recorded book alone sent
+        # trailing-SL modifies into `_amend_normal`, which diffed the TP
+        # (unchanged), wrote NOTHING, and fabricated success. Route by the
+        # journal-rooted PLACED shape instead: anything but a pure TP move
+        # on an OCO-origin exit takes the #85 loud park (stale bracket
+        # stays ARMED — never naked). A TP-only change legitimately amends
+        # the child LO's price (its price IS the TP).
+        if is_exit and self._placed_category.get(order_id) == "OCO":
+            old_i, new_i = old.intent, new.intent
+            tp_only = (getattr(old_i, "sl_price", None)
+                       == getattr(new_i, "sl_price", None)
+                       and int(old_i.qty) == int(new_i.qty))
+            if not tp_only:
+                self._park_exit_modify(old, order_id)
         return self._amend_normal(old, new, order_id)
+
+    def _park_exit_modify(self, old, order_id: str) -> "None":
+        """The #85/#93 loud exit park: warn once per key per EPISODE, then
+        raise the disposition-unknown park. ``predecessor_cancel_ids=()``
+        is load-bearing (#93 G4): an UNDECLARED modify shape makes the
+        engine register EVERY mapped id as engine-initiated-cancel
+        expected, so the operator's own app-cancel of the frozen bracket
+        would be consumed silently and never fire ``on_unexpected_cancel``.
+        Always raises."""
+        if old.intent.intent_key not in self._modify_warned_keys:
+            self._modify_warned_keys.add(old.intent.intent_key)
+            log.broker_warning(
+                "conditional/bracket EXIT %s cannot be amended on DNSE "
+                "(venue limitation, #18/#85/#93): the protection stays "
+                "ARMED at its ORIGINAL level(s) (order %s) — trailing "
+                "exits do not move on this venue. Parking the modify; "
+                "manage trailing via strategy logic if the stale level "
+                "is unacceptable.",
+                old.intent.intent_key, order_id)
+        raise OrderDispositionUnknownError(
+            f"DNSE conditional/bracket exit amend unsupported "
+            f"(#18/#93) — parked, old order {order_id} stays armed",
+            client_order_id=order_id,
+            predecessor_cancel_ids=())
 
     @staticmethod
     def _intent_price(intent) -> float:
         price = (getattr(intent, "limit", None) or getattr(intent, "stop", None)
                  or getattr(intent, "tp_price", None) or getattr(intent, "sl_price", None))
         return round(float(price), 1) if price else 0.0
+
+    @staticmethod
+    def _intent_signature(intent) -> tuple:
+        """Every field a modify can carry — the #93 contradiction guard
+        compares old vs new on ALL of them, not just the one
+        ``_intent_price`` happens to select."""
+        return (getattr(intent, "limit", None), getattr(intent, "stop", None),
+                getattr(intent, "tp_price", None),
+                getattr(intent, "sl_price", None), int(intent.qty))
 
     def _order_detail_dict(self, order_id: str) -> "dict | None":
         status, body = self.client.get_order_detail(
@@ -1650,6 +1696,24 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         if new_qty != cur_qty:
             payloads.append({"price": new_price, "quantity": new_qty})
         if not payloads:
+            if self._intent_signature(old.intent) != self._intent_signature(intent):
+                # #93 contradiction guard: the INTENT changed but the diff
+                # produced nothing this path can write — some changed field
+                # (an SL living in an umbrella, a leg this book cannot
+                # express) is unreachable from here. Fabricating success
+                # froze a trailing stop silently for a whole live trade
+                # (probe-measured). Park loudly instead.
+                log.broker_error(
+                    "amend CONTRADICTION on %s: the intent changed (%s -> "
+                    "%s) but no NORMAL-book payload can express it — "
+                    "parking, never fabricating success (#93)",
+                    order_id, self._intent_signature(old.intent),
+                    self._intent_signature(intent))
+                raise OrderDispositionUnknownError(
+                    f"amend cannot express the intent change on "
+                    f"{order_id} (#93) — parked, old order stays armed",
+                    client_order_id=order_id,
+                    predecessor_cancel_ids=())
             return [self._to_exchange_order(detail or {"id": order_id})]
         for leg_index, payload in enumerate(payloads):
             status, body = self._write(lambda tok, _p=payload: self.client.put_order(
@@ -2012,6 +2076,15 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             # (#55); the next restore's terminal filter (#87 S2) retires it.
             if order.status is not OrderStatus.FILLED:
                 self._prune_order_id(order_id)
+            # #93 G3: the exit episode ended — re-arm the once-per-key
+            # modify warning so the NEXT position's frozen bracket is loud
+            # again (the docstring's per-EPISODE contract, previously
+            # process-lifetime for exits).
+            pine_id_w, from_entry_w, _leg_w = self._identity.get(
+                order_id, (None, None, None))
+            if pine_id_w is not None and from_entry_w is not None:
+                self._modify_warned_keys.discard(
+                    f"{pine_id_w}\x00{from_entry_w}")
         elif delta > 0:
             # Persist the watermark on the live partial (#56/item 5 collapse):
             # a restart seeds _last_seen from the row and re-emits nothing.
