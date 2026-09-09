@@ -1,0 +1,59 @@
+[BROKER] WS connect starting (warmup blocks until subscribed)
+[BROKER] recovery: venue order 240616 is owned by ANOTHER run label on this account (stranded by a different-label relaunch, #60). Reported only — never
+[BROKER] recovery: venue order 247636 is owned by ANOTHER run label on this account (stranded by a different-label relaunch, #60). Reported only — never
+[BROKER] recovery: venue order 272776 is owned by ANOTHER run label on this account (stranded by a different-label relaunch, #60). Reported only — never
+[BROKER] recovery: venue order daf5h08p4g19a630jjvg is owned by ANOTHER run label on this account (stranded by a different-label relaunch, #60).        
+[BROKER] recovery: venue order daf5kogp4g19a630jk70 is owned by ANOTHER run label on this account (stranded by a different-label relaunch, #60).        
+[BROKER] recovery: venue order daf5n40p4g19a630jki0 is owned by ANOTHER run label on this account (stranded by a different-label relaunch, #60).        
+[BROKER] recovery: venue order dafqv8op4g19a630llcg is owned by ANOTHER run label on this account (stranded by a different-label relaunch, #60).        
+[BROKER] recovery: venue order dafqvn8p4g19a630llf0 is owned by ANOTHER run label on this account (stranded by a different-label relaunch, #60).        
+[BROKER] WS connected and subscribed: DNSEBroker VN30F1M@1
+[BROKER] authenticated: plugin=DNSEBroker account=0001672126
+[BROKER] warmup phase started — replaying historical bars
+[BROKER] warmup phase complete — 501 bar(s) processed
+[BROKER] live trading active
+[PRM] === PARAM MATRIX — window open. T19-T26/T30 continuous, T16 hold/restart, T14 ATC, T32 ATO. 1 contract unless flagged, >=4.5% away. startState=10 
+[PRM] bar=523 close=1964 candle=GREEN phase=CONT-PM state=10 step=0 pending=no pos=0
+[PRM] T16a PLACE-AND-HOLD phase=CONT-PM limit=1865.8 — this state NEVER advances. Kill the engine now (run_t16_restart.sh drives this), then relaunch   
+[BROKER] dispatching ENTRY BUY id='T16' qty=1.0 type=limit limit=1865.8
+[BROKER] dispatched ENTRY BUY id='T16' qty=1.0 type=limit limit=1865.8 -> 
+[BROKER] event CREATED id=244006 side=buy qty=1.0 filled=0.0 pine='T16' leg=entry
+[PRM] bar=524 close=1963.2 candle=RED phase=CONT-PM state=10 step=0 pending=yes pos=0
+[PRM] T16a HOLDING phase=CONT-PM — order resting, awaiting kill
+[PRM] bar=525 close=1963.6 candle=GREEN phase=CONT-PM state=10 step=0 pending=yes pos=0
+[PRM] T16a HOLDING phase=CONT-PM — order resting, awaiting kill
+[PRM] bar=526 close=1963 candle=RED phase=CONT-PM state=10 step=0 pending=yes pos=0
+[PRM] T16a HOLDING phase=CONT-PM — order resting, awaiting kill
+[PRM] bar=527 close=1962.8 candle=RED phase=CONT-PM state=10 step=0 pending=yes pos=0
+[PRM] T16a HOLDING phase=CONT-PM — order resting, awaiting kill
+[PRM] bar=528 close=1962.3 candle=RED phase=CONT-PM state=10 step=0 pending=yes pos=0
+[PRM] T16a HOLDING phase=CONT-PM — order resting, awaiting kill
+[PRM] bar=529 close=1962.4 candle=RED phase=CONT-PM state=10 step=0 pending=yes pos=0
+[PRM] T16a HOLDING phase=CONT-PM — order resting, awaiting kill
+[PRM] bar=530 close=1962.4 candle=RED phase=CONT-PM state=10 step=0 pending=yes pos=0
+[PRM] T16a HOLDING phase=CONT-PM — order resting, awaiting kill
+[PRM] bar=531 close=1962.3 candle=GREEN phase=CONT-PM state=10 step=0 pending=yes pos=0
+[PRM] T16a HOLDING phase=CONT-PM — order resting, awaiting kill
+[PRM] bar=532 close=1963.8 candle=GREEN phase=CONT-PM state=10 step=0 pending=yes pos=0
+[PRM] T16a HOLDING phase=CONT-PM — order resting, awaiting kill
+[BROKER] idle-bar synth emitted: ts=1788939000000 close=1963.8 (1 consecutive; no real ohlc.event for >= 2*tf+grace)
+[PRM] bar=533 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=534 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=535 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=536 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=537 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=538 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=539 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=540 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=541 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[BROKER] idle-bar synth emitted: ts=1788939540000 close=1963.8 (10 consecutive; no real ohlc.event for >= 2*tf+grace)
+[PRM] bar=542 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=543 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=544 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=545 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=546 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=547 close=1963.8 candle=RED phase=ATC state=10 step=0 pending=yes pos=0
+[PRM] bar=548 close=1966 candle=RED phase=CLOSED state=10 step=0 pending=yes pos=0
+[BROKER] market closed: pausing live stream until next session open (skipped synth ts=1788939960000)
+[BROKER] event CANCELLED id=244006 side=buy qty=1.0 filled=0.0 pine='T16' leg=entry
+[BROKER] run stopped (completed) position=flat equity=376,459,430.00 VND
