@@ -159,6 +159,10 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             getattr(_cfg, "bar_poll_interval", None) or 3.0)
         # --- #37 dual-mode feed (S1' — dispatch inside watch_ohlcv) ---
         self._feed_mode: str = str(getattr(_cfg, "feed_mode", None) or "ohlc")
+        #: #100 LTF (sub-minute) feed state: lazily-started WS tick source +
+        #: aggregator + pending closed bars; separate LTF store writer.
+        self._ltf_state: "dict | None" = None
+        self._ltf_writer = None
         if self._feed_mode not in ("ohlc", "tick"):
             raise ValueError(
                 f"feed_mode must be 'ohlc' or 'tick', got {self._feed_mode!r} "
@@ -472,10 +476,107 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
     async def watch_ohlcv(self, symbol: str, timeframe: str) -> OHLCV:
         """The engine's one bar-feed entry point (live_runner hard-calls it):
         dispatch by ``feed_mode`` — the parity-proven closed-bar path stays
-        byte-identical and isolated from the tick body (#37 S1')."""
+        byte-identical and isolated from the tick body (#37 S1'). Sub-minute
+        timeframes have exactly ONE source (#100): WS per-print synthesis —
+        the venue's REST floor is 1m, and ``/trades/latest`` is a sampled
+        feed no bar may ever be built from (panel-measured ~10%% capture)."""
+        from .provider import DNSEProvider
+        if DNSEProvider.is_sub_minute(timeframe):
+            return await self._watch_ohlcv_ltf(symbol, timeframe)
         if self._feed_mode == "tick":
             return await self._watch_ohlcv_tick(symbol, timeframe)
         return await self._watch_ohlcv_closed(symbol, timeframe)
+
+    #: #100: seconds of tick silence tolerated OUTSIDE quiet phases before
+    #: the LTF feed raises (the runner's retry path). Generous vs the
+    #: measured active rate (~18 prints/s) yet far under the watchdog.
+    _LTF_OUTAGE_GRACE_S = 45.0
+
+    def _in_feed_quiet_phase(self) -> bool:
+        """Provider-declared no-print venue phases (DNSE ATC 14:30-14:45,
+        measured L4-T03) — tick silence inside them is NORMAL, never an
+        outage. Same table the core staleness clock pauses on (#100/#98)."""
+        from .provider import DNSEProvider
+        now = datetime.now(timezone(timedelta(hours=7))).strftime("%H:%M")
+        return any(start <= now < end
+                   for start, end in DNSEProvider.feed_quiet_phases)
+
+    async def _watch_ohlcv_ltf(self, symbol: str, timeframe: str) -> OHLCV:
+        """#100: sub-minute closed bars synthesized from the WS per-print
+        stream (dv=0 parity vs venue bars, measured offline AND live).
+
+        Contract (panel-adjudicated):
+        - CLOSED bars only; empty windows emit nothing (venue shape).
+        - Outage (silence past grace outside a quiet phase) RAISES
+          ``ExchangeConnectionError`` — never hangs: a hanging feed makes
+          the runner's idle-synth fabricate frozen zero-volume bars.
+        - Every closed bar is appended to the SEPARATE LTF store
+          (``workdir/data/ltf/``) — never the provider's shared ``.ohlcv``,
+          which provider-mode warmup atomically truncates.
+        - A ``suspect`` bar (cumulative-volume mismatch = missed prints)
+          is delivered but LOUDLY logged; the strategy layer decides.
+        """
+        from pynecore.lib import timeframe as tf_lib
+        from pynecore.core.tick_aggregator import TickAggregator
+        from .tick_source import WSTickSource
+        if self._ltf_state is None:
+            wire = str(self._secdef(self.symbol or symbol).get("symbol")
+                       or self.symbol or symbol)
+            source = WSTickSource(self.config.api_key,
+                                  self.config.api_secret, wire)
+            await source.start()
+            self._ltf_state = {
+                "source": source,
+                "agg": TickAggregator(int(tf_lib.in_seconds(timeframe))),
+                "pending": [],
+            }
+        state = self._ltf_state
+        while True:
+            if state["pending"]:
+                bar = state["pending"].pop(0)
+                if bar.suspect:
+                    log.broker_warning(
+                        "LTF bar %d is SUSPECT (missed prints — cumulative "
+                        "volume mismatch); high/low may be wrong (#100)",
+                        bar.time)
+                self._persist_ltf_bar(bar, timeframe)
+                return OHLCV(timestamp=bar.time * 1000, open=bar.open,
+                             high=bar.high, low=bar.low, close=bar.close,
+                             volume=bar.volume, is_closed=True)
+            try:
+                ts, price, qty, cum = await state["source"].next_tick(
+                    timeout=self._LTF_OUTAGE_GRACE_S)
+            except (asyncio.TimeoutError, TimeoutError):
+                if self._in_feed_quiet_phase():
+                    continue            # ATC-class silence: normal, wait on
+                raise ExchangeConnectionError(
+                    f"LTF tick feed silent > "
+                    f"{self._LTF_OUTAGE_GRACE_S:.0f}s during an active "
+                    f"phase — refusing to fabricate sub-minute bars (#100)")
+            state["pending"].extend(
+                state["agg"].add(ts, price, qty, cumulative=cum))
+
+    def _persist_ltf_bar(self, bar, timeframe: str) -> None:
+        """Append to the SEPARATE LTF store (self-accumulating history —
+        the #80 warmup answer). Best-effort: a store failure must never
+        stall the live feed; it logs and moves on."""
+        try:
+            from pynecore.core.ohlcv import OHLCVWriter
+            if self._ltf_writer is None:
+                root = Path("workdir/output") if not Path("workdir/data").exists() \
+                    else Path("workdir/data")
+                ltf_dir = root / "ltf"
+                ltf_dir.mkdir(parents=True, exist_ok=True)
+                path = ltf_dir / f"dnsebroker_{self.symbol}_{timeframe}.ohlcv"
+                self._ltf_writer = OHLCVWriter(path, timeframe).open()
+            self._ltf_writer.write(OHLCV(
+                timestamp=bar.time * 1000, open=bar.open, high=bar.high,
+                low=bar.low, close=bar.close, volume=bar.volume,
+                is_closed=True))
+        except Exception as exc:                              # noqa: BLE001
+            log.broker_warning("LTF store append failed (%s: %s) — live "
+                               "feed continues, history loses this bar",
+                               type(exc).__name__, exc)
 
     async def _watch_ohlcv_closed(self, symbol: str, timeframe: str) -> OHLCV:
         """Yield the next CLOSED bar by polling REST ``/price/ohlc``.

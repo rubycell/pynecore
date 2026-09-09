@@ -102,6 +102,18 @@ class ProviderPlugin(Plugin[ConfigT], metaclass=ABCMeta):
         """
 
     @classmethod
+    def is_synthesized_timeframe(cls, timeframe: str) -> bool:
+        """True for timeframes the plugin BUILDS rather than downloads
+        (e.g. sub-minute bars synthesized from a tick stream, #100).
+
+        Such a timeframe intentionally has no exchange resolution:
+        ``to_exchange_timeframe`` keeps raising for it — that raise is the
+        download-refusal guard — while the constructor's eager mapping
+        yields ``None`` instead of failing. Default: nothing synthesized.
+        """
+        return False
+
+    @classmethod
     def get_ohlcv_path(cls, symbol: str, timeframe: str, ohlcv_dir: Path,
                        provider_name: str | None = None) -> Path:
         """
@@ -127,7 +139,15 @@ class ProviderPlugin(Plugin[ConfigT], metaclass=ABCMeta):
         """
         self.symbol = symbol
         self.timeframe = timeframe
-        self.xchg_timeframe = self.to_exchange_timeframe(timeframe) if timeframe else None
+        # A SYNTHESIZED timeframe deliberately has no exchange resolution
+        # (e.g. sub-minute bars built from a tick stream, #100): the eager
+        # mapping stays None, while download-time calls to
+        # ``to_exchange_timeframe`` keep raising — that raise IS the
+        # download-refusal guard for data the venue cannot serve.
+        if timeframe and self.is_synthesized_timeframe(timeframe):
+            self.xchg_timeframe = None
+        else:
+            self.xchg_timeframe = self.to_exchange_timeframe(timeframe) if timeframe else None
         if ohlcv_dir:
             assert symbol and timeframe
             ohlcv_path = self.get_ohlcv_path(symbol, timeframe, ohlcv_dir)

@@ -129,15 +129,42 @@ class DNSEProvider(ProviderPlugin[DNSEConfigT]):
 
     #: #81 (measured 2026-09-07): the engine went blind for 8+ minutes while
     #: the venue served bars — silent, because 40 bars @1m = 2400 s of
-    #: allowed staleness. The old rationale (lunch break, 14:45 close) was
-    #: obsolete: the core watchdog's clock PAUSES outside ``opening_hours``
-    #: (lunch/overnight never count), so the only IN-SESSION bar gap is the
-    #: 14:30-14:45 ATC = 15 bars @1m. 16 clears the ATC (no daily false
-    #: reconnect) while converting a persistent bar-feed wedge from
-    #: silent-forever into a forced reconnect within 16 min @1m. Any value
-    #: below 16 false-fires in the ATC at 1m; pinned by the threshold
+    #: allowed staleness. The core watchdog's clock PAUSES outside
+    #: ``opening_hours`` (lunch/overnight never count), so the only
+    #: in-session bar gap is the ATC.
+    #: #98 (review-measured): the in-session bar GAP is 16 minutes, not 15 —
+    #: the last delivered @1m bar is the 14:28 slot arriving ~14:29
+    #: (L4-T03), so 16 bars left a 0-4 SECOND margin and one late poll in
+    #: the final minute forced a daily in-session reconnect. 17 clears the
+    #: measured gap with a full bar of margin; ``feed_quiet_phases`` below
+    #: additionally pauses the staleness clock inside the ATC, making the
+    #: margin structural rather than arithmetic. Pinned by the threshold
     #: control in test_bar_feed_health.py.
-    feed_timeout_bars: int | None = 16
+    feed_timeout_bars: int | None = 17
+
+    #: #100/#98: venue phases with NO prints and NO bars while the session
+    #: is nominally open (ATC 14:30-14:45, measured L4-T03: bars withheld
+    #: until auction settlement). Consumed ONLY by feed-staleness logic
+    #: (core clock pause + the plugin LTF outage grace) — deliberately NOT
+    #: part of ``opening_hours``, which is Pine-visible session data.
+    feed_quiet_phases: "tuple[tuple[str, str], ...]" = (("14:30", "14:45"),)
+
+    #: #100: sub-minute timeframes are SYNTHESIZED (WS per-print), never
+    #: downloaded — ``to_exchange_timeframe`` keeps raising for them (the
+    #: download-refusal guard: the venue map consumed verbatim by the
+    #: download path must never learn a seconds string, or a "15S" request
+    #: would fetch 15-MINUTE bars into a file named 15S).
+    @staticmethod
+    def is_sub_minute(timeframe: str) -> bool:
+        from pynecore.lib import timeframe as tf_lib
+        try:
+            return 0 < int(tf_lib.in_seconds(timeframe)) < 60
+        except Exception:                                     # noqa: BLE001
+            return False
+
+    @classmethod
+    def is_synthesized_timeframe(cls, timeframe: str) -> bool:
+        return cls.is_sub_minute(timeframe)
 
     def resolve_contract(self, symbol: str | None = None) -> str:
         """Map a ``symbolType`` alias to the tradable KRX contract code.
