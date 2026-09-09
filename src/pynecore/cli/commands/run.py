@@ -1414,17 +1414,33 @@ def run(
         time_from_dt = _parse_time_value(time_from) if time_from and not provider_mode else None
         time_to_dt = _parse_time_value(time_to) if time_to else None
 
-        if not time_from_dt:
-            # Provider bar-count mode pins the start to the N-th last
-            # real bar; otherwise use the file's natural start.
-            if provider_data is not None and provider_data.time_from_ts is not None:
-                time_from_dt = datetime.fromtimestamp(
-                    provider_data.time_from_ts / 1000, UTC,
-                )
-            else:
-                time_from_dt = reader.start_datetime
-        if not time_to_dt:
-            time_to_dt = reader.end_datetime
+        if reader.size == 0:
+            # An EMPTY warmup file (#100: a synthesized-timeframe run whose
+            # separate LTF store has not accumulated any bars yet — day 1;
+            # strategies gate on ``na`` until live bars arrive). There is no
+            # historical range to read, and ``start_datetime`` would assert.
+            # Only a live/broker run can proceed from empty (it streams live
+            # bars); a backtest over an empty file is a genuine error.
+            if not (live or broker):
+                secho(f"Error: no bars in {data_path.name} to backtest "
+                      f"(an empty warmup store needs a live/--broker run to "
+                      f"accumulate history first).", err=True, fg=colors.RED)
+                raise Exit(1)
+            _now = datetime.now(UTC)
+            time_from_dt = time_from_dt or _now
+            time_to_dt = time_to_dt or _now
+        else:
+            if not time_from_dt:
+                # Provider bar-count mode pins the start to the N-th last
+                # real bar; otherwise use the file's natural start.
+                if provider_data is not None and provider_data.time_from_ts is not None:
+                    time_from_dt = datetime.fromtimestamp(
+                        provider_data.time_from_ts / 1000, UTC,
+                    )
+                else:
+                    time_from_dt = reader.start_datetime
+            if not time_to_dt:
+                time_to_dt = reader.end_datetime
 
         assert isinstance(time_from_dt, datetime) and isinstance(time_to_dt, datetime)
         # The reader window and the live-stream dedup boundary are both in the
