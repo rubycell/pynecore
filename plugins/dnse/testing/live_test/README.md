@@ -142,7 +142,7 @@ conversation all use these. (Script-internal log tags map as: `[L1] TEST n` -> L
 `[F] Fn` -> Live-L3-Fnn.)
 
 **Planned fill-tier additions (2026-09-09 review + open measurements):**
-- **F9-BracketTrailingSL** (#93 post-fix money-path grade): enter 1, bracket TP+SL, trail the SL two bars → the venue record MUST show the SL move (pre-fix: silent fabricated success, 0 PUTs, probe-measured). THE grade for the trailing-stop contract.
+- **F9-BracketTrailingSL** (#93 post-fix grade): enter 1, bracket TP+SL, trail the SL two bars → post-#93 expect the LOUD PARK each bar (stale bracket armed, warn once per episode) and NO fabricated success; ALSO measure S4 (seat-1 candidate): one direct PUT of the OCO UMBRELLA's stopPrice — unmeasured; if the venue accepts it, real trailing-SL support dominates the rejected cancel+replace.
 - **F10-FcRejectCapture** (F-C, #87 live item): crossed both-set near-market with `probe_ws_market_data.py --trading` capturing and `--dual` run FIRST (settle #92's single-session hypothesis); reject reason is not recoverable from REST (measured 09-08).
 - **F11-RunnerEndToEnd** (#91): first production `run_fill_case.sh` run doubles as its live validation (same session as F9/F10).
 - **F12-PruneAdoptionRace** (#95 post-fix): conditional entry cancel racing the trigger (the F3/F4 shape) → child must be ADOPTED into key scope and a second per-key ask must answer ALREADY_FILLED, not UNKNOWN.

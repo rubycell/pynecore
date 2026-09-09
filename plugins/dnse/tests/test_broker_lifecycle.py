@@ -1040,3 +1040,197 @@ def __test_amend_qty_leg_overtaken_by_fill_defers_to_venue_truth__(
         "the terminal venue state must be returned as-is")
     assert b._client.count("put_order") == 2, (
         "price leg + ONE refused qty leg — no retry against a terminal order")
+
+
+def __test_bracket_trailing_sl_modify_must_not_fabricate_success__(
+        fake_client, tmp_path, caplog):
+    """RED (#93, 2026-09-09 review, CRITICAL): a TP+SL bracket's working
+    child is tracked category=NORMAL (the OCO umbrella's spawned LO), so a
+    modify_exit routes through _amend_normal, whose price precedence reads
+    the TP — a trailing-SL-only change diffs as no-change, writes NOTHING,
+    and returns a success synthesized from the unchanged venue row. The
+    stale stop is silently frozen for the whole trade. Contract pinned
+    here (fix-direction-agnostic): a modify whose intent CHANGED must
+    either reach the venue (>=1 write) or refuse loudly (raise + WARNING)
+    — never return success with zero venue effect and zero noise."""
+    import logging
+    from pynecore.core.broker.exceptions import OrderDispositionUnknownError
+
+    old = ExitIntent(pine_id="P", from_entry="E", symbol="VN30F1M",
+                     side="sell", qty=1, tp_price=1900.0, sl_price=1800.0)
+    new = ExitIntent(pine_id="P", from_entry="E", symbol="VN30F1M",
+                     side="sell", qty=1, tp_price=1900.0, sl_price=1850.0)
+    b = _broker(fake_client, tmp_path,
+                get_order_detail=(200, {"id": "LO-1", "symbol": "VN30F1M",
+                                        "side": "NS", "quantity": 1,
+                                        "orderStatus": "New",
+                                        "price": 1900.0}),
+                put_order=(200, {"id": "LO-1", "orderStatus": "New",
+                                 "price": 1900.0, "quantity": 1}))
+    b._order_ids["P\x00E"] = ["LO-1"]        # the OCO child, as _place records it
+    b._order_category["LO-1"] = "NORMAL"
+
+    raised = False
+    with caplog.at_level(logging.DEBUG):
+        try:
+            asyncio.run(b.modify_exit(_envelope(old), _envelope(new)))
+        except OrderDispositionUnknownError:
+            raised = True
+
+    wrote = b._client.count("put_order") >= 1
+    warned = any(r.levelno >= logging.WARNING for r in caplog.records)
+    assert raised or wrote or warned, (
+        "trailing-SL bracket modify returned SUCCESS with zero venue "
+        "writes and zero warnings — the stop is silently frozen (#93)")
+
+
+def __test_oco_origin_sl_change_parks_with_empty_predecessor_ids__(
+        fake_client, tmp_path, caplog):
+    """#93 S1 routing + G4: an SL change on an OCO-origin exit (child
+    tracked NORMAL) takes the loud park, and the raise declares
+    predecessor_cancel_ids=() — an UNDECLARED shape makes the engine
+    register every mapped id as engine-initiated, silently consuming the
+    operator's own app-cancel of the frozen bracket (catches both the
+    fabricated-success impl and a bare-raise park)."""
+    import logging
+    from pynecore.core.broker.exceptions import OrderDispositionUnknownError
+
+    old = ExitIntent(pine_id="P", from_entry="E", symbol="VN30F1M",
+                     side="sell", qty=1, tp_price=1900.0, sl_price=1800.0)
+    new = ExitIntent(pine_id="P", from_entry="E", symbol="VN30F1M",
+                     side="sell", qty=1, tp_price=1900.0, sl_price=1850.0)
+    b = _broker(fake_client, tmp_path)
+    b._order_ids["P\x00E"] = ["LO-1"]
+    b._order_category["LO-1"] = "NORMAL"
+    b._placed_category["LO-1"] = "OCO"
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(OrderDispositionUnknownError) as exc:
+            asyncio.run(b.modify_exit(_envelope(old), _envelope(new)))
+
+    assert exc.value.predecessor_cancel_ids == (), (
+        "the park must DECLARE an atomic shape (no predecessor cancels) — "
+        "an undeclared shape swallows the operator's app-cancel (#93 G4)")
+    assert b._client.count("put_order") == 0, "no doomed PUT"
+    assert any("ARMED at its ORIGINAL level" in r.getMessage()
+               for r in caplog.records if r.levelno >= logging.WARNING), \
+        "the park must warn loudly"
+
+
+def __test_oco_origin_tp_only_change_still_amends_the_child__(
+        fake_client, tmp_path):
+    """#93 control (other direction): a TP-only move on the OCO child is a
+    LEGITIMATE single-PUT amend — the child LO's price IS the TP. Catches
+    an over-broad park that freezes TP trailing too."""
+    old = ExitIntent(pine_id="P", from_entry="E", symbol="VN30F1M",
+                     side="sell", qty=1, tp_price=1900.0, sl_price=1800.0)
+    new = ExitIntent(pine_id="P", from_entry="E", symbol="VN30F1M",
+                     side="sell", qty=1, tp_price=1910.0, sl_price=1800.0)
+    b = _broker(fake_client, tmp_path,
+                get_order_detail=(200, {"id": "LO-1", "symbol": "VN30F1M",
+                                        "side": "NS", "quantity": 1,
+                                        "orderStatus": "New",
+                                        "price": 1900.0}),
+                put_order=(200, {"id": "LO-1", "orderStatus": "New",
+                                 "price": 1910.0, "quantity": 1}))
+    b._order_ids["P\x00E"] = ["LO-1"]
+    b._order_category["LO-1"] = "NORMAL"
+    b._placed_category["LO-1"] = "OCO"
+
+    result = asyncio.run(b.modify_exit(_envelope(old), _envelope(new)))
+
+    assert result and result[-1].id == "LO-1"
+    assert b._client.count("put_order") == 1, (
+        "a TP-only change must amend the child in one PUT — not park")
+
+
+def __test_oco_origin_marker_survives_restart_via_journal__(
+        fake_client, tmp_path):
+    """#93 G1 (the panel's top guard, both seats): the OCO origin must be
+    JOURNAL-rooted. journal_server_ref overwrites dnse_category with the
+    tracked 'NORMAL' for a resolved OCO child, so an in-memory-only marker
+    silently re-opens the CRITICAL after every relaunch — with a green
+    suite. Store-backed: submit as OCO, server_ref as NORMAL (the real
+    overwrite), fresh broker restores → the SL modify must PARK, never
+    amend."""
+    from pynecore.core.broker.storage import BrokerStore
+    from pynecore.core.broker.run_identity import RunIdentity
+    from pynecore.core.broker.exceptions import OrderDispositionUnknownError
+    from pynecore_dnse.journal_wiring import (
+        journal_submitted, journal_server_ref,
+    )
+
+    store = BrokerStore(tmp_path / "b.sqlite", plugin_name="dnse_broker")
+    identity = RunIdentity(strategy_id="t93", symbol="VN30F1M",
+                           timeframe="15", account_id="ACC001")
+    ctx = store.open_run(identity, script_source="// t93")
+    journal_submitted(ctx, coid="C93", symbol="VN30F1M", side="NS", qty=1,
+                      intent_key="P\x00E", pine_id="P", from_entry="E",
+                      leg_kind="EXIT", category="OCO", order_type="LO")
+    journal_server_ref(ctx, coid="C93", venue_id="LO-1",
+                       category="NORMAL", umbrella_id="OCO-UMB")
+    ctx.close()
+    store.close()
+
+    b2 = _broker(fake_client, tmp_path)
+    store2 = BrokerStore(tmp_path / "b.sqlite", plugin_name="dnse_broker")
+    ctx2 = store2.open_run(identity, script_source="// t93")
+    b2.store_ctx = ctx2
+    try:
+        b2._restore_identity_from_journal()
+        assert b2._placed_category.get("LO-1") == "OCO", (
+            "the placed shape did not survive the restart — the marker is "
+            "in-memory only and the CRITICAL re-opens on relaunch (#93 G1)")
+
+        old = ExitIntent(pine_id="P", from_entry="E", symbol="VN30F1M",
+                         side="sell", qty=1, tp_price=1900.0, sl_price=1800.0)
+        new = ExitIntent(pine_id="P", from_entry="E", symbol="VN30F1M",
+                         side="sell", qty=1, tp_price=1900.0, sl_price=1850.0)
+        with pytest.raises(OrderDispositionUnknownError):
+            asyncio.run(b2.modify_exit(_envelope(old), _envelope(new)))
+        assert b2._client.count("put_order") == 0
+    finally:
+        store2.close()
+
+
+def __test_exit_modify_warning_rearms_per_episode__(fake_client, tmp_path,
+                                                    caplog):
+    """#93 G3: the once-per-key warning re-arms when the exit's episode
+    ends (terminal event), so the NEXT position's frozen bracket is loud
+    again. Catches the process-lifetime set (warn once, ever)."""
+    import logging
+    from pynecore.core.broker.exceptions import OrderDispositionUnknownError
+
+    old = ExitIntent(pine_id="P", from_entry="E", symbol="VN30F1M",
+                     side="sell", qty=1, tp_price=1900.0, sl_price=1800.0)
+    new = ExitIntent(pine_id="P", from_entry="E", symbol="VN30F1M",
+                     side="sell", qty=1, tp_price=1900.0, sl_price=1850.0)
+
+    def _episode(b):
+        with pytest.raises(OrderDispositionUnknownError):
+            asyncio.run(b.modify_exit(_envelope(old), _envelope(new)))
+
+    b = _broker(fake_client, tmp_path)
+    b._order_ids["P\x00E"] = ["LO-1"]
+    b._order_category["LO-1"] = "NORMAL"
+    b._placed_category["LO-1"] = "OCO"
+    b._identity["LO-1"] = ("P", "E", None)
+
+    with caplog.at_level(logging.DEBUG):
+        _episode(b)                      # episode 1: warns
+        _episode(b)                      # same episode: silent
+        # episode ends: the exit order goes terminal via the poll ladder
+        asyncio.run(b._scan_row({"id": "LO-1", "symbol": "VN30F1M",
+                                 "side": "NB", "quantity": 1,
+                                 "fillQuantity": 0,
+                                 "orderStatus": "Canceled"}))
+        b._order_ids["P\x00E"] = ["LO-2"]     # next position's bracket
+        b._order_category["LO-2"] = "NORMAL"
+        b._placed_category["LO-2"] = "OCO"
+        _episode(b)                      # episode 2: must warn AGAIN
+
+    warns = [r for r in caplog.records if r.levelno >= logging.WARNING
+             and "ARMED at its ORIGINAL level" in r.getMessage()]
+    assert len(warns) == 2, (
+        f"expected one warning per EPISODE (2), got {len(warns)} — the "
+        f"warn set is process-lifetime (#93 G3)")

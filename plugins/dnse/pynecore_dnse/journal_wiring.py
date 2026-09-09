@@ -61,8 +61,15 @@ def journal_submitted(store_ctx, *, coid, symbol, side, qty, intent_key,
     # dedup a real fill away. Clear all three on reopen. (Measured live
     # 2026-09-07: a reopened T16 entry was invisible to reconstruction and
     # cancel_all could not reach it.)
+    # #93 G1: ``placed_category`` is the INTENT-time book, stamped here and
+    # NEVER overwritten — ``journal_server_ref`` re-merges ``dnse_category``
+    # with the TRACKED category ("NORMAL" for a resolved OCO child), so the
+    # OCO origin of a bracket exit would otherwise vanish and a restart
+    # would silently re-open the #93 CRITICAL (bracket SL modifies routed
+    # to the NORMAL amend = fabricated success).
     extras = _merged_extras(store_ctx, coid,
                             dnse_category=category, order_type=order_type,
+                            placed_category=category,
                             leg_kind=leg_kind or "", submitted_price=price)
     if reopened:
         for stale in ("terminal_status", "last_raw_status",
@@ -197,6 +204,9 @@ class JournalIdentity:
     venue_ids: "list[str]"           # primary + child + umbrella refs
     child_id: "str | None"
     state: str
+    placed_category: str             # #93 G1: INTENT-time book ("OCO"/"STOP"/
+    #                                  "NORMAL") — immutable, survives the
+    #                                  server_ref dnse_category overwrite
     filled_qty: float                # #56: the persisted fill watermark
     last_raw_status: "str | None"
     last_fill_venue_id: "str | None"
@@ -232,6 +242,8 @@ def iter_journal_identities(store_ctx):
             from_entry=row.from_entry,
             leg_kind=str(extras.get("leg_kind") or ""),
             category=str(extras.get("dnse_category") or "NORMAL"),
+            placed_category=str(extras.get("placed_category")
+                                or extras.get("dnse_category") or "NORMAL"),
             venue_ids=venue_ids,
             child_id=child_id,
             state=row.state,
