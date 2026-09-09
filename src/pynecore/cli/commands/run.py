@@ -746,6 +746,31 @@ def _download_provider_data(provider_str: str, time_from_str: str | None) -> _Pr
         syminfo = provider_instance.get_symbol_info(force_update=not provider_instance.is_symbol_info_exists())
         progress.update(task, completed=1)
 
+    # #100: a SYNTHESIZED (sub-minute) timeframe has nothing to download —
+    # the venue floor is 1m and ``to_exchange_timeframe`` deliberately
+    # raises for it (the download-refusal guard). Warmup replays whatever
+    # the SEPARATE LTF store has accumulated (day 1: empty — strategies
+    # gate on na; the staged probes need none); live bars come from the
+    # plugin's tick synthesis, which appends into this same store. The
+    # store lives under data_dir/ltf/, a path the shared-cache truncation
+    # above never touches.
+    if provider_instance.is_synthesized_timeframe(ps.timeframe):
+        ltf_dir = app_state.data_dir / "ltf"
+        ltf_dir.mkdir(parents=True, exist_ok=True)
+        ltf_path = provider_class.get_ohlcv_path(
+            ps.provider_symbol, ps.timeframe, ltf_dir)
+        if not ltf_path.exists():
+            OHLCVWriter(ltf_path, ps.timeframe).open().close()
+        provider_instance.ohlcv_path = ltf_path
+        provider_instance.ohlcv_file = OHLCVWriter(ltf_path, ps.timeframe)
+        return _ProviderData(
+            ohlcv_path=ltf_path,
+            syminfo=syminfo,
+            provider_instance=provider_instance,
+            parsed_string=ps,
+            time_from_ts=None,
+        )
+
     # Download OHLCV data (always fresh in provider mode). In bar-count
     # mode we may re-download with an extended ``from`` until we hit the
     # target — some feeds omit minutes with no ticks (CFD quiet hours,
