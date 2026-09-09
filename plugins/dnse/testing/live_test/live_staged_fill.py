@@ -13,7 +13,7 @@ from pynecore.types import PersistentSeries, Series
 def main(
     winStart=input.time(timestamp("2030-01-01T00:00:00+07:00"), "Trade window START"),
     winEnd=input.time(timestamp("2030-01-01T23:59:00+07:00"), "Trade window END"),
-    startState=input.int(0, "Start at state (0=F1 .. 7=F8)", minval=0, maxval=7),
+    startState=input.int(0, "Start at state (0=F1 .. 8=F9)", minval=0, maxval=8),
     operatorCloses=input.bool(True, "Operator closes the position manually")
 ):
     FILL_TIMEOUT_BARS = 6
@@ -21,6 +21,8 @@ def main(
     CLOSE_WAIT_BARS = 5
 
     state: PersistentSeries[int] = startState
+    f9TP: PersistentSeries[float] = na(float)
+    f9SL: PersistentSeries[float] = na(float)
     placedBar: PersistentSeries[int] = na(int)
     retries: PersistentSeries[int] = 0
     flattening: PersistentSeries[bool] = False
@@ -39,7 +41,7 @@ def main(
             announced = True
         log.info("[F] bar={0} close={1} state={2} pending={3} flattening={4} retries={5} pos={6}", bar_index, string.tostring(close, format.mintick), state, ("yes" if pending else "no"), ("yes" if flattening else "no"), retries, strategy.position_size)
 
-    if canPlace and (not pending) and (not flattening) and state < 8:
+    if canPlace and (not pending) and (not flattening) and state < 9:
         protLvl = (low[1] if isLongStage else high[1])
         if state == 0:
             strategy.entry("E", strategy.long, comment="F1 mkt long")
@@ -67,7 +69,15 @@ def main(
             strategy.entry("E", strategy.short, stop=low[1], oca_name="f", oca_type=strategy.oca.cancel, comment="F8 oca dn-near")
             strategy.entry("B", strategy.long, stop=high[1] * 1.05, oca_name="f", oca_type=strategy.oca.cancel, comment="F8 oca up-far")
             log.info("[F] F8 PLACE OCA mirror: near dn-stop {0} + far up-stop {1}", string.tostring(low[1], format.mintick), string.tostring(high[1] * 1.05, format.mintick))
-        strategy.exit("P", from_entry="E", stop=protLvl, comment_loss="P SL@" + string.tostring(protLvl, format.mintick))
+        elif state == 8:
+            f9TP = close * 1.01
+            f9SL = low[1]
+            strategy.entry("E", strategy.long, comment="F9 mkt long")
+            log.info("[F] F9 PLACE long MARKET + BRACKET tp={0} sl={1} (native OCO) — during " + "the hold the SL is re-issued HIGHER on wait bars 1 and 2: post-#93 " + "each modify must LOUD-PARK (venue keeps the ORIGINAL bracket)", string.tostring(f9TP, format.mintick), string.tostring(f9SL, format.mintick))
+        if state == 8:
+            strategy.exit("P", from_entry="E", limit=f9TP, stop=f9SL, comment_profit="P TP", comment_loss="P SL")
+        else:
+            strategy.exit("P", from_entry="E", stop=protLvl, comment_loss="P SL@" + string.tostring(protLvl, format.mintick))
         placedBar = bar_index
 
     if pending and (not flattening) and strategy.position_size != 0:
@@ -88,6 +98,9 @@ def main(
             strategy.cancel_all()
         else:
             log.info("[F] F{0} waiting for the manual close ({1}/{2}) — engine still " + "sees pos={3}", state + 1, waitBars, CLOSE_WAIT_BARS, strategy.position_size)
+            if state == 8 and waitBars <= 2:
+                strategy.exit("P", from_entry="E", limit=f9TP, stop=f9SL + waitBars * close * 0.001, comment_profit="P TP", comment_loss="P SLtrail")
+                log.info("[F] F9 TRAIL {0}: re-issue SL -> {1} — expect the #93 park " + "(WARNING on trail 1, throttled after); venue keeps sl={2}", waitBars, string.tostring(f9SL + waitBars * close * 0.001, format.mintick), string.tostring(f9SL, format.mintick))
 
     if flattening and strategy.position_size == 0:
         strategy.cancel("P")
@@ -96,8 +109,8 @@ def main(
         flattening = False
         retries = 0
         state += 1
-        if state == 8:
-            log.info("[F] === ALL 8 FILL CASES DONE. Verify at the venue: flat, nothing " + "working. ===")
+        if state == 9:
+            log.info("[F] === ALL 9 FILL CASES DONE. Verify at the venue: flat, nothing " + "working. ===")
 
     if pending and (not flattening) and strategy.position_size == 0 and bar_index - placedBar >= FILL_TIMEOUT_BARS:
         strategy.cancel("E")
