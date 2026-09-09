@@ -774,6 +774,24 @@ def live_ohlcv_generator(
         local_dt = datetime.fromtimestamp(time.time(), tz=_sym_tz)
         return is_point_in_session(syminfo.opening_hours, local_dt)
 
+    #: #100/#98: provider-declared venue phases with no prints/bars while
+    #: the session is nominally open (e.g. an auction call). Consumed ONLY
+    #: here — never part of syminfo.opening_hours (Pine-visible data).
+    _feed_quiet_phases: tuple = tuple(
+        getattr(provider, "feed_quiet_phases", ()) or ())
+
+    def _in_feed_quiet_phase() -> bool:
+        """True inside a declared no-feed venue phase: the staleness clock
+        rebases exactly as it does off-session, and the idle-synth filler
+        never fabricates bars for slots the venue withholds (measured:
+        DNSE publishes the ATC candle only at auction settlement)."""
+        if not _feed_quiet_phases or _sym_tz is None:
+            return False
+        hhmm = datetime.fromtimestamp(
+            time.time(), tz=_sym_tz).strftime("%H:%M")
+        return any(start <= hhmm < end
+                   for start, end in _feed_quiet_phases)
+
     async def _async_loop():
         nonlocal shutdown_loop, shutdown_event
         # Loop-side shutdown signal: ``_consumer`` sets it (cross-thread, via
@@ -1354,11 +1372,16 @@ def live_ohlcv_generator(
                                 pending_connection_error = ConnectionError(
                                     "Provider reports disconnected state"
                                 )
-                            elif not _market_open_now():
+                            elif not _market_open_now() or _in_feed_quiet_phase():
                                 # The staleness clock must not run while the
                                 # market is closed — a weekend of legitimate
                                 # feed silence would otherwise trip the
                                 # liveness watchdog right at session open.
+                                # #100/#98: a declared quiet phase (DNSE ATC)
+                                # rebases the clock the same way — the venue
+                                # withholds bars there by DESIGN, and this
+                                # branch also keeps the idle-synth filler
+                                # from fabricating bars for withheld slots.
                                 # Keyed on the CURRENT session state, not the
                                 # slot calendar: ``synth_ts`` never advances
                                 # in this branch, so after the session

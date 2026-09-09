@@ -108,6 +108,8 @@ def __test_feed_staleness_threshold_is_minutes_and_atc_safe__():
     assert stale_1m <= 20 * 60, (
         f"effective staleness at 1m is {stale_1m}s — the watchdog is "
         f"disarmed in practice again (#81: 8-min wedge, silent at 2400s)")
-    assert stale_1m >= 16 * 60, (
-        f"effective staleness at 1m is {stale_1m}s — under the 15-min ATC "
-        f"bar gap: daily false reconnect at ~14:30 (#81 G1)")
+    assert stale_1m >= 17 * 60, (
+        f"effective staleness at 1m is {stale_1m}s — under the MEASURED "
+        f"16-min in-session bar gap (L4-T03: the last delivered @1m bar is "
+        f"the 14:28 slot arriving ~14:29): 16 bars left a 0-4 s margin and "
+        f"a single late poll forced a daily in-session reconnect (#98)")
