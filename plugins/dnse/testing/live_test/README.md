@@ -385,6 +385,14 @@ near leg fills and the far leg must be CANCELLED.
   orders FILL), lunch (market orders queue + cancel — the only phase L0 runs its market
   part), ATC 14:30–14:45 (**cancels refused**, resting orders fill in the auction),
   closed (nothing placeable at all).
+- **ATO is TWO windows, and indices start at 09:15** (operator-confirmed 09-10): derivatives
+  ATO 08:45-09:00 (VN30F1M's first bar is the 09:00 slot); stock ATO 09:00-09:15, so the market
+  INDICES publish their first bar at 09:15. A `request.security('VNINDEX')` context therefore
+  has NO counterpart on the 09:00 futures bar — `na` there is CORRECT, not a feed gap (#104).
+- **Index feeds carry a bad 14:45 bar** (measured 09-10): on the ATC bar the index publishes the
+  auction settlement as CLOSE while O/H/L hold only the pre-auction print (`O==H==L`), so C falls
+  outside `[L,H]` — VN30 22/4116, VNINDEX 21/4112 (~0.5%, all 14:45); VN30F1M 0. The provider
+  clamps the range and logs it loudly (#104).
 - **DAY expiry is a deferred batch, NOT 14:45-sharp** (measured 09-09, T22): an
   unfilled NORMAL LO stayed `New` through 15:03 and flipped `Expired` at ~15:04
   (+19 min after close). Anything gating on "expired by 14:45" must poll past
