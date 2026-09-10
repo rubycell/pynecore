@@ -290,13 +290,23 @@ Measured 2026-09-10 after a long wrong turn — **do not re-investigate**:
 
 - **`qty=1` everywhere can still leave `position_size = 2`.** When ONE bar crosses both a
   protective exit and an opposite-direction entry stop, the flip closes the position AND the
-  still-armed exit fires as an *opening* order. **TradingView does exactly the same** (same
-  probe, VN301! 15m). Not a PyneCore defect — it is inside TV-validated backtests too.
+  still-armed exit fires as an *opening* order. **TradingView does the same** — same setup,
+  TV-portable port, VN301! 15m. Not a PyneCore defect; it is inside TV-validated backtests too.
+- **The plain flip idiom is safe**: two `strategy.entry` calls in opposite directions with NO
+  `strategy.exit` never exceeds 1 contract (measured: 50 trades, max held 1, including bars
+  where both conditions fire). The hazard above needs an ARMED EXIT, not just a flip.
 - **`pyramiding` IS enforced** by PyneCore, for market and stop entries alike.
 - **Reversal sizing is correct**: short 1 then long `qty=1` → **+1** (not +2, not 0).
 - **Do NOT try to cap size by guarding entries on `strategy.position_size`.** Order commit is
   deferred and stop entries fill intrabar, so the guard reads a stale `0`. Measured: it made
   things WORSE (2 → 3 contracts). A hard size ceiling can only live in the broker.
+
+Evidence is re-runnable, not just recorded: the probes live in `docs/probes/flip_exit/`
+(with a README table of what each answers), and the flip/exit result is pinned by
+`tests/t01_lib/t30_strategy/test_130_flip_does_not_cancel_an_armed_exit.py` — a
+discriminating test (remove the armed exit and the same bars give 1, not 2), so an
+upstream rebase that changes this behaviour FAILS rather than silently falsifying this
+section.
 
 ## Pine format strings: NEVER use a lone apostrophe
 

@@ -1,0 +1,15 @@
+//@version=6
+// REPRO 3: REVERSAL. Short 1, then a long entry of qty=1 while short.
+// TradingView: closes the 1 short and opens 1 long -> position +1 (2 contracts traded).
+strategy("REVERSAL PROBE", overlay=true, pyramiding=1,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     initial_capital=10000000000, margin_long=17, margin_short=17)
+
+if bar_index == 20
+    strategy.entry("S", strategy.short, qty = 1)
+if bar_index == 23
+    strategy.entry("L", strategy.long, qty = 1)
+
+if bar_index >= 20 and bar_index <= 27
+    log.info("[REV] bar={0} position_size={1} opentrades={2}",
+             bar_index, strategy.position_size, strategy.opentrades)

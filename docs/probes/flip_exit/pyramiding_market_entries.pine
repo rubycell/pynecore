@@ -1,0 +1,14 @@
+//@version=6
+// MINIMAL REPRO: does PyneCore enforce `pyramiding` for entries with DISTINCT ids?
+// TradingView semantics: pyramiding = max entries in the same direction. With
+// pyramiding=1, only the FIRST of these should open; position must stay 1.
+strategy("PYRAMIDING PROBE", overlay=true, pyramiding=1,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     initial_capital=10000000000, margin_long=17, margin_short=17)
+
+if bar_index >= 20 and bar_index <= 23
+    strategy.entry("E" + str.tostring(bar_index), strategy.long, qty = 1)
+
+if bar_index >= 20 and bar_index <= 28
+    log.info("[PYR] bar={0} position_size={1} opentrades={2}",
+             bar_index, strategy.position_size, strategy.opentrades)

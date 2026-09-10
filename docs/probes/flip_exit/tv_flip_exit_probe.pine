@@ -1,0 +1,36 @@
+//@version=6
+// FLIP vs EXIT — minimal cross-engine probe.
+//
+// QUESTION: when ONE bar crosses BOTH a short's protective cover-stop AND an
+// opposite-direction (long) entry stop, does the reversal cancel the old side's
+// protective exit atomically?
+//   correct   : short -1 -> flip closes it and opens long -> position +1
+//   defective : flip closes the short AND the orphaned cover-stop opens a
+//               SECOND long -> position +2
+//
+// PyneCore result (2026-09-10, VN30F1M 15m): position goes -1 -> +2, and
+// strategy.opentrades reports 1 while holding 2 contracts.
+// This file exists to see what TradingView does with the identical setup.
+//
+// Anchored off last_bar_index so it runs on any symbol/timeframe.
+strategy("FLIP vs EXIT PROBE", overlay = false, pyramiding = 0,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     initial_capital = 10000000000, margin_long = 17, margin_short = 17)
+
+setupBar = last_bar_index - 300
+
+if bar_index == setupBar
+    strategy.entry("S", strategy.short, qty = 1)
+
+// Arm the short's cover-stop AND a long entry stop just above it, so a single
+// bar's high can cross both.
+if bar_index == setupBar + 2 and strategy.position_size < 0
+    strategy.exit("ShortCover", from_entry = "S", stop = close * 1.0005, qty = 1)
+    strategy.entry("L", strategy.long, qty = 1, stop = close * 1.0010)
+
+plot(strategy.position_size, "position_size", color = color.red, linewidth = 2,
+     style = plot.style_stepline)
+hline(1, "expected max +1", color = color.gray)
+hline(-1, "short -1", color = color.gray)
+bgcolor(math.abs(strategy.position_size) > 1 ? color.new(color.red, 70) : na,
+        title = "position exceeds 1 contract")
