@@ -1,0 +1,10 @@
+# Global TradingView-symbol -> provider-native mapping.
+# Consulted by request.security() contexts: the framework derives the expected
+# .ohlcv filename from the mapped provider + native symbol (backtest) and the
+# live PluginSymbol from the same entry (live), so neither mode needs
+# --security flags once the mapping exists.
+#
+# DNSE serves both indices via /price/ohlc?type=INDEX (measured 2026-09-10).
+[symbol_map]
+"HOSE:VN30" = "dnse:VN30"
+"VNINDEX" = "dnse:VNINDEX"
