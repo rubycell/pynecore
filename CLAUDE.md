@@ -96,11 +96,17 @@ fetched (no lookback introspection — `max_bars_back` is a no-op stub), so
 `ta.sma(close, 600)` under a small `--from` is `NaN`, every comparison is
 `false`, and the strategy quietly never trades while the run looks healthy.
 
-Omitting `--from` uses the built-in default (`-500` real bars, gap-retried up to
-4×), which is both safe for the cache and deep enough for most indicators. If a
-script genuinely needs more than 500 bars of lookback, raise the default rather
-than reaching for `--from`, and gate the strategy on `not na(<series>)` so
-insufficient warmup fails loudly instead of silently.
+Omitting `--from` uses the built-in default (`-500` bars **requested**, gap-retried
+up to 4×), which is safe for the cache. But it does NOT deliver 500 bars: measured
+2026-09-10, `VN30F1M@15` warmup got **275 real bars of the 500 asked** — the window
+spans ~27 days and the ATC/holiday slots inside it are empty. The venue is not the
+limit (DNSE serves ~4,219 bars/year at 15m); the default's *window* is. So a strategy
+using `ta.sma(close, 200)` starts with only ~75 valid bars.
+
+If a script genuinely needs real depth, raise the default in code — pre-downloading
+does NOT survive, because provider-mode warmup rewrites the shared `.ohlcv` (that is
+the same mechanism `--from` abuses). Gate the strategy on `not na(<series>)` so
+insufficient warmup fails loudly instead of silently. See #17.
 
 ## Plugins in this repo (`plugins/`)
 
@@ -249,6 +255,48 @@ Trading-token workflow (OTP mint, ~8h TTL, status check): `plugins/dnse/tools/RE
 - Raw `--broker` logs are ~500K ANSI spinner noise. Commit only stripped evidence:
   `sed 's/\x1b\[[0-9;]*m//g' f.log | grep -aoE '\[(L1|F|BROKER)\][^[]*' > f_evidence.txt`
   and park the raw log in `backup/deleteable/`.
+
+## request.security() on DNSE — indices work, wired by symbol_map (not `--security`)
+
+DNSE serves market INDICES (`VNINDEX`, `VN30`) on `/price/ohlc?type=INDEX` — ~1 year of
+15m history, current to the session. The provider routes them via `_INDEX_SYMBOLS` (#104);
+`type=STOCK` on an index answers 400.
+
+The FRAMEWORK owns Pine-key → native-symbol translation (`script_runner.py` calls
+`resolve_symbol`; all three official PyneSys plugins inherit it rather than implement it),
+so a TradingView-style symbol is a CONFIG entry, never code:
+
+```toml
+# workdir/config/symbol_map.toml
+[symbol_map]
+"HOSE:VN30" = "dnse:VN30"
+"VNINDEX"   = "dnse:VNINDEX"
+```
+
+With that plus the `.ohlcv` files, backtest AND live resolve with **no `--security` flags**.
+Live warms up and streams each security in its own subprocess with its own provider instance.
+
+Two things that look like feed bugs and are NOT:
+- **No index bar at 09:00.** Derivatives ATO is 08:45–09:00, stock ATO 09:00–09:15, so index
+  bars legitimately start **09:15** — `na` on the 09:00 futures bar is correct. (Backtest
+  carries the prior close forward there; live reports `na` — they differ on the day's first bar.)
+- **The 14:45 index bar is malformed at the source**: the auction close is published outside
+  `[low, high]` with `O==H==L` (~0.5% of bars, all 14:45; futures unaffected). The provider
+  widens the range and logs it; O and C are never altered.
+
+## Pine behaviours that LOOK like bugs and are NOT (cross-checked on TradingView)
+
+Measured 2026-09-10 after a long wrong turn — **do not re-investigate**:
+
+- **`qty=1` everywhere can still leave `position_size = 2`.** When ONE bar crosses both a
+  protective exit and an opposite-direction entry stop, the flip closes the position AND the
+  still-armed exit fires as an *opening* order. **TradingView does exactly the same** (same
+  probe, VN301! 15m). Not a PyneCore defect — it is inside TV-validated backtests too.
+- **`pyramiding` IS enforced** by PyneCore, for market and stop entries alike.
+- **Reversal sizing is correct**: short 1 then long `qty=1` → **+1** (not +2, not 0).
+- **Do NOT try to cap size by guarding entries on `strategy.position_size`.** Order commit is
+  deferred and stop entries fill intrabar, so the guard reads a stale `0`. Measured: it made
+  things WORSE (2 → 3 contracts). A hard size ceiling can only live in the broker.
 
 ## Pine format strings: NEVER use a lone apostrophe
 
