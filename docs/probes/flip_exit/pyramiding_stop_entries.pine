@@ -1,0 +1,16 @@
+//@version=6
+// REPRO 2: same as repro 1 but with PENDING STOP entries (what the strategy uses)
+// instead of market entries. Question: is `pyramiding` still enforced when the
+// order RESTS and fills later, rather than filling from the placement bar?
+strategy("PYRAMIDING PROBE 2 (stop entries)", overlay=true, pyramiding=1,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     initial_capital=10000000000, margin_long=17, margin_short=17)
+
+// A long stop BELOW market is already crossed -> fills immediately, but it is
+// still a stop order taking the pending-order code path.
+if bar_index >= 20 and bar_index <= 23
+    strategy.entry("S" + str.tostring(bar_index), strategy.long, qty = 1, stop = close * 0.99)
+
+if bar_index >= 20 and bar_index <= 28
+    log.info("[PYR2] bar={0} position_size={1} opentrades={2}",
+             bar_index, strategy.position_size, strategy.opentrades)

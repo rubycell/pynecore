@@ -1,0 +1,29 @@
+//@version=6
+// Does a FLIP cancel the old side's protective exit ATOMICALLY?
+// Setup: hold short 1 with a cover-stop just above market, and a long ENTRY stop
+// slightly higher. A single bar whose HIGH crosses BOTH triggers them together.
+//   correct  : cover-stop closes the short (or the flip does) -> net position +1
+//   defective: the flip closes the short AND the cover-stop opens a second long -> +2
+strategy("FLIP vs EXIT PROBE", overlay=true, pyramiding=0,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     initial_capital=10000000000, margin_long=17, margin_short=17)
+
+var float coverLvl = na
+var float entryLvl = na
+
+if bar_index == 20
+    strategy.entry("S", strategy.short, qty = 1)
+
+// arm the short's protective cover-stop AND an opposite-direction entry stop,
+// both just above the current price so one bar can cross both.
+if bar_index == 22 and strategy.position_size < 0
+    coverLvl := close * 1.0005
+    entryLvl := close * 1.0010
+    strategy.exit("ShortCover", from_entry = "S", stop = coverLvl, qty = 1)
+    strategy.entry("L", strategy.long, qty = 1, stop = entryLvl)
+
+if bar_index >= 20 and bar_index <= 32
+    log.info("[FLIP] bar={0} pos={1} opentrades={2} high={3} cover={4} entry={5}",
+             bar_index, strategy.position_size, strategy.opentrades,
+             str.tostring(high, "#.##"),
+             str.tostring(coverLvl, "#.##"), str.tostring(entryLvl, "#.##"))

@@ -1,0 +1,22 @@
+//@version=6
+// Is the plain flip idiom (two entries, opposite directions, NO strategy.exit)
+// safe on position size? Alternating conditions, and a bar where BOTH fire.
+strategy("FLIP IDIOM PROBE", overlay=false, pyramiding=0,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     initial_capital=10000000000, margin_long=17, margin_short=17)
+
+longCondition  = bar_index % 7 == 0
+shortCondition = bar_index % 11 == 0          // both true every 77 bars
+
+// Execute Long Flip
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+// Execute Short Flip
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
+
+if math.abs(strategy.position_size) > 1
+    log.error("[FLIP IDIOM] position_size={0} EXCEEDS 1 at bar {1} (both={2})",
+              strategy.position_size, bar_index,
+              (longCondition and shortCondition) ? "YES" : "no")
