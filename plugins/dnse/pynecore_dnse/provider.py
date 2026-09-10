@@ -14,7 +14,7 @@ Live streaming + orders live in :class:`DNSEBroker` (this class is data-only).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Callable, TypeVar
 
 from pynecore.core.plugin import override
@@ -40,6 +40,23 @@ _AFTERNOON = (time(13, 0), time(14, 45))
 #: is the 09:15 auction print (measured HPG 2026-08-14), so the stock morning
 #: opens 09:15; a 09:00 open would trip the feed-staleness watchdog daily.
 _MORNING_STOCK = (time(9, 15), time(11, 30))
+
+#: Exchange-local timezone, used for human-readable log timestamps.
+_ICT = timezone(timedelta(hours=7))
+
+#: Market indices, served by ``/price/ohlc`` under ``type=INDEX`` (measured
+#: 2026-09-10: VNINDEX and VN30 answer 200 with a year of 15m history; the same
+#: query under ``type=STOCK`` answers 400).
+#:
+#: Listed EXPLICITLY rather than inferred from a missing securities-master row:
+#: ``_secdef`` returns ``{}`` both for "not a listed security" AND for any
+#: non-200 read, so inferring INDEX from an empty secdef would misroute a real
+#: stock to the index endpoint on a transient failure. Indices follow the cash
+#: market's schedule, so they keep ``_MORNING_STOCK``.
+_INDEX_SYMBOLS = frozenset({
+    "VNINDEX", "VN30", "VN100", "VNMIDCAP", "VNSMALLCAP", "VNALLSHARE",
+    "HNX", "HNXINDEX", "HNX30", "UPCOM", "UPCOMINDEX",
+})
 
 
 @dataclass
@@ -256,10 +273,20 @@ class DNSEProvider(ProviderPlugin[DNSEConfigT]):
         """DNSE bar type for the current symbol.
 
         ``marketType`` is a property of the instrument, not of the environment.
-        Prefer the venue's own ``securityGroupId`` (``FU`` = futures,
-        ``ST`` = stock); fall back to the VN30F prefix when secdef is silent.
+        Indices are checked FIRST (they are absent from the securities master,
+        so the secdef probe below cannot classify them and would guess STOCK —
+        which the venue answers with 400); then the venue's own
+        ``securityGroupId`` (``FU`` = futures, ``ST`` = stock); then the VN30F
+        prefix when secdef is silent.
+
+        Cross-symbol note: a live ``request.security`` context runs in its own
+        subprocess with its OWN provider instance whose ``symbol`` is the
+        security's, so reading ``self.symbol`` here classifies the security
+        correctly (same model as the cTrader plugin's ``_resolve_symbol_id``).
         """
         symbol = (self.symbol or "").upper()
+        if symbol in _INDEX_SYMBOLS:
+            return "INDEX"
         group = (self._secdef(symbol).get("securityGroupId") or "").upper()
         if group:
             return "DERIVATIVE" if group == "FU" else "STOCK"
@@ -374,13 +401,39 @@ class DNSEProvider(ProviderPlugin[DNSEConfigT]):
             raise RuntimeError(f"DNSE OHLC request failed: HTTP {status} {body}")
 
         times = body.get("t") or []
+        repaired = 0
+        first_repair: "str | None" = None
         for index, ts in enumerate(times):
+            o = float(body["o"][index])
+            h = float(body["h"][index])
+            low = float(body["l"][index])
+            c = float(body["c"][index])
+            # VENUE DEFECT (measured 2026-09-10 over a year of 15m bars): on the
+            # 14:45 ATC bar the INDEX feeds publish the auction settlement as the
+            # bar's CLOSE while O/H/L carry only the single pre-auction print
+            # (O==H==L on every occurrence), so C falls outside [L, H] and the
+            # OHLCV writer rejects the bar. Frequency: VN30 22/4116 and VNINDEX
+            # 21/4112 bars (~0.5%, ALL at 14:45); VN30F1M 0 — the futures ATC
+            # candle is withheld and republished at settlement instead.
+            #
+            # Repair = widen the RANGE to contain the prices the venue already
+            # reported. O and C are never altered (the auction close is the
+            # economically meaningful number), no price is invented, and the fix
+            # is a no-op on a well-formed bar. Loud by design: a silent
+            # normalisation would hide a venue regression that widens.
+            lo_fixed, hi_fixed = min(low, o, c), max(h, o, c)
+            if lo_fixed != low or hi_fixed != h:
+                repaired += 1
+                if first_repair is None:
+                    first_repair = (f"{datetime.fromtimestamp(int(ts), _ICT):%Y-%m-%d %H:%M} "
+                                    f"O={o} H={h} L={low} C={c}")
+                low, h = lo_fixed, hi_fixed
             self.save_ohlcv_data(OHLCV(
                 timestamp=int(ts) * 1000,
-                open=float(body["o"][index]),
-                high=float(body["h"][index]),
-                low=float(body["l"][index]),
-                close=float(body["c"][index]),
+                open=o,
+                high=h,
+                low=low,
+                close=c,
                 volume=float(body["v"][index]),
             ))
             if on_progress is not None and index % 200 == 0:
@@ -391,6 +444,15 @@ class DNSEProvider(ProviderPlugin[DNSEConfigT]):
                 if time_to.tzinfo is not None:
                     progress_at = progress_at.replace(tzinfo=timezone.utc)
                 on_progress(progress_at)
+
+        if repaired:
+            import logging
+            logging.getLogger(__name__).warning(
+                "DNSE %s@%s: repaired %d/%d bar(s) whose CLOSE fell outside "
+                "[low, high] by widening the range (venue defect, ~0.5%% of "
+                "index bars, all at the 14:45 ATC slot). O and C untouched. "
+                "First: %s",
+                self.symbol, resolution, repaired, len(times), first_repair)
 
         if on_progress is not None:
             on_progress(time_to)

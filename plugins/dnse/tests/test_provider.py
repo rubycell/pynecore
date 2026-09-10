@@ -128,6 +128,42 @@ def __test_market_type_stock_from_non_fu_security_group__(fake_client):
     assert fake.count("get_security_definition") == 1
 
 
+def __test_market_type_index_for_market_indices__(fake_client):
+    """VNINDEX/VN30 must route to type=INDEX. Measured 2026-09-10: the same
+    /price/ohlc query answers 200 under INDEX and 400 under STOCK, so a wrong
+    classification here silently starves every request.security('VNINDEX')
+    context in a live run."""
+    fake = fake_client(get_security_definition=(200, []))
+
+    for symbol in ("VNINDEX", "VN30", "HNX30"):
+        p = _wired(fake, symbol=symbol)
+
+        assert p.market_type == "INDEX", f"{symbol} must classify as INDEX"
+
+    # Indices are absent from the securities master; consulting it is both
+    # pointless and a per-symbol HTTP round trip. Catches the wrong impl that
+    # probes secdef first and only then checks the index list.
+    assert fake.count("get_security_definition") == 0, \
+        "an index must be classified without a securities-master read"
+
+
+def __test_market_type_index_is_never_inferred_from_an_empty_secdef__(fake_client):
+    """A stock whose secdef read FAILS must stay STOCK, never become INDEX.
+
+    ``_secdef`` collapses 'not a listed security' and 'the read failed' into
+    the same {}, so this is the control against the wrong implementation that
+    infers INDEX from a missing securities-master row: under that impl a real
+    stock gets misrouted to the index endpoint on any transient failure."""
+    fake = fake_client(
+        get_instruments=(500, {}),
+        get_security_definition=(503, {}),   # transient failure -> row == {}
+    )
+    p = _wired(fake, symbol="HPG")
+
+    assert p.market_type == "STOCK", \
+        "a failed secdef read must not promote a stock to INDEX"
+
+
 def __test_market_type_falls_back_to_vn30f_prefix_heuristic_when_secdef_silent__(fake_client):
     fake = fake_client(
         get_instruments=(500, {}),           # resolve_contract fallback (alias unresolved)
