@@ -353,6 +353,18 @@ near leg fills and the far leg must be CANCELLED.
 
 ## Measured venue facts (why the tests look like this)
 
+- **A dependent bracket (SL/TP) arms ONE BAR AFTER the fill, not at placement** (measured
+  l2b live 2026-09-11, #107). DNSE has no order/position attach primitive (#33), so a
+  protective exit is a STANDALONE conditional the engine may only place once a position
+  exists (#82b), and the engine applies async fills at the bar-close drain — so a filled
+  position is held ~1 bar (≈60 s at 1m, up to ~15 min at 15m) with NO venue-side
+  protection. Timeline: entry fills bar N, bracket dispatched bar N+1. This window is
+  INHERENT to a no-attach, closed-bar REST venue and is **accepted, not fixed** (operator
+  decision 2026-09-11). The official plugins (bybit/capitalcom/ctrader) avoid it by
+  attaching the bracket to the position; DNSE cannot. The trading WS order channel
+  (`order.DERIVATIVE.json` — UPPERCASE, #107) does deliver fill/partial events and could
+  drive an arm-on-fill fix, but that is a shared-engine threading change parked on #107.
+
 - **`/orders/history` is NORMAL-book-only** (measured 2026-09-06,
   `probe_b3_readonly_measurements.py`: 276/276 rows over 17 trading days —
   a window full of placed-and-cancelled conditionals — carry numeric

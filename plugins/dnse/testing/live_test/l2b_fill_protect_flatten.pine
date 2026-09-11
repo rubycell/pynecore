@@ -2,29 +2,51 @@
 // LIVE TEST LEVEL 2b — venue-protected fill with a TP/SL bracket. SUPERVISED ONLY.
 //
 // 2a proved fill -> flatten but left an UNPROTECTED window: if the process died between
-// the fill and the flatten, the position sat naked. 2b closes that window with a native
-// venue-side bracket armed the instant the entry is placed — the exchange holds it even
-// if we crash — and so also exercises the two things 2a cannot:
+// the fill and the flatten, the position sat naked. 2b SHRINKS that window with a native
+// venue-side OCO bracket — but does NOT eliminate it, and this header used to overclaim
+// that it did. MEASURED (l2b live 2026-09-11, #107): the bracket arms on the FIRST BAR
+// AFTER the fill, not "the instant the entry is placed". DNSE has no order/position attach
+// primitive (#33), so the OCO is a STANDALONE order the engine can only place once a
+// position exists (#82b), and the engine applies async fills at the bar-close drain — so
+// the position is held ~1 bar (up to ~15 min at 15m) with NO venue-side protection. This
+// is INHERENT to a no-attach, closed-bar REST venue and is ACCEPTED, not fixed (operator
+// decision 2026-09-11; the WS-driven arm-on-fill alternative is parked on #107). Once
+// placed, the native OCO does run server-side. 2b still exercises the two things 2a cannot:
 //
 //   * exit-order PLACEMENT alongside a live position, and
 //   * its CANCELLATION when we flatten — no orphan left resting.
 // Every Level 3 case depends on that path, so breaking it here once beats breaking it
 // eight times there.
 //
-// PROTECTION, three independent layers (outermost last):
-//   1. Native OCO bracket: TP +0.2% / SL -0.2%, one server-side order sharing an
-//      `oca_name`, so the venue runs one-cancels-other itself and CANNOT leave a stop
-//      behind when the other side fills.
-//   2. Flatten-on-sight: close the position the moment it is seen (this is the test).
-//   3. DOUBLE-CHECK at -0.3%: if open PnL ever drops past -0.3%, `strategy.cancel_all()`
-//      then `strategy.close_all()` — cancel first so no resting leg can re-open exposure
-//      after the flatten. This is the backstop for layers 1-2 failing, and it is why the
-//      threshold sits OUTSIDE the 0.2% bracket: it must only fire if the bracket didn't.
+// ENTRY: a BREAKOUT stop at `higherHigh2` = max(high, high[1]) — NOT a market order.
+// TP/SL are derived from that TRIGGER price, never from `close`. A stop entry fills at or
+// near its trigger, so a close-derived bracket inverts: measured 2026-09-11 over 275
+// VN30F1M 15m bars, a close-derived TP sat BELOW the entry on 50.7% of bars (worst 0.795%
+// below) and the SL landed a median 0.403% away instead of 0.200%. Trigger-derived, the
+// same bars give 0.0% inverted and the SL exactly 0.200%.
 //
-// Other guards: 1 lot, pyramiding=0, enter-once/close-once latches, `barstate.isrealtime`
-// gate (warmup NEVER trades; a plain `dnse:` backtest places ZERO trades — the proof).
-// TP/SL levels are frozen at entry into `var`s: a moving level would make the engine
-// amend the resting conditional, and DNSE answers that with HTTP 500 (rubycell/pynecore#18).
+// PROTECTION, three independent layers (outermost last):
+//   1. Native OCO bracket: TP +0.2% / SL -0.2% off the TRIGGER, one server-side order
+//      sharing an `oca_name`, so the venue runs one-cancels-other itself and CANNOT leave
+//      a stop behind when the other side fills.
+//   2. MAX 2 CANDLES: once a position has survived into a second bar, cancel every working
+//      order and close it. Measured over the same 275 bars: 39 position episodes — 26
+//      closed by the bracket inside one bar, 13 closed by this rule at two bars, none ever
+//      longer than two. (This replaces 2a's flatten-on-sight.)
+//   3. DOUBLE-CHECK at -0.3%: `strategy.cancel_all()` then `strategy.close_all()` — cancel
+//      first so no resting leg can re-open exposure after the flatten. The threshold sits
+//      OUTSIDE the 0.2% bracket so it only fires if the bracket did not. Its PnL% is
+//      computed MANUALLY; `strategy.opentrades.profit_percent()` reads 0.0 for an OPEN
+//      trade, which had made this whole layer dead code (see the note at the backstop).
+//
+// Other guards: 1 lot, pyramiding=0, `barstate.isrealtime` gate (warmup NEVER trades; a
+// plain `dnse:` backtest places ZERO trades — that is the proof, and it is CHECKED, not
+// assumed), and a `var bool traded` enter-once latch so exactly ONE real entry happens per
+// run. Both are load-bearing and neither substitutes for the other. A `strategy.opentrades
+// == 0` gate was tried in place of the latch on 2026-09-11 and is NOT equivalent: it is a
+// STATE test that becomes true again after every close, which turned this file into a
+// continuously re-entering strategy (measured: 78 round-trips and ~223 re-placements of
+// the resting conditional over 275 bars — the DNSE HTTP-500 amend loop, #18).
 //
 // NOTE ON TIMING: the flatten lands on the NEXT bar, not intrabar. The DNSE v2 plugin's
 // `watch_ohlcv` skips the still-forming bar and yields CLOSED bars only, so there are no
@@ -38,16 +60,26 @@ strategy("LIVE2b fill+bracket+flatten", overlay=true, pyramiding=0, initial_capi
      slippage=1,
      calc_on_every_tick=false, process_orders_on_close=false)
 
-var bool  traded  = false   // enter-once latch
-var bool  closing = false   // close-once latch
+var bool  traded  = false   // enter-once latch — EXACTLY one real entry per run
 var float tpLevel = na      // +0.2%, frozen at entry (never amended)
 var float slLevel = na      // -0.2%, frozen at entry (never amended)
 
+higherHigh2 = high > high[1] ? high : high[1]
+
 // (1) the single real entry + its native venue-side OCO bracket — LIVE bar only
+// TWO independent conditions, and both are load-bearing:
+//   barstate.isrealtime -> warmup never trades, which keeps the "backtest places ZERO
+//                          trades" proof meaningful (that proof is how warmup-safety is
+//                          verified BEFORE money is at risk).
+//   not traded          -> fires EXACTLY once. `strategy.opentrades == 0` cannot do this
+//                          job: it is a STATE test that becomes true again after every
+//                          close, so the script re-entered indefinitely (measured
+//                          2026-09-11: 78 round-trips and ~223 re-placements of the
+//                          resting conditional over 275 bars -> the #18 HTTP-500 loop).
 if barstate.isrealtime and not traded
-    tpLevel := close * 1.002
-    slLevel := close * 0.998
-    strategy.entry("E", strategy.long, comment="MKT 1-lot")
+    tpLevel := higherHigh2 * 1.002
+    slLevel := higherHigh2 * 0.998
+    strategy.entry("E", strategy.long, stop=higherHigh2, comment="STOP 1-lot")
     // NOTE: no oca_type — Pine's strategy.exit has no such parameter (TradingView
     // rejects it with CE10120), and its legs always form a reduce group anyway.
     strategy.exit("X", from_entry="E", limit=tpLevel, stop=slLevel, oca_name="brk",
@@ -59,17 +91,26 @@ if barstate.isrealtime and not traded
 //     the bracket did not. Cancel first: a resting leg left working could otherwise
 //     re-open exposure right after close_all flattens.
 DOUBLE_CHECK_PCT = -0.3
-openPnlPct = strategy.position_size != 0 ? strategy.opentrades.profit_percent(strategy.opentrades - 1) : 0.0
+// PnL% COMPUTED MANUALLY: `strategy.opentrades.profit_percent()` reads 0.0 for an OPEN
+// trade in PyneCore (and upstream) — the per-bar update loop writes `trade.profit` only,
+// and every `profit_percent` assignment lives in a CLOSE path. Using it made this backstop
+// DEAD CODE (measured 2026-09-11: profit went 0 -> -6 while profit_percent stayed 0.0000).
+// entry_price and size ARE live on an open trade, so derive the percentage from price.
+// `_bsDir` inverts it for a short — without it a losing short would report a gain.
+_bsEntry = strategy.opentrades > 0 ? strategy.opentrades.entry_price(strategy.opentrades - 1) : 0.0
+_bsSize  = strategy.opentrades > 0 ? strategy.opentrades.size(strategy.opentrades - 1) : 0.0
+_bsDir   = _bsSize < 0 ? -1.0 : 1.0
+_bsLive  = strategy.position_size != 0 and not na(_bsEntry) and _bsEntry != 0.0
+openPnlPct = _bsLive ? (close - _bsEntry) / _bsEntry * 100.0 * _bsDir : 0.0
 if strategy.position_size != 0 and openPnlPct < DOUBLE_CHECK_PCT
     strategy.cancel_all()
     strategy.close_all(comment="DOUBLECHECK")
 
-// (3) flatten on sight — this must ALSO tear down the resting bracket
-if traded and strategy.position_size != 0 and not closing
+
+//Keep position max 2 candles
+if strategy.position_size != 0 and strategy.position_size[1] != 0    
+    strategy.cancel_all()
     strategy.close("E", comment="FLATTEN")
-    strategy.cancel_all()   // explicit: the engine's implicit bracket
-                            // teardown left an order working (see log 14:06)
-    closing := true
 
 plot(strategy.position_size, "pos", display=display.data_window)
 plot(tpLevel, "tp", display=display.data_window)

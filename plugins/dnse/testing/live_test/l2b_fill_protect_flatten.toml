@@ -8,6 +8,7 @@
 #pyramiding = 1
 #calc_on_order_fills = false
 #calc_on_every_tick = false
+#calc_on_every_history_tick = false
 #max_bars_back = 0
 #timeframe =
 #timeframe_gaps = true

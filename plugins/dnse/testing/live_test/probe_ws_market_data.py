@@ -54,9 +54,14 @@ CHANNELS = [
     {"name": "top_price.G1.json", "symbols": ["41I1G9000"]},
 ]
 TRADING_CHANNELS = [
-    {"name": "order.derivative.json", "symbols": []},
-    {"name": "order.stock.json", "symbols": []},
-    {"name": "position.derivative.json", "symbols": []},
+    # market_type is UPPERCASE per the official docs (Trading Data WebSocket) AND the
+    # vendored SDK default (subscribe_order_event market_type="STOCK"). Lowercase
+    # (order.derivative.json) is silently accepted by the server as a subscription but
+    # streams NOTHING — that produced a false "trading WS is silent" verdict on
+    # 2026-09-11 despite in-window account activity (#107). Channel = order.{market_type}.{encoding}.
+    {"name": "order.DERIVATIVE.json", "symbols": []},
+    {"name": "order.STOCK.json", "symbols": []},
+    {"name": "position.DERIVATIVE.json", "symbols": []},
 ]
 
 
