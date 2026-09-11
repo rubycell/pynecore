@@ -1,0 +1,40 @@
+//@version=6
+// DISCRIMINATING CONTROL for flip_exit_probe.pine — swaps which level fires first.
+//
+// Same two orders as flip_exit_probe, but the long ENTRY stop sits BELOW the
+// cover-stop, so a rising bar crosses the ENTRY first and the protective exit is
+// the order left orphaned.
+//
+//   "orphaned exit opens a position" theory -> this must also end at +2
+//   stale-flip-quantity (actual)            -> this ends at +1, orphan opens nothing
+//
+// Measured 2026-09-11 (PyneCore): +1. The theory above is REFUTED — the doubling in
+// flip_exit_probe comes from the ENTRY carrying a flip quantity of 2 frozen at
+// placement, which opens in full once a protective exit has already closed the
+// short. See issue #105 and tests/t01_lib/t30_strategy/test_130_*.
+strategy("FLIP vs EXIT — ENTRY FIRST (control)", overlay=true, pyramiding=0,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     initial_capital=10000000000, margin_long=17, margin_short=17)
+
+var float coverLvl = na
+var float entryLvl = na
+
+if bar_index == 20
+    strategy.entry("S", strategy.short, qty = 1)
+
+// Note the inversion vs flip_exit_probe: entry BELOW cover, so entry fills first.
+if bar_index == 22 and strategy.position_size < 0
+    entryLvl := close * 1.0005
+    coverLvl := close * 1.0010
+    strategy.exit("ShortCover", from_entry = "S", stop = coverLvl, qty = 1)
+    strategy.entry("L", strategy.long, qty = 1, stop = entryLvl)
+
+// Lights up only if the control ever exceeds 1 contract — i.e. if the refuted
+// theory were true after all.
+bgcolor(math.abs(strategy.position_size) > 1 ? color.new(color.red, 70) : na)
+
+if bar_index >= 20 and bar_index <= 32
+    log.info("[FLIP-EF] bar={0} pos={1} opentrades={2} high={3} entry={4} cover={5}",
+             bar_index, strategy.position_size, strategy.opentrades,
+             str.tostring(high, "#.##"),
+             str.tostring(entryLvl, "#.##"), str.tostring(coverLvl, "#.##"))

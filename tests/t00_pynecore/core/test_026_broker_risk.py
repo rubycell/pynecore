@@ -328,3 +328,70 @@ def __test_no_halt_when_no_open_position_and_no_breach__():
     assert p.risk_halt_trading is False
     assert p.exit_orders == {}
     assert p.entry_orders == {}
+
+
+# === Known gap: the submit-time cap is not a position ceiling (#105) ===
+
+
+def __test_cap_is_breached_when_a_fill_lands_between_submit_and_fill__():
+    """CHARACTERIZATION OF A DEFECT (#105) — this pins BROKEN behaviour.
+
+    ``risk_max_position_size`` is enforced on the live path at exactly one
+    point, :meth:`BrokerPosition._add_order` (submit time). That makes it a
+    gate on the order, not a ceiling on the position: it asks "would this
+    order breach the cap *against the position as it stands right now*", and
+    any fill landing between submit and fill falsifies the answer.
+
+    The realistic trigger is a price-based reversal entry. Such an entry
+    freezes its flip augmentation at placement
+    (``lib/strategy/__init__.py:6136``), so one placed while short 1 carries
+    qty 2. Against the -1 position that lands at exactly the cap, so the gate
+    passes it — correctly, on the information it had. A protective exit then
+    closes the short first, and the frozen qty-2 order fills from flat.
+
+    Backtest does NOT have this gap: :class:`SimPosition` runs the same
+    predicate at FILL time, re-reads the flat position, and trims 2 -> 1.
+    Measured 2026-09-11: identical scenario, cap 1, backtest ends at 1 and
+    this path ends at 2. See ``tests/t01_lib/t30_strategy/test_130_*`` for
+    the backtest side.
+
+    WHEN #105 IS FIXED this test must be REWRITTEN, not deleted — the final
+    assertion should become ``<= 1.0``. It is here so the gap is visible and
+    cannot be re-introduced silently, not because 2.0 is desirable.
+    """
+    p = BrokerPosition()
+    p.risk_max_position_size = 1.0
+
+    # Short 1 from an earlier bar.
+    p.record_fill(_fill("sell", 1.0, 100.0, pine_id="S"))
+    assert p.size == pytest.approx(-1.0)
+
+    # strategy.entry('L', long, qty=1, stop=...) placed while short 1 carries
+    # the frozen flip quantity of 2 (close 1 + open 1).
+    flip_entry = Order("L", 2.0, order_type=_order_type_entry)
+    p._add_order(flip_entry)
+    assert flip_entry.size == pytest.approx(2.0), (
+        "Submit gate passes the qty-2 order: abs(-1 + 2) == 1 is within the "
+        "cap. This assertion documents WHY the breach happens — the gate is "
+        "not malfunctioning, it is answering a different question."
+    )
+    assert "L" in p.entry_orders
+
+    # The protective exit fills FIRST at the venue: position goes flat.
+    p.record_fill(_fill("buy", 1.0, 100.5, pine_id="S", leg=LegType.STOP_LOSS))
+    assert p.size == pytest.approx(0.0)
+
+    # Now the qty-2 entry fills, from flat.
+    p.record_fill(_fill("buy", flip_entry.size, 101.0, pine_id="L"))
+    assert p.size == pytest.approx(2.0), (
+        "#105: the live cap is breached here. If this now reports <= 1.0 the "
+        "gap has been closed — rewrite this test to assert the ceiling holds "
+        "and drop the known-gap section header."
+    )
+
+    # And nothing downstream catches it: the post-bar rules do not look at size.
+    p._enforce_post_bar_risk()
+    assert p.risk_halt_trading is False, (
+        "_enforce_post_bar_risk checks drawdown / intraday loss / consecutive "
+        "loss days — not position size. There is no second line of defence."
+    )
