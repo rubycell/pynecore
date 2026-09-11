@@ -73,8 +73,9 @@ class DNSEConfig(LiveProviderConfig):
     api_key: str = ""
     api_secret: str = ""
     base_url: str = "https://openapi.dnse.com.vn"
-    #: WebSocket origin. Kept for the live-vs-test endpoint banner (and any future
-    #: market-data stream); v2's core flow is REST-only.
+    #: WebSocket origin — used by the #100 sub-minute market-data per-print stream
+    #: and for the live-vs-test endpoint banner. The ORDER path (place/cancel/fill)
+    #: is REST; there is no WS order-event transport yet (#107).
     ws_url: str = "wss://ws-openapi.dnse.com.vn"
     #: IGNORED: the ``version`` header is pinned to 2026-07-23 inside the
     #: :class:`DNSEClient` wrapper (a floating date silently breaks conditional

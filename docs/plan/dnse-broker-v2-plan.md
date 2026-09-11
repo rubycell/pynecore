@@ -13,6 +13,10 @@ cancel), and far simpler than a client-side watch: no armed-leg engine, no intra
 teardown, no persistence, no WS intrabar trigger. **v2 is REST-only.** All proven
 live 2026-08-06.
 
+> **Superseded (2026-09):** #100 later added a venue-WebSocket per-print stream for
+> sub-minute market-data bars, so the plugin is no longer WS-free. The ORDER path
+> remains REST; a WS order-event transport is proposed in #107.
+
 **Root unlock:** the conditional endpoints are gated behind API **`version >=
 2026-07-23`** — sending an older/absent `version` (v1 sent `2026-01-01`/`2026-05-07`)
 returns `500` or silently the NORMAL book, which is what made native STOP look
