@@ -136,6 +136,18 @@ does NOT survive, because provider-mode warmup rewrites the shared `.ohlcv` (tha
 the same mechanism `--from` abuses). Gate the strategy on `not na(<series>)` so
 insufficient warmup fails loudly instead of silently. See #17.
 
+## `--live` vs `--broker` — the one-plugin model (how a live test runs)
+
+- **`--live`** streams live DATA after the historical warmup (no order routing).
+- **`--broker`** adds live ORDER routing and **implies `--live`**. The data-source provider
+  MUST subclass `BrokerPlugin` and **IS the broker** — ONE plugin instance serves BOTH data
+  and orders (`cli/commands/run.py:1602`). Consequence: the data source and the broker cannot
+  differ — `pyne run <out>.py dnse_broker:VN30F1M@1 --broker` has `dnse_broker` serve both, and
+  you canNOT pair a different data source (e.g. the data-only `replay` fixture provider) with a
+  real broker via `pyne run`.
+- A `--broker` run needs a GOOD trading token + the mandatory L0 gate FIRST, at 5m/15m — see the
+  DNSE testing section and `plugins/dnse/testing/live_test/README.md`.
+
 ## Plugins in this repo (`plugins/`)
 
 Fork-specific venue plugins, editable-installed (so they import as
@@ -313,6 +325,12 @@ the full lifecycle on `order.DERIVATIVE.json`.
   price (unchecked), a MARKET fills at averagePrice=0. So it tests order-state + WS delivery +
   engine event handling, NOT SL/TP triggering, matching, or P&L (use tracked `.ohlcv`
   backtests for price behaviour). Conditional STOP/OCO placement still needs production. Data resets.
+- **Sandbox testing does NOT go through `pyne run --broker`** — there is no `dnse_sandbox`
+  entry point, the one-plugin model (above) means data+orders share one plugin, and the sandbox
+  has no market data. Drive it from a standalone probe: `sandbox_lifecycle_probe.py` (raw client
+  lifecycle + WS) or `sandbox_arm_on_fill_probe.py` (full engine + real broker). For fake-realtime
+  bars in an engine probe, wire the data-only `replay` provider (`providers/replay.py`) + a real
+  broker together IN the probe.
 - **The full engine runs against the sandbox, not just the raw client.**
   `plugins/dnse/testing/sandbox_arm_on_fill_probe.py` drives the real `DNSEBroker` +
   `OrderSyncEngine` and a real auto-fill to prove the engine's arm-on-fill path places a real
