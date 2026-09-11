@@ -3,7 +3,11 @@
 // Setup: hold short 1 with a cover-stop just above market, and a long ENTRY stop
 // slightly higher. A single bar whose HIGH crosses BOTH triggers them together.
 //   correct  : cover-stop closes the short (or the flip does) -> net position +1
-//   defective: the flip closes the short AND the cover-stop opens a second long -> +2
+//   defective: position ends at +2
+// NOTE (2026-09-11, #105): the +2 is REAL and TV-matching, but the mechanism first
+// written here — "the cover-stop opens a second long" — is WRONG. The cover-stop
+// closes the short normally; the ENTRY then fills carrying the qty-2 flip it froze
+// at placement. See flip_exit_entry_first.pine, the control that refutes it.
 strategy("FLIP vs EXIT PROBE", overlay=true, pyramiding=0,
      default_qty_type=strategy.fixed, default_qty_value=1,
      initial_capital=10000000000, margin_long=17, margin_short=17)
