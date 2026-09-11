@@ -238,7 +238,17 @@ if pending and not flattening and strategy.position_size == 0 and
 
 // ---------------------------------------------------------------- double-check backstop
 DOUBLE_CHECK_PCT = -0.3
-openPnlPct = strategy.position_size != 0 ? strategy.opentrades.profit_percent(strategy.opentrades - 1) : 0.0
+// PnL% COMPUTED MANUALLY: `strategy.opentrades.profit_percent()` reads 0.0 for an OPEN
+// trade in PyneCore (and upstream) — the per-bar update loop writes `trade.profit` only,
+// and every `profit_percent` assignment lives in a CLOSE path. Using it made this backstop
+// DEAD CODE (measured 2026-09-11: profit went 0 -> -6 while profit_percent stayed 0.0000).
+// entry_price and size ARE live on an open trade, so derive the percentage from price.
+// `_bsDir` inverts it for a short — without it a losing short would report a gain.
+_bsEntry = strategy.opentrades > 0 ? strategy.opentrades.entry_price(strategy.opentrades - 1) : 0.0
+_bsSize  = strategy.opentrades > 0 ? strategy.opentrades.size(strategy.opentrades - 1) : 0.0
+_bsDir   = _bsSize < 0 ? -1.0 : 1.0
+_bsLive  = strategy.position_size != 0 and not na(_bsEntry) and _bsEntry != 0.0
+openPnlPct = _bsLive ? (close - _bsEntry) / _bsEntry * 100.0 * _bsDir : 0.0
 if strategy.position_size != 0 and openPnlPct < DOUBLE_CHECK_PCT
     strategy.cancel_all()
     if operatorCloses

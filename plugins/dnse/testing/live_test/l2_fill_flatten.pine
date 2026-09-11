@@ -3,8 +3,9 @@
 //
 // Gate: run ONLY after LEVEL 1 (live1/live2/live3 place+cancel) all pass. This is the FIRST
 // test that takes a REAL position. It enters exactly ONE market long (1 contract) on the
-// first realtime bar, then closes THAT entry the instant a position is seen — so the
-// contract is held ~1 bar. An enter-once latch makes it trade once and never again.
+// first realtime bar, then closes THAT entry on the NEXT evaluation after the position
+// appears — so the contract is held ~1 bar. An enter-once latch makes it trade once and
+// never again.
 //
 // Why each guard matters (verified against the runtime + plugin, not assumed):
 //   * default_qty_value=1, pyramiding=0  -> one lot, never stacks.
@@ -34,18 +35,49 @@ if barstate.isrealtime and not traded
     strategy.entry("E", strategy.long, comment="MKT 1-lot")
     traded := true
 
-// (2) Flatten OUR entry the instant a position exists (the "cancel immediately" step).
+// (2) Flatten OUR entry on the NEXT evaluation after a position appears.
+//
+// NOT "instantly", despite what this comment used to claim: order commit is DEFERRED, so
+// `strategy.position_size` still reads 0 on the bar that places the entry. This block can
+// therefore only become true one evaluation later (measured 2026-09-11: entry issued bar 1,
+// position first visible bar 2). With calc_on_every_tick=false that is a full bar — at the
+// 5m/15m timeframes this suite runs at, 5-15 minutes of REAL exposure, not an instant.
+//
+// ORDER MATTERS — cancel_all() MUST come BEFORE close(). Both execute in the same
+// evaluation, and `strategy.cancel_all()` clears the exit-order book wholesale
+// (BrokerPosition._cancel_all_orders -> exit_orders.clear()). A close() issued FIRST is
+// stored in exactly that book and is wiped before OrderSyncEngine.sync() can dispatch it,
+// so the flatten silently never reaches the venue. Measured 2026-09-11: as originally
+// written the position stayed open indefinitely; both removing cancel_all and swapping
+// these two lines flatten correctly. Block (3) below already used the correct order.
 if traded and strategy.position_size != 0 and not closing
-    strategy.close("E", comment="FLATTEN")
     strategy.cancel_all()   // explicit: the engine's implicit bracket
                             // teardown left an order working (see log 14:06)
+    strategy.close("E", comment="FLATTEN")
     closing := true
 
 // (3) DOUBLE-CHECK backstop at -0.3%: cancel every working order FIRST (so no resting
 //     leg can re-open exposure right after the flatten), then flatten everything. With
 //     flatten-on-sight above this should never fire — it exists for when that fails.
 DOUBLE_CHECK_PCT = -0.3
-openPnlPct = strategy.position_size != 0 ? strategy.opentrades.profit_percent(strategy.opentrades - 1) : 0.0
+
+// PnL% IS COMPUTED MANUALLY BELOW, ON PURPOSE. `strategy.opentrades.profit_percent()`
+// returns 0.0 for an OPEN trade in PyneCore (and upstream): the per-bar update loop
+// writes `trade.profit` only, and every `profit_percent` assignment lives in a CLOSE
+// path. Measured 2026-09-11 — profit went 0 -> -2 -> -4 -> -6 while profit_percent
+// stayed 0.0000 throughout. Using it made this whole backstop DEAD CODE: `0 < -0.3`
+// is never true. Same defect the strategy repo documented in 2026-08.
+// These ARE live on an open trade (measured in the same run): entry_price, size, profit.
+// So the percentage is derived from price directly. `_bsDir` inverts it for a short —
+// without it a losing short would report a gain.
+// NOTE: this is pure PRICE movement, unlike the engine's profit_percent, which nets
+// commission and divides by total entry cost. For an adverse-move safety stop that is
+// the more appropriate measure, not merely an approximation of it.
+_bsEntry = strategy.opentrades > 0 ? strategy.opentrades.entry_price(strategy.opentrades - 1) : 0.0
+_bsSize  = strategy.opentrades > 0 ? strategy.opentrades.size(strategy.opentrades - 1) : 0.0
+_bsDir   = _bsSize < 0 ? -1.0 : 1.0
+_bsLive = strategy.position_size != 0 and not na(_bsEntry) and _bsEntry != 0.0
+openPnlPct = _bsLive ? (close - _bsEntry) / _bsEntry * 100.0 * _bsDir : 0.0
 if strategy.position_size != 0 and openPnlPct < DOUBLE_CHECK_PCT
     strategy.cancel_all()
     strategy.close_all(comment="DOUBLECHECK")
