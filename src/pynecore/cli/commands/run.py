@@ -672,6 +672,71 @@ def _atomic_ohlcv_download_target(provider: 'ProviderPlugin'):
         temp_path.unlink(missing_ok=True)
 
 
+#: Minimum growth factor for one warmup window extension. Progress must be
+#: guaranteed BY CONSTRUCTION, never by an estimate: a density extrapolation
+#: collapses to a ~0.05% step when a pass lands one bar short of the target, and
+#: the loop then crawls forever (measured, #106).
+_WARMUP_MIN_GROWTH = 2.0
+#: Maximum growth for one extension, so a miss cannot request an absurd range.
+_WARMUP_MAX_GROWTH = 4.0
+#: Over-request factor on the density estimate. Density measured over a short
+#: window reads high (weekends/holidays have not diluted it yet) and would
+#: UNDER-request; measured 241/172/120/153 bars per calendar day at 3/7/14/30d.
+_WARMUP_DENSITY_SAFETY = 1.3
+#: A history-horizon verdict is not believable until the request is wider
+#: than the longest plausible market closure. Vietnamese Tet shuts the VN
+#: venues for ~2 weeks; 21 days clears it plus flanking weekends. Below
+#: this, 'no older bar came back' means 'we asked inside a holiday'.
+_WARMUP_HORIZON_MIN_SPAN_S = 21 * 24 * 3600
+
+
+def plan_next_window(*, time_from: datetime, window_to: datetime,
+                     oldest: datetime | None, bar_count: int, real_bars: int,
+                     tf_seconds: int) -> datetime:
+    """Choose the next warmup window start after a short download (#106).
+
+    Anchored on the REQUESTED window, never on the data the venue served. That
+    distinction is the whole fix: the previous implementation anchored on the
+    oldest SERVED bar, so a window extension landing inside a market closure
+    returned no older bar, left the anchor unmoved, and produced a byte-identical
+    candidate — a fixed point that repeated one attempt until the retries ran out
+    (measured on DNSE VN30F1M @1m: 391 -> 1114 -> 1596 -> 1596 -> 1596 ...).
+
+    Strategy: extrapolate from the observed bar density, then floor the result at
+    :data:`_WARMUP_MIN_GROWTH` so progress cannot stall, and cap it at
+    :data:`_WARMUP_MAX_GROWTH` so a bad estimate cannot request years of history.
+    ``real_bars == 0`` leaves density undefined and falls through to the floor.
+
+    :param time_from: Current window start (the REQUEST, not the data).
+    :param window_to: Window end; fixed across retries.
+    :param oldest: Oldest bar served — accepted for logging/diagnostics only, and
+        deliberately NOT used to anchor the next window.
+    :param bar_count: Real bars the caller needs.
+    :param real_bars: Real bars this pass actually produced.
+    :param tf_seconds: Timeframe length in seconds.
+    :return: The next window start; never later than ``time_from``.
+    """
+    del oldest, tf_seconds  # anchoring on served data is exactly the defect
+    span = window_to - time_from
+    if span.total_seconds() <= 0:
+        span = timedelta(seconds=1)
+
+    floor = window_to - span * _WARMUP_MIN_GROWTH
+    ceiling = window_to - span * _WARMUP_MAX_GROWTH
+
+    if real_bars > 0 and bar_count > real_bars:
+        # Bars per unit span, extrapolated to the full requirement.
+        wanted = span * (bar_count / real_bars * _WARMUP_DENSITY_SAFETY)
+        candidate = window_to - wanted
+    else:
+        candidate = floor
+
+    # Datetimes compare as instants: "earlier" == "further back" == smaller.
+    candidate = min(candidate, floor)      # at least the floor growth
+    candidate = max(candidate, ceiling)    # but no more than the cap
+    return min(time_from, candidate)
+
+
 def _download_provider_data(provider_str: str, time_from_str: str | None) -> _ProviderData:
     """
     Download historical data from a provider and return the result.
@@ -796,6 +861,9 @@ def _download_provider_data(provider_str: str, time_from_str: str | None) -> _Pr
         # history horizon is reached and extending again is pointless — we
         # stop and surface that precise reason instead of burning retries.
         prev_oldest_ts: int | None = None
+        #: Span of the window tried on the previous attempt. The horizon
+        #: verdict is gated on this having actually grown (#106).
+        prev_span_seconds: float | None = None
         # Serialize the truncate-and-rewrite (and the verification reads) against
         # any concurrent run sharing this ``.ohlcv`` file: a second process waits
         # on the kernel flock and then reads a complete file, never a
@@ -842,12 +910,31 @@ def _download_provider_data(provider_str: str, time_from_str: str | None) -> _Pr
                 if real_bars >= bar_count:
                     break
 
-                # History-horizon check: if extending ``from`` earlier did not
-                # surface any older bar than the previous attempt, the venue has
-                # no more history — retrying cannot help, so report precisely now.
+                # History-horizon check: the venue has no more history when a
+                # MATERIALLY WIDER request still surfaces no older bar.
+                #
+                # All three conditions are load-bearing (#106). The original
+                # check tested only the first, and that is a bug, not a
+                # simplification: two passes that both land inside a market
+                # closure return the same oldest bar and thereby "prove" a
+                # horizon that does not exist. Measured — with the closure of
+                # 2026-08-29..09-02 the loop aborted while the same API still
+                # served 20,003 bars for a 120-day window; with a Tet-length
+                # closure even a perfect doubling planner aborted at attempt 1.
+                #
+                #  * the served oldest bar did not move, AND
+                #  * the REQUEST actually grew by at least the planner's floor —
+                #    otherwise we are reading a stalled window as a venue limit, AND
+                #  * the request is already wider than the longest plausible
+                #    market closure, so a holiday cluster cannot masquerade as
+                #    the end of history.
+                current_span_seconds = (time_to_dt - time_from_dt).total_seconds()
                 horizon_reached = (
                     prev_oldest_ts is not None and oldest_ts is not None
                     and oldest_ts >= prev_oldest_ts
+                    and prev_span_seconds is not None
+                    and current_span_seconds >= prev_span_seconds * _WARMUP_MIN_GROWTH
+                    and current_span_seconds >= _WARMUP_HORIZON_MIN_SPAN_S
                 )
 
                 if horizon_reached or attempt == max_retries:
@@ -874,6 +961,7 @@ def _download_provider_data(provider_str: str, time_from_str: str | None) -> _Pr
                     break
 
                 prev_oldest_ts = oldest_ts
+                prev_span_seconds = current_span_seconds
 
                 # Extend the range, anchoring on the oldest bar actually served so
                 # the next pass reaches strictly-older history: request the missing
@@ -883,17 +971,16 @@ def _download_provider_data(provider_str: str, time_from_str: str | None) -> _Pr
                 # oldest cursor and be misread as the venue history horizon. The
                 # over-fetch is harmless — the range is pinned to exactly N real
                 # bars below.
-                anchor_ts = oldest_ts if oldest_ts is not None else window_from_ts
-                missing = bar_count - real_bars
-                candidate = (
-                    datetime.fromtimestamp(anchor_ts / 1000, UTC).replace(tzinfo=None)
-                    - timedelta(seconds=tf_seconds * (missing + 10))
-                    - timedelta(days=3)
+                oldest_dt = (
+                    datetime.fromtimestamp(oldest_ts / 1000, UTC).replace(tzinfo=None)
+                    if oldest_ts is not None else None
                 )
-                if time_from_dt.tzinfo is not None:
-                    candidate = candidate.replace(tzinfo=UTC)
-                # Only ever move the window start earlier.
-                time_from_dt = min(time_from_dt, candidate)
+                if time_from_dt.tzinfo is not None and oldest_dt is not None:
+                    oldest_dt = oldest_dt.replace(tzinfo=UTC)
+                time_from_dt = plan_next_window(
+                    time_from=time_from_dt, window_to=time_to_dt, oldest=oldest_dt,
+                    bar_count=bar_count, real_bars=real_bars, tf_seconds=tf_seconds,
+                )
 
             assert provider_instance.ohlcv_path is not None
 
