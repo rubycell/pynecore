@@ -31,6 +31,9 @@ dnse_broker = "pynecore_dnse.broker:DNSEBroker"
 # TESTING ONLY (#101): event-paced bar delivery for the staged probes —
 # opt-in by NAME; production dnse_broker runs are structurally untouched.
 dnse_event = "pynecore_dnse.event_clock:EventClockBroker"
+# TESTING ONLY (#114): Sandbox Replay E2E — replay-fed data + sandbox orders;
+# opt-in by NAME; production dnse_broker runs are structurally untouched.
+dnse_replay_sandbox = "pynecore_dnse.replay_sandbox:ReplaySandboxBroker"
 
 [tool.setuptools.packages.find]
 include = ["pynecore_dnse*"]
