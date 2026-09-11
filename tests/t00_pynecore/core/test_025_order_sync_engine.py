@@ -14267,3 +14267,63 @@ def __test_bare_external_cancel_still_quarantines_control__():
     assert engine._quarantined, (
         "a bare external cancel no longer quarantines — the #94 fix must "
         "only exempt VENUE-marked lifecycle ends")
+
+
+# === #107 baseline: protection is armed at the next sync, not on the fill event ===
+
+
+def __test_107_baseline_fill_event_does_not_arm_protection_until_next_sync__():
+    """MEASURED BASELINE for #107 — the one-bar unprotected window.
+
+    On a standalone-exit venue (DNSE: ``exit_orders_execute_standalone``), a
+    protective exit is skipped while its parent entry is unfilled (#82b — a
+    naked standalone conditional would OPEN a position). The engine keeps the
+    intent out of ``_active_intents`` and re-evaluates it every sync, so the
+    bracket dispatches on the first sync AFTER the fill lands — up to one bar
+    positioned-but-unprotected. Mirrors the live l2b measurement (2026-09-11):
+    entry filled bar 501, bracket dispatched bar 502.
+
+    The #107 gap is TIMING: the fill is known (0.5s poll / WS) but protection
+    is armed only at the next sync. Partial-fill SIZING is separately already
+    correct (``_reducible_exit_qty`` clamps a whole-row exit to the live
+    position). When #107 lands (arm on the fill), the ``exit_calls == []``
+    assertion after ``apply_async_events`` flips.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    # DNSE-shaped venue: exits execute as standalone conditionals -> #82b applies.
+    engine._exit_orders_execute_standalone = True
+
+    # Stop entry for 1, with a bound TP/SL bracket (faithful to live l2b).
+    pos.entry_orders["E"] = _entry_order("E", 1.0, stop=50_000.0)
+    pos.exit_orders[("X", "E")] = _exit_order(
+        "E", 1.0, "X", limit=50_100.0, stop=49_900.0,
+    )
+
+    # Bar 0: entry dispatches; bracket SKIPPED — no position to protect (#82b).
+    engine.sync(BAR_TS)
+    assert len(b.entry_calls) == 1, "entry should dispatch on the first sync"
+    assert b.exit_calls == [], (
+        "#82b: bracket must not arm before the entry fills (naked standalone)"
+    )
+
+    # The entry FILLS — the venue event arrives asynchronously (0.5s poll / WS).
+    engine.on_order_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+        xchg_id="xchg-1",
+    ))
+    engine.apply_async_events()
+
+    # THE GAP: the position is real now, but protection is still not dispatched.
+    assert pos.size == 1.0, "the fill must be applied to the position"
+    assert b.exit_calls == [], (
+        "#107 BASELINE: the fill event alone does NOT arm the protective "
+        "bracket — it waits for the next sync. This is the one-bar unprotected "
+        "window. When #107 lands this assertion flips."
+    )
+
+    # (Live l2b then armed the bracket at the NEXT bar's sync — bar 502 — via the
+    # runner re-emitting strategy.exit each bar. That round-trip needs the full
+    # runner loop, not this engine-only harness, so it is the live evidence on the
+    # card rather than an assertion here. The load-bearing gap is the one above:
+    # processing the fill did not, by itself, dispatch protection.)
