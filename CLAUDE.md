@@ -330,7 +330,11 @@ the full lifecycle on `order.DERIVATIVE.json`.
   has no market data. Drive it from a standalone probe: `sandbox_lifecycle_probe.py` (raw client
   lifecycle + WS) or `sandbox_arm_on_fill_probe.py` (full engine + real broker). For fake-realtime
   bars in an engine probe, wire the data-only `replay` provider (`providers/replay.py`) + a real
-  broker together IN the probe.
+  broker together IN the probe. Name this shape a **Sandbox Replay E2E**: replay bars driving a
+  real strategy through the engine while orders route to the sandbox — the only DETERMINISTIC,
+  offline exercise of the REAL broker + engine order/fill path (backtest uses the sim engine;
+  live needs real money + market hours). `sandbox_arm_on_fill_probe.py` is the engine-driven
+  half; adding the replay-bar feed completes it.
 - **The full engine runs against the sandbox, not just the raw client.**
   `plugins/dnse/testing/sandbox_arm_on_fill_probe.py` drives the real `DNSEBroker` +
   `OrderSyncEngine` and a real auto-fill to prove the engine's arm-on-fill path places a real
