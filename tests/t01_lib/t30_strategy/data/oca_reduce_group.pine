@@ -1,0 +1,25 @@
+//@version=6
+// strategy.oca.reduce — the OCA type nothing in the suite exercised.
+//
+// The three OCA types only diverge on a PARTIAL fill, which is why this uses a
+// 2-contract position with a 1-contract first leg:
+//   reduce -> the sibling's qty is REDUCED by the filled amount (2 -> 1) and keeps
+//             working, so the stop still closes the remainder
+//   cancel -> the sibling is removed outright, leaving the remainder open
+//   none   -> the sibling is untouched at its full 2, so it can overshoot
+// A group that ignored its type would give all three the same answer, so each
+// variant is a control for the others.
+strategy("oca.reduce", initial_capital = 100000,
+         default_qty_type = strategy.fixed, default_qty_value = 2)
+
+if bar_index == 2
+    strategy.entry("L", strategy.long)
+if bar_index == 3
+    strategy.order("X1", strategy.short, qty = 1, limit = 110.0,
+                   oca_name = "grp", oca_type = strategy.oca.reduce)
+    strategy.order("X2", strategy.short, qty = 2, stop = 95.0,
+                   oca_name = "grp", oca_type = strategy.oca.reduce)
+
+plot(strategy.position_size, "pos")
+plot(strategy.closedtrades, "closed")
+plot(strategy.opentrades, "open")

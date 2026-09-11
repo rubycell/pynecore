@@ -1,0 +1,20 @@
+//@version=6
+// strategy.direction.long — the control for direction_gate_all: the SHORT entry
+// must be refused, so the pair proves the gate reads its argument.
+strategy("direction.long gate", initial_capital = 100000,
+         default_qty_type = strategy.fixed, default_qty_value = 1)
+
+strategy.risk.allow_entry_in(strategy.direction.long)
+
+if bar_index == 2
+    strategy.entry("L", strategy.long)
+if bar_index == 5
+    strategy.close("L")
+if bar_index == 8
+    strategy.entry("S", strategy.short)
+if bar_index == 11
+    strategy.close("S")
+
+plot(strategy.position_size, "pos")
+plot(strategy.closedtrades, "closed")
+plot(strategy.wintrades + strategy.losstrades + strategy.eventrades, "booked")

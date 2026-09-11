@@ -1,0 +1,22 @@
+//@version=6
+// strategy.direction.all — the permissive setting of strategy.risk.allow_entry_in().
+// With it, BOTH a long and a short entry must reach the position; the sibling
+// constants (direction.long / direction.short) each block the other side, so a
+// gate that ignored its argument would pass a one-sided test and fail here.
+strategy("direction.all gate", initial_capital = 100000,
+         default_qty_type = strategy.fixed, default_qty_value = 1)
+
+strategy.risk.allow_entry_in(strategy.direction.all)
+
+if bar_index == 2
+    strategy.entry("L", strategy.long)
+if bar_index == 5
+    strategy.close("L")
+if bar_index == 8
+    strategy.entry("S", strategy.short)
+if bar_index == 11
+    strategy.close("S")
+
+plot(strategy.position_size, "pos")
+plot(strategy.closedtrades, "closed")
+plot(strategy.wintrades + strategy.losstrades + strategy.eventrades, "booked")
