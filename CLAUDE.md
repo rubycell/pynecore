@@ -287,6 +287,29 @@ Trading-token workflow (OTP mint, ~8h TTL, status check): `plugins/dnse/tools/RE
   `sed 's/\x1b\[[0-9;]*m//g' f.log | grep -aoE '\[(L1|F|BROKER)\][^[]*' > f_evidence.txt`
   and park the raw log in `backup/deleteable/`.
 
+## DNSE Sandbox — free fill/WS testing (no real money, no market hours, no OTP dance)
+
+DNSE has a **Sandbox** (mock env, separate keys) that AUTO-runs the order lifecycle
+`PendingNew -> New -> PartiallyFilled -> Filled` and pushes it on the trading WS — so fill
+and WS-order-event testing costs nothing and needs no session. Proven end-to-end 2026-09-11
+(#107): `plugins/dnse/testing/sandbox_lifecycle_probe.py` places a NORMAL order and captures
+the full lifecycle on `order.DERIVATIVE.json`.
+
+- **Endpoints:** REST `https://sb-openapi.dnse.com.vn`, WS `wss://ws-sb-openapi.dnse.com.vn`
+  (the docs also list a `-uat` WS host; the plain one works). Same auth/signature/paths as prod.
+- **OTP is mocked:** the trading-token passcode is the fixed public constant **666666** (any accepted OTP type). So the sandbox token mint is NOT real-2FA entry — mint it freely.
+- **Config:** `workdir/config/plugins/dnse_sandbox.toml` (gitignored) with sandbox
+  key/secret + the sandbox base_url/ws_url + a SEPARATE token_file under `workdir/state/` so it never clobbers the prod token.
+  Keys come from `.env` (`DNSE_SANDBOX_API_KEY`/`_SECRET`) — move file-to-file, never echo.
+- **The WS order channel is CASE-SENSITIVE:** `order.DERIVATIVE.json` / `order.STOCK.json`
+  UPPERCASE market_type (docs + SDK default). A lowercase name is silently accepted
+  (`status: active`) but streams NOTHING — this produced a false "trading WS is silent"
+  verdict for a while. The payload nests the order under `msg["order"]` (`T:"do"`;
+  positions `T:"dp"`), carrying `orderStatus`/`fillQuantity`/`quantity`.
+- **LIMIT:** Sandbox supports **NORMAL orders only** — no conditional STOP/OCO. So the
+  fill-detection + WS half is fully testable in Sandbox; the conditional-bracket PLACEMENT
+  half (the #82b path) still needs production. Data resets periodically; not for perf/strategy eval.
+
 ## request.security() on DNSE — indices work, wired by symbol_map (not `--security`)
 
 DNSE serves market INDICES (`VNINDEX`, `VN30`) on `/price/ohlc?type=INDEX` — ~1 year of
