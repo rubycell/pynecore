@@ -1,0 +1,26 @@
+//@version=6
+// Scenario C: does strategy.eventrades count a trade that closes at exactly
+// breakeven?
+//
+// The liveness scenarios never produce one -- a breakeven needs profit to land on
+// exactly 0.0, which a percentage commission makes unreachable, and which an SMA
+// crossover only reaches if an entry and its exit happen to fill at the very same
+// price. That leaves eventrades reading 0 in both, indistinguishable from a member
+// that does not work at all.
+//
+// This probe removes the doubt by constructing the condition: run it over a flat
+// price series with no commission, so the entry and the close both fill at 100.0
+// and the trade's profit is exactly zero.
+strategy("Breakeven trade", initial_capital = 100000,
+         default_qty_type = strategy.fixed, default_qty_value = 1)
+
+if bar_index == 2
+    strategy.entry("BE", strategy.long, comment = "be")
+if bar_index == 6
+    strategy.close("BE", comment = "be_out")
+
+plot(strategy.eventrades, "eventrades")
+plot(strategy.wintrades, "wintrades")
+plot(strategy.losstrades, "losstrades")
+plot(strategy.closedtrades, "closedtrades")
+plot(strategy.closedtrades > 0 ? strategy.closedtrades.profit(0) : 0.0, "profit")

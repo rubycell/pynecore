@@ -1,0 +1,29 @@
+//@version=6
+// Characterization probe for the closed-trade list limit (upstream issue #84).
+//
+// Reversing on every bar books one closed trade per bar, so a long enough run
+// pushes more trades through than the list retains. Three things go wrong there,
+// and this probe reports all of them:
+//
+//   strategy.closedtrades            stops counting at the retention limit, while
+//                                    the reference defines it as the count "for the
+//                                    whole trading range"
+//   strategy.closedtrades.first_index stays 0, where the reference says it becomes
+//                                    the index of the oldest REMAINING trade
+//   closedtrades.*(n)                address a different trade than they did before
+//                                    eviction, silently
+//
+// `real_total` is the control: the win/loss/breakeven counters keep counting past
+// the limit, so their sum is what `strategy.closedtrades` should have reported.
+strategy("closed trade list overflow", initial_capital = 10000000,
+         default_qty_type = strategy.fixed, default_qty_value = 1)
+
+if bar_index % 2 == 0
+    strategy.entry("L", strategy.long)
+else
+    strategy.entry("S", strategy.short)
+
+plot(strategy.closedtrades, "closedtrades")
+plot(strategy.wintrades + strategy.losstrades + strategy.eventrades, "real_total")
+plot(strategy.closedtrades.first_index, "first_index")
+plot(strategy.closedtrades > 0 ? strategy.closedtrades.entry_bar_index(0) : -1.0, "trade0_entry_bar")

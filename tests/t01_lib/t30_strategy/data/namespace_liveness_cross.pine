@@ -1,0 +1,96 @@
+//@version=6
+// Scenario B of the strategy-namespace liveness probe: the same 66 witnesses as
+// namespace_liveness.pine, but driven by an SMA(5/20) crossover instead of a
+// scripted sequence -- dozens of trades on both sides over 900 bars.
+//
+// No commission here, deliberately: scenario A carries the fee (and so covers the
+// commission members), while a fee makes a breakeven trade unreachable. A member
+// counts as alive if EITHER scenario brings it to life, so one scenario's blind
+// spot cannot condemn a member that works.
+//
+// NOTE: 66 plots exceeds TradingView's 64-plot cap, so this runs under PyneCore.
+// Split it before pasting into TradingView.
+strategy("Strategy namespace liveness (SMA cross)", initial_capital = 100000,
+         default_qty_type = strategy.fixed, default_qty_value = 1,
+         margin_long = 50, margin_short = 50)
+
+fast = ta.sma(close, 5)
+slow = ta.sma(close, 20)
+if ta.crossover(fast, slow)
+    strategy.entry("L", strategy.long, comment = "up")
+if ta.crossunder(fast, slow)
+    strategy.entry("S", strategy.short, comment = "dn")
+
+// ---- strategy.* ----------------------------------------------------------
+plot(na(strategy.account_currency) ? na : str.length(strategy.account_currency), "s__account_currency")
+plot(strategy.avg_losing_trade, "s__avg_losing_trade")
+plot(strategy.avg_losing_trade_percent, "s__avg_losing_trade_percent")
+plot(strategy.avg_trade, "s__avg_trade")
+plot(strategy.avg_trade_percent, "s__avg_trade_percent")
+plot(strategy.avg_winning_trade, "s__avg_winning_trade")
+plot(strategy.avg_winning_trade_percent, "s__avg_winning_trade_percent")
+plot(strategy.equity, "s__equity")
+plot(strategy.eventrades, "s__eventrades")
+plot(strategy.grossloss, "s__grossloss")
+plot(strategy.grossloss_percent, "s__grossloss_percent")
+plot(strategy.grossprofit, "s__grossprofit")
+plot(strategy.grossprofit_percent, "s__grossprofit_percent")
+plot(strategy.initial_capital, "s__initial_capital")
+plot(strategy.losstrades, "s__losstrades")
+plot(strategy.margin_liquidation_price, "s__margin_liquidation_price")
+plot(strategy.max_contracts_held_all, "s__max_contracts_held_all")
+plot(strategy.max_contracts_held_long, "s__max_contracts_held_long")
+plot(strategy.max_contracts_held_short, "s__max_contracts_held_short")
+plot(strategy.max_drawdown, "s__max_drawdown")
+plot(strategy.max_drawdown_percent, "s__max_drawdown_percent")
+plot(strategy.max_runup, "s__max_runup")
+plot(strategy.max_runup_percent, "s__max_runup_percent")
+plot(strategy.netprofit, "s__netprofit")
+plot(strategy.netprofit_percent, "s__netprofit_percent")
+plot(strategy.openprofit, "s__openprofit")
+plot(strategy.openprofit_percent, "s__openprofit_percent")
+plot(strategy.position_avg_price, "s__position_avg_price")
+plot(na(strategy.position_entry_name) ? na : str.length(strategy.position_entry_name), "s__position_entry_name")
+plot(strategy.position_size, "s__position_size")
+plot(strategy.wintrades, "s__wintrades")
+
+// ---- strategy.opentrades.* ----------------------------------------------
+hasOpen = strategy.opentrades > 0
+plot(strategy.opentrades, "o__opentrades")
+plot(hasOpen ? strategy.opentrades.capital_held : na, "o__capital_held")
+plot(hasOpen ? strategy.opentrades.commission(0) : na, "o__commission")
+plot(hasOpen ? strategy.opentrades.entry_bar_index(0) : na, "o__entry_bar_index")
+plot(hasOpen and not na(strategy.opentrades.entry_comment(0)) ? str.length(strategy.opentrades.entry_comment(0)) : na, "o__entry_comment")
+plot(hasOpen and not na(strategy.opentrades.entry_id(0)) ? str.length(strategy.opentrades.entry_id(0)) : na, "o__entry_id")
+plot(hasOpen ? strategy.opentrades.entry_price(0) : na, "o__entry_price")
+plot(hasOpen ? strategy.opentrades.entry_time(0) : na, "o__entry_time")
+plot(hasOpen ? strategy.opentrades.max_drawdown(0) : na, "o__max_drawdown")
+plot(hasOpen ? strategy.opentrades.max_drawdown_percent(0) : na, "o__max_drawdown_percent")
+plot(hasOpen ? strategy.opentrades.max_runup(0) : na, "o__max_runup")
+plot(hasOpen ? strategy.opentrades.max_runup_percent(0) : na, "o__max_runup_percent")
+plot(hasOpen ? strategy.opentrades.profit(0) : na, "o__profit")
+plot(hasOpen ? strategy.opentrades.profit_percent(0) : na, "o__profit_percent")
+plot(hasOpen ? strategy.opentrades.size(0) : na, "o__size")
+
+// ---- strategy.closedtrades.* --------------------------------------------
+hasClosed = strategy.closedtrades > 0
+plot(strategy.closedtrades, "c__closedtrades")
+plot(strategy.closedtrades.first_index, "c__first_index")
+plot(hasClosed ? strategy.closedtrades.commission(0) : na, "c__commission")
+plot(hasClosed ? strategy.closedtrades.entry_bar_index(0) : na, "c__entry_bar_index")
+plot(hasClosed and not na(strategy.closedtrades.entry_comment(0)) ? str.length(strategy.closedtrades.entry_comment(0)) : na, "c__entry_comment")
+plot(hasClosed and not na(strategy.closedtrades.entry_id(0)) ? str.length(strategy.closedtrades.entry_id(0)) : na, "c__entry_id")
+plot(hasClosed ? strategy.closedtrades.entry_price(0) : na, "c__entry_price")
+plot(hasClosed ? strategy.closedtrades.entry_time(0) : na, "c__entry_time")
+plot(hasClosed ? strategy.closedtrades.exit_bar_index(0) : na, "c__exit_bar_index")
+plot(hasClosed and not na(strategy.closedtrades.exit_comment(0)) ? str.length(strategy.closedtrades.exit_comment(0)) : na, "c__exit_comment")
+plot(hasClosed and not na(strategy.closedtrades.exit_id(0)) ? str.length(strategy.closedtrades.exit_id(0)) : na, "c__exit_id")
+plot(hasClosed ? strategy.closedtrades.exit_price(0) : na, "c__exit_price")
+plot(hasClosed ? strategy.closedtrades.exit_time(0) : na, "c__exit_time")
+plot(hasClosed ? strategy.closedtrades.max_drawdown(0) : na, "c__max_drawdown")
+plot(hasClosed ? strategy.closedtrades.max_drawdown_percent(0) : na, "c__max_drawdown_percent")
+plot(hasClosed ? strategy.closedtrades.max_runup(0) : na, "c__max_runup")
+plot(hasClosed ? strategy.closedtrades.max_runup_percent(0) : na, "c__max_runup_percent")
+plot(hasClosed ? strategy.closedtrades.profit(0) : na, "c__profit")
+plot(hasClosed ? strategy.closedtrades.profit_percent(0) : na, "c__profit_percent")
+plot(hasClosed ? strategy.closedtrades.size(0) : na, "c__size")

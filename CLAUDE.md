@@ -48,6 +48,34 @@ Only tracked files exist there. Consequences:
   (pre-existing upstream red since the 6.9.1 sync, 818b63a; pytest.ini carries
   `-x`, so without the deselect the run stops early and incomplete).
 
+## Strategy code is AUTHORED IN `.pine`, never hand-written in Python (CRITICAL)
+
+Any strategy — and any TEST or probe that exercises strategy behaviour — is
+written as a **`.pine` file first**, then transpiled with pine2pyne. Do NOT
+hand-write the `@pyne` Python, even when it looks quicker and even for a
+throwaway probe.
+
+Why: Pine is the source of truth. A hand-written `@pyne` file is a second
+dialect nobody validates — it can use idioms the transpiler would never emit, so
+it proves things about PyneCore that no real (transpiled) strategy would ever
+hit, and it cannot be pasted into TradingView to check what the answer SHOULD
+be. Authoring in `.pine` keeps every test runnable on both engines, which is the
+only way a "PyneCore disagrees with TradingView" claim can be settled.
+
+```bash
+# author            edit foo.pine
+cd /home/mike/workspace/github/pine2pyne
+.venv/bin/python -m pine2pyne /abs/path/to/foo.pine -o /abs/path/to/foo.py
+# then run the generated foo.py (see below)
+```
+
+Keep the `.pine` next to its generated `.py` and re-transpile after every edit —
+the `.py` is a build artifact, so never edit it by hand (the change is lost on
+the next transpile, and the two silently disagree until then).
+
+The exception is engine/runtime tests that are not strategy behaviour at all
+(AST transforms, storage, plugin plumbing) — those are ordinary Python tests.
+
 ## Pine → Python: use the LOCAL pine2pyne transpiler, NOT the cloud API
 
 To compile a `.pine` strategy to the `.py` that `pyne run` executes, use the
