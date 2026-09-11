@@ -273,7 +273,14 @@ so a TradingView-style symbol is a CONFIG entry, never code:
 "VNINDEX"   = "dnse:VNINDEX"
 ```
 
-With that plus the `.ohlcv` files, backtest AND live resolve with **no `--security` flags**.
+**Backtest**: with that map plus the `.ohlcv` files, contexts resolve with **no `--security`
+flags** (verified 2026-09-10).
+
+**Live**: verified only WITH explicit flags so far —
+`--security 'VNINDEX:15=VNINDEX' --security 'HOSE:VN30:15=VN30'` delivered real, moving,
+chart-distinct index values. The framework documents a live fallback that resolves through
+`resolve_symbol` and builds the `PluginSymbol` itself (`script_runner.py`), so the map alone
+*should* be enough — but that has NOT been run, so pass the flags until someone measures it.
 Live warms up and streams each security in its own subprocess with its own provider instance.
 
 Two things that look like feed bugs and are NOT:
