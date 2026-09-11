@@ -127,7 +127,12 @@ def main(
             state += 1
 
     DOUBLE_CHECK_PCT = -0.3
-    openPnlPct = (strategy.opentrades.profit_percent(strategy.opentrades - 1) if strategy.position_size != 0 else 0.0)
+
+    _bsEntry = (strategy.opentrades.entry_price(strategy.opentrades - 1) if strategy.opentrades > 0 else 0.0)
+    _bsSize = (strategy.opentrades.size(strategy.opentrades - 1) if strategy.opentrades > 0 else 0.0)
+    _bsDir = (-1.0 if _bsSize < 0 else 1.0)
+    _bsLive = strategy.position_size != 0 and (not na(_bsEntry)) and _bsEntry != 0.0
+    openPnlPct = ((close - _bsEntry) / _bsEntry * 100.0 * _bsDir if _bsLive else 0.0)
     if strategy.position_size != 0 and openPnlPct < DOUBLE_CHECK_PCT:
         strategy.cancel_all()
         if operatorCloses:
