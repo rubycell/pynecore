@@ -1028,6 +1028,9 @@ class OrderSyncEngine:
         #: — gates the pre-fill protection withhold + qty clamp below.
         self._exit_orders_execute_standalone = getattr(
             caps, 'exit_orders_execute_standalone', False)
+        #: #111: arm protective exits on the fill event, not at next bar-close sync.
+        self._arm_protection_on_fill = getattr(
+            caps, 'arm_protection_on_fill', False)
         #: #87: plugin executes both-set entries natively as stop-limits —
         #: the software entry-stop watch (arm + restart replay) is disabled
         #: so exactly ONE handler owns the intent.
@@ -5058,6 +5061,7 @@ class OrderSyncEngine:
 
     def _drain_events(self) -> None:
         drained_any = False
+        filled_any = False
         while True:
             # Snapshot everything currently queued into one batch before
             # routing any of it. Routing per-batch (instead of one
@@ -5090,6 +5094,13 @@ class OrderSyncEngine:
                         continue
                     self._route_event(event)
                     drained_any = True
+                    # #111: a fill/partial just opened or grew a position its
+                    # protective exit must now cover. Flag it here (main
+                    # thread, mid-drain) and act on it at the drain tail once
+                    # ``position.size`` has settled — never on a cancel-only
+                    # drain, which could otherwise re-arm a just-cancelled exit.
+                    if event.event_type in ('filled', 'partial'):
+                        filled_any = True
             finally:
                 self._drain_batch = []
                 self._drain_batch_pos = 0
@@ -5104,6 +5115,14 @@ class OrderSyncEngine:
         if drained_any:
             self._retry_forced_cancels()
             self._reconcile_short_gate_after_fill()
+            # #111: close the ~1-bar unprotected window (#82b / #107) for
+            # opted-in venues by arming the just-filled entry's protective
+            # exit NOW instead of at the next bar-close ``sync``. Gated on a
+            # real fill and on the ``arm_protection_on_fill`` capability
+            # (OFF by default) — every other plugin keeps the accepted
+            # dispatch-at-next-sync behaviour byte-for-byte.
+            if filled_any and self._arm_protection_on_fill:
+                self._arm_protective_exits_after_fill()
 
     def _route_event(self, event: OrderEvent) -> None:
         # Generic ``event %s`` arrival logging happens in
@@ -9112,6 +9131,64 @@ class OrderSyncEngine:
                         in self._position.exit_orders):
                     continue
                 self._seed_partial_bracket_exit_from_legs(ikey, legs)
+
+    def _arm_protective_exits_after_fill(self) -> None:
+        """Arm a just-filled entry's protective exit on the FILL, not next sync.
+
+        The full-bracket twin of :meth:`_promote_pending_partial_bracket_legs`
+        (which does the same for SOFTWARE *partial* brackets). Runs at the tail
+        of :meth:`_drain_events` — on the MAIN thread, after the batch settled
+        ``position.size`` — and ONLY when a fill/partial drained and the plugin
+        opted in via ``arm_protection_on_fill`` (off by default).
+
+        Why it exists: on a standalone-exit venue the ``#82b`` guard in
+        :meth:`_dispatch_new` refuses a protective exit while its parent entry
+        is unfilled (a naked conditional would OPEN a position if the market
+        crossed its trigger), so protection only dispatches on the first
+        ``sync`` AFTER the fill lands — up to one bar unprotected-but-positioned
+        (accepted + documented in #107). For an opted-in venue this closes that
+        window by re-driving the SAME single-intent dispatch path ``sync`` uses,
+        now that the fill has made the position reducible so ``#82b`` admits it.
+
+        Value-identity is the contract: the intent is built through the SAME
+        pipeline ``sync`` runs (:func:`build_intents` on the exit book only ->
+        ``_resolve_ticks`` -> ``_apply_interceptors`` -> ``_clamp_close_intents``)
+        so the intent registered in ``_active_intents`` here is byte-equal to the
+        one the following ``sync`` rebuilds — that ``sync`` then sees no diff and
+        does not emit a redundant ``modify_exit`` (an amend-500 on DNSE).
+        Interceptors therefore fire once here in addition to the regular per-sync
+        firing; they already run every bar on the re-emitted intent, so a
+        per-bar-pure interceptor (the contract) tolerates it.
+
+        Idempotent: an exit already in ``_active_intents`` (armed at a prior
+        sync, or by an earlier fill in a cumulative-partial progression) is
+        skipped, as is one whose parent is not (yet) in ``open_trades``. An exit
+        whose position is somehow still not reducible re-raises ``#82b``'s
+        :class:`OrderSkippedByPlugin`, swallowed here exactly as the diff loop
+        swallows it — the next ``sync`` retries, unchanged.
+        """
+        raw = build_intents(
+            {}, self._position.exit_orders, self._symbol,
+            self._position.open_trades,
+        )
+        resolved = [self._resolve_ticks(intent) for intent in raw]
+        final = self._clamp_close_intents(self._apply_interceptors(resolved))
+        open_entry_ids = {trade.entry_id for trade in self._position.open_trades}
+        for intent in final:
+            if not isinstance(intent, ExitIntent):
+                continue
+            intent_key = intent.intent_key
+            if intent_key in self._active_intents:
+                continue  # already armed (prior sync / earlier partial)
+            if intent.from_entry not in open_entry_ids:
+                continue  # parent not live -> nothing to protect; leave to sync
+            if intent.has_unresolved_ticks:
+                continue  # no price yet to resolve the level; sync will defer it
+            try:
+                self._dispatch_new(intent)
+            except OrderSkippedByPlugin:
+                continue  # #82b: still not reducible; next sync retries as today
+            self._active_intents[intent_key] = intent
 
     def _sync_pine_exit_qty(self, bracket: ExitIntent, new_qty: float) -> None:
         """Mutate the Pine-side exit :class:`Order` to match the amended qty.

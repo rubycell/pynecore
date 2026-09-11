@@ -447,6 +447,17 @@ class ExchangeCapabilities:
     # pre-fill dispatch contract is preserved there.
     exit_orders_execute_standalone: bool = False
 
+    # #111: True when the plugin wants the engine to ARM dependent protective
+    # exits (TP/SL bracket) on the FILL EVENT instead of at the next bar-close
+    # sync — closing the ~1-bar positioned-but-unprotected window on a
+    # standalone-exit, no-attach, closed-bar venue (DNSE). Opt-in per plugin so
+    # attach-semantics venues (Bybit/Capital.com/cTrader), which arm protection
+    # natively on fill, stay BYTE-FOR-BYTE unchanged. The arm always runs on the
+    # MAIN thread through the existing single-consumer drain (never the broker
+    # loop — that deadlocks, sync_engine.py:19457), registering the armed bracket
+    # in _active_intents so the next sync sees no diff and cannot double-place.
+    arm_protection_on_fill: bool = False
+
     # #87: True when the plugin executes a both-set entry (limit AND stop)
     # natively as ONE stop-limit order (DNSE: conditional-book STOP-LIMIT;
     # crossed-at-placement -> immediate capped LO, #34). When True the

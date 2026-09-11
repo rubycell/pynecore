@@ -14390,3 +14390,62 @@ def __test_111_baseline_sandbox_ws_fill_frame_drives_engine_position__():
         "#111: a real sandbox WS fill frame must drive the engine position update via "
         f"the async path. Got {pos.size}. Read side is the feasibility gate for the fix."
     )
+
+
+def __test_111_arm_protection_on_fill_arms_bracket_at_drain__():
+    """#111 FIX: with ``arm_protection_on_fill`` ON, the fill event ARMS the
+    bracket during the async drain — the #107 window closes.
+
+    Same DNSE-shaped venue and setup as the #107 baseline above, with one
+    difference: the plugin opted in via ``arm_protection_on_fill``. The
+    assertion that stayed ``exit_calls == []`` in the baseline (protection
+    waits for the next sync) now FLIPS — the protective exit dispatches inside
+    ``apply_async_events`` (the drain), before any further sync. Removing the
+    engine edit (the ``_arm_protective_exits_after_fill`` call in
+    ``_drain_events``) makes this fail, so it is a discriminating test, not a
+    tautology.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    engine._exit_orders_execute_standalone = True
+    engine._arm_protection_on_fill = True                # the opt-in under test
+
+    pos.entry_orders["E"] = _entry_order("E", 1.0, stop=50_000.0)
+    # Protective bracket for a LONG entry -> the exit SELLS (size negative;
+    # `_side_from_size` -> 'sell'). A positive-size exit would be 'buy', which
+    # cannot reduce a long, so `_reducible_exit_qty('buy')` is 0 and #82b would
+    # skip it forever regardless of timing (the trap the #107 baseline's
+    # positive-size exit silently sat in — it never ran a post-fill sync to
+    # notice). TP above / SL below entry, faithful to a long bracket.
+    pos.exit_orders[("X", "E")] = _exit_order(
+        "E", -1.0, "X", limit=50_100.0, stop=49_900.0,
+    )
+
+    # Bar 0: entry dispatches; bracket SKIPPED (#82b, no position yet) — the
+    # flag does not change this, exactly as the baseline.
+    engine.sync(BAR_TS)
+    assert len(b.entry_calls) == 1
+    assert b.exit_calls == [], "#82b still holds before the fill (naked standalone)"
+
+    # The entry fills; the venue event arrives async and is drained.
+    engine.on_order_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+        xchg_id="xchg-1",
+    ))
+    engine.apply_async_events()
+
+    # THE FLIP: protection is armed by the fill itself, in the drain.
+    assert pos.size == 1.0, "the fill must be applied to the position"
+    assert len(b.exit_calls) == 1, (
+        "#111: with arm_protection_on_fill ON, the fill event must arm the "
+        "protective bracket during the drain — NOT wait for the next sync. "
+        f"Got {len(b.exit_calls)} exit dispatch(es)."
+    )
+
+    # Value-identity: the following sync rebuilds the SAME intent, sees no diff,
+    # and does NOT dispatch a second bracket (nor amend the armed one).
+    engine.sync(BAR_TS)
+    assert len(b.exit_calls) == 1, (
+        "the next sync must see no diff (value-identical armed intent) and not "
+        f"re-dispatch. Got {len(b.exit_calls)}."
+    )
