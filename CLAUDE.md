@@ -306,9 +306,13 @@ the full lifecycle on `order.DERIVATIVE.json`.
   (`status: active`) but streams NOTHING — this produced a false "trading WS is silent"
   verdict for a while. The payload nests the order under `msg["order"]` (`T:"do"`;
   positions `T:"dp"`), carrying `orderStatus`/`fillQuantity`/`quantity`.
-- **LIMIT:** Sandbox supports **NORMAL orders only** — no conditional STOP/OCO. So the
-  fill-detection + WS half is fully testable in Sandbox; the conditional-bracket PLACEMENT
-  half (the #82b path) still needs production. Data resets periodically; not for perf/strategy eval.
+- **LIMIT (measured):** Sandbox accepts `orderCategory=NORMAL` only — but ALL order TYPES
+  within it (LO limit, MTL/MOK/MAK market, ATO auction all return 200); only the conditional
+  CATEGORY (`orderCategory=STOP`/`OCO`) is rejected. AND there is **NO market-price
+  simulation** — it is a pure order-lifecycle + WS-event simulator: a LIMIT fills at its OWN
+  price (unchecked), a MARKET fills at averagePrice=0. So it tests order-state + WS delivery +
+  engine event handling, NOT SL/TP triggering, matching, or P&L (use tracked `.ohlcv`
+  backtests for price behaviour). Conditional STOP/OCO placement still needs production. Data resets.
 
 ## request.security() on DNSE — indices work, wired by symbol_map (not `--security`)
 
