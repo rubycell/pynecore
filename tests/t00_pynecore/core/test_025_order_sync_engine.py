@@ -14327,3 +14327,66 @@ def __test_107_baseline_fill_event_does_not_arm_protection_until_next_sync__():
     # runner loop, not this engine-only harness, so it is the live evidence on the
     # card rather than an assertion here. The load-bearing gap is the one above:
     # processing the fill did not, by itself, dispatch protection.)
+
+
+# === #111 baseline: a sandbox WS fill FRAME drives an engine position update ===
+
+#: Real DNSE Sandbox order-event frame on ``order.DERIVATIVE.json`` (captured live
+#: 2026-09-11 via plugins/dnse/testing/sandbox_lifecycle_probe.py); account/investor
+#: ids masked. The order is NESTED under ``["order"]`` with ``T:"do"``.
+_SANDBOX_FILL_FRAME = {
+    "T": "do", "channel": "order.DERIVATIVE.json",
+    "order": {"id": 307, "investorId": "<masked>", "accountNo": "<masked>",
+              "symbol": "41I1G9000", "side": "NB", "orderType": "LO",
+              "orderStatus": "Filled", "marketType": "DERIVATIVE",
+              "price": 1300, "quantity": 1, "fillQuantity": 1, "averagePrice": 1300},
+}
+#: Faithful mirror of the plugin's mappings (broker.py ``_STATUS_MAP`` + side codes),
+#: inlined so this core test carries no plugin import.
+_DNSE_STATUS_TO_EVENT = {"FILLED": "filled", "PARTIALLYFILLED": "partial"}
+_DNSE_SIDE = {"NB": "buy", "NS": "sell"}
+
+
+def _sandbox_frame_to_fill_event(frame, *, pine_id):
+    """Translate a sandbox ``order.DERIVATIVE.json`` frame into an OrderEvent —
+    the exact read-side translation #111's fix must perform on the WS path."""
+    o = frame["order"]
+    return _fill_event(
+        _DNSE_SIDE[o["side"]], qty=float(o["fillQuantity"]),
+        price=float(o["averagePrice"]), pine_id=pine_id,
+        event_type=_DNSE_STATUS_TO_EVENT.get(o["orderStatus"].upper(), "created"),
+        filled_qty=float(o["fillQuantity"]),
+    )
+
+
+def __test_111_baseline_sandbox_ws_fill_frame_drives_engine_position__():
+    """#111 READ-SIDE FEASIBILITY (baseline): a REAL DNSE Sandbox WS order-fill frame
+    carries everything needed to build an OrderEvent, and the engine consumes it to
+    update ``position.size`` — proven WITHOUT touching ``sync_engine.py`` (uses only the
+    existing ``on_order_event`` / ``apply_async_events`` API).
+
+    This is the feasibility gate for the WS-driven arm-on-fill fix: if a sandbox frame can
+    drive an engine position update off the async path, the fix's read side is sound and
+    only the THREADING (arm on receipt vs at bar-sync) remains to design. The gap itself —
+    protection not armed until the next sync — is pinned by
+    ``__test_107_baseline_fill_event_does_not_arm_protection_until_next_sync__`` above.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["E"] = _entry_order("E", 1.0, limit=1300.0)
+    engine.sync(BAR_TS)                                  # dispatch the entry
+    assert len(b.entry_calls) == 1
+
+    # The venue fills it — the fill arrives as a SANDBOX WS FRAME, translated to an event.
+    ev = _sandbox_frame_to_fill_event(_SANDBOX_FILL_FRAME, pine_id="E")
+    # The frame carried every field an OrderEvent needs:
+    assert ev.event_type == "filled", "orderStatus 'Filled' -> event_type 'filled'"
+    assert ev.fill_qty == 1.0, "fillQuantity -> fill_qty"
+    assert ev.order.side == "buy", "side 'NB' -> 'buy'"
+
+    engine.on_order_event(ev)
+    engine.apply_async_events()
+    assert pos.size == 1.0, (
+        "#111: a real sandbox WS fill frame must drive the engine position update via "
+        f"the async path. Got {pos.size}. Read side is the feasibility gate for the fix."
+    )
