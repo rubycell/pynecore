@@ -7,6 +7,10 @@ MockBroker + injected fill, it drives the REAL ``DNSEBroker`` against the DNSE S
 REAL auto-fill, and confirms the engine's ``_arm_protective_exits_after_fill`` path places a
 REAL protective exit on the sandbox venue.
 
+Runs BOTH instrument types with their NATURAL symbols (no market_type override):
+  * VN30F1M — a DERIVATIVE (qty 1, price ~1300 index points)
+  * HPG     — a STOCK      (qty 100 = one board lot, price ~26.x thousand VND)
+
 Design (per the operator's "lean engine-driven probe" choice):
   * ``arm_protection_on_fill`` is turned on via a PROBE SUBCLASS of DNSEBroker
     (``get_capabilities`` override), NEVER a plugin config flag — the live order path stays
@@ -16,12 +20,19 @@ Design (per the operator's "lean engine-driven probe" choice):
     REAL ``watch_orders`` inside a single ``asyncio.run`` (cross-cycle poll state preserved).
   * TP-only exit (``exit(limit=...)`` -> NORMAL LO) so the sandbox accepts it (sandbox rejects
     the conditional OCO category).
+  * ``get_position`` is stubbed FLAT: the sandbox is a pure order-lifecycle + WS-event
+    simulator with NO matching/netting (its ``/positions`` returns accumulating ``deals`` that
+    no opposing order flattens, and the netting reader cannot consume that shape).
+    ``get_position`` is only the reconcile view-confirm; the arm path runs off the FILL EVENT +
+    in-memory position state, which the sandbox fully supports. NOT a shortcut on the arm path
+    (entry, fill and exit are all real).
 
 NOT window-closing evidence (no mid-bar wake exists; #111 is off-by-default parked infra) —
 this proves only that the arm-on-fill CODE PATH executes end-to-end against a real venue fill
 and dispatches a real exit. Read-only w.r.t. production; masks identifiers; never prints secrets.
 
-Usage:  python plugins/dnse/testing/sandbox_arm_on_fill_probe.py
+Usage:  python plugins/dnse/testing/sandbox_arm_on_fill_probe.py [SYMBOL ...]
+        (default: VN30F1M HPG)
 """
 from __future__ import annotations
 import asyncio
@@ -46,10 +57,23 @@ from pynecore.core.broker.position import BrokerPosition  # noqa: E402
 import test_025_order_sync_engine as T  # noqa: E402
 
 CONFIG = REPO / "workdir" / "config" / "plugins" / "dnse_sandbox.toml"
-SANDBOX_SYMBOL = "41I1G9000"        # the sandbox derivative code (see lifecycle probe)
-ENTRY_PX = 1300.0
-TP_PX = 1310.0                       # sell TP above entry -> resting NORMAL LO, not marketable
 BAR_TS = 1_700_000_000_000
+
+#: One entry per instrument type. entry/tp are on a valid tick; qty is one board unit
+#: (derivative = 1 contract, HOSE stock = 100-share lot). A TP above entry rests as a
+#: NORMAL sell LO (not marketable) so #82b defers it until the fill, then the arm places it.
+#: NOTE the sandbox CATALOG: its VN30 front-month derivative is coded ``41I1G9000`` — the
+#: ``VN30F1M`` alias is NOT a sandbox symbol (``SYMBOL_NOT_EXIST``), and ``resolve_contract``
+#: passes it through unchanged. So the derivative is tested via ``41I1G9000`` (the sandbox's
+#: VN30F1M-equivalent), which needs ``force_mt=DERIVATIVE`` because it does not match the
+#: plugin's ``VN30F*`` prefix rule. HPG (stock) uses its natural classification.
+INSTRUMENTS = {
+    "41I1G9000": dict(kind="derivative (sandbox VN30F1M)", qty=1, entry_px=1300.0,
+                      tp_px=1310.0, mintick=0.1, force_mt="DERIVATIVE"),
+    "HPG":       dict(kind="stock", qty=100, entry_px=26.5, tp_px=26.7, mintick=0.05),
+    "VN30F1M":   dict(kind="derivative alias (NOT a sandbox symbol -> SYMBOL_NOT_EXIST)",
+                      qty=1, entry_px=1300.0, tp_px=1310.0, mintick=0.1),
+}
 
 
 def _mint_token(cfg: dict) -> str:
@@ -69,29 +93,19 @@ def _mint_token(cfg: dict) -> str:
 
 
 class _ArmDNSEBroker(dnse_broker.DNSEBroker):
-    """Probe-only subclass: report ``arm_protection_on_fill=True`` and pin the sandbox
-    contract as a DERIVATIVE.
+    """Probe-only subclass: report ``arm_protection_on_fill=True``, stub ``get_position``
+    flat, and OPTIONALLY force ``market_type`` (``_forced_mt``, per-instance). By default the
+    plugin's NATURAL classification is used (VN30F* -> DERIVATIVE, else STOCK) — only the raw
+    sandbox derivative code ``41I1G9000`` needs a force, since it does not match the prefix.
+    None of these touch the live plugin (rule: no-test-hooks-in-plugin-code)."""
+    _forced_mt = None
 
-    ``market_type`` classifies by symbol prefix (only ``VN30F*`` -> DERIVATIVE), so the raw
-    sandbox contract code ``41I1G9000`` would default to STOCK — and stock lot-sizing rejects
-    qty=1 (``INVALID_ORDER_QUANTITY``). We KNOW it is a derivative on the sandbox, so pin it.
-    Neither override touches the live plugin (rule: no-test-hooks-in-plugin-code)."""
     @property
     def market_type(self) -> str:
-        return "DERIVATIVE"
+        return self._forced_mt or super().market_type
 
     async def get_position(self, symbol):
-        """Report FLAT at reconcile.
-
-        The DNSE Sandbox is a pure order-lifecycle + WS-event simulator with NO
-        matching / netting (CLAUDE.md): its ``/positions`` returns accumulated
-        ``deals`` that no opposing order can flatten, and the plugin's netting-based
-        reader cannot consume that shape. ``get_position`` is only used at the startup
-        reconcile to CONFIRM the read view; the arm-on-fill path under test runs off the
-        FILL EVENT + in-memory position state (which the sandbox fully supports). So the
-        probe treats the account as flat here — an accommodation for the sandbox's absent
-        position model, NOT a shortcut on the arm path (entry, fill and exit are all real)."""
-        return None
+        return None   # sandbox has no netting position model — see module docstring
 
     def get_capabilities(self):
         return dataclasses.replace(super().get_capabilities(),
@@ -101,7 +115,6 @@ class _ArmDNSEBroker(dnse_broker.DNSEBroker):
 async def _await_entry_fill(broker, pine_id: str, *, timeout_s: float = 25.0):
     """Drive the REAL watch_orders in ONE loop until the entry's fill event arrives."""
     agen = broker.watch_orders()
-    deadline = None
     try:
         while True:
             ev = await asyncio.wait_for(agen.__anext__(), timeout_s)
@@ -111,86 +124,88 @@ async def _await_entry_fill(broker, pine_id: str, *, timeout_s: float = 25.0):
         await agen.aclose()
 
 
-def main() -> int:
-    # record_fill reads self.equity -> lib._script.initial_capital; stub it exactly as
-    # the unit tests do (test_025). No real strategy runs in this engine-driven probe.
-    from types import SimpleNamespace
-    from pynecore import lib
-    lib._script = SimpleNamespace(initial_capital=500_000_000.0)
-
-    if not CONFIG.exists():
-        sys.exit(f"sandbox config not found: {CONFIG}")
-    sb = tomllib.loads(CONFIG.read_text())
-    _mint_token(sb)   # ensure a sandbox trading token exists (OTP 666666)
-
+def _run_instrument(sb: dict, symbol: str, spec: dict) -> bool:
+    print(f"\n{'='*66}\n=== {symbol}  ({spec['kind']}, qty={spec['qty']}, "
+          f"entry={spec['entry_px']} tp={spec['tp_px']}) ===\n{'='*66}")
     cfg = DNSEBrokerConfig(
         api_key=sb["api_key"], api_secret=sb["api_secret"],
         base_url=sb["base_url"], ws_url=sb.get("ws_url", "wss://ws-sb-openapi.dnse.com.vn"),
         token_file=sb["token_file"],
     )
-    broker = _ArmDNSEBroker(symbol=SANDBOX_SYMBOL, timeframe="1", config=cfg)
+    broker = _ArmDNSEBroker(symbol=symbol, timeframe="1", config=cfg)
     broker._client = DNSEClient(sb["api_key"], sb["api_secret"], base_url=sb["base_url"])
-
-    caps = broker.get_capabilities()
-    print(f"[caps] arm_protection_on_fill={caps.arm_protection_on_fill} "
-          f"exit_orders_execute_standalone={caps.exit_orders_execute_standalone}")
-    assert caps.arm_protection_on_fill, "probe subclass must report the flag ON"
+    broker._forced_mt = spec.get("force_mt")
+    print(f"[classify] market_type={broker.market_type} resolve_contract={broker.resolve_contract()}"
+          + ("  (market_type forced)" if spec.get("force_mt") else "  (natural)"))
+    assert broker.get_capabilities().arm_protection_on_fill
 
     pos = BrokerPosition()
-    engine = OrderSyncEngine(broker, pos, SANDBOX_SYMBOL, run_tag="arm1",
-                             event_loop=None, store_ctx=None, mintick=0.1)
-    print(f"[engine] arm flag seen by engine = {engine._arm_protection_on_fill}")
+    engine = OrderSyncEngine(broker, pos, symbol, run_tag="arm1",
+                             event_loop=None, store_ctx=None, mintick=spec["mintick"])
 
-    # Long entry (NORMAL LO) + TP-only protective exit (sell LO above entry -> NORMAL,
-    # sandbox-accepted). Negative exit size -> 'sell' (protects a long); #82b defers it
-    # until the entry fills, then the arm dispatches it.
-    pos.entry_orders["E"] = T._entry_order("E", 1.0, limit=ENTRY_PX)
-    pos.exit_orders[("X", "E")] = T._exit_order("E", -1.0, "X", limit=TP_PX)
+    pos.entry_orders["E"] = T._entry_order("E", float(spec["qty"]), limit=spec["entry_px"])
+    pos.exit_orders[("X", "E")] = T._exit_order("E", -float(spec["qty"]), "X", limit=spec["tp_px"])
 
-    # Startup reconcile: adopt the venue's authoritative state + CONFIRM the read
-    # view, exactly as the live runner's start_broker() does before the first bar.
-    # Without it the engine defers every EntryIntent (may_open_exposure=False) and
-    # nothing is placed.
-    print("[step] engine.reconcile() -> confirm the broker read view")
-    engine.reconcile()
-
-    print("[step] engine.sync -> place entry (exit must be #82b-skipped, no position yet)")
-    engine.sync(BAR_TS)
-    print(f"[after-sync] active_intents={list(engine.active_intents.keys())} "
-          f"order_mapping={ {k: v for k, v in engine.order_mapping.items()} }")
+    engine.reconcile()                                   # confirm read view (flat)
+    engine.sync(BAR_TS)                                  # place the real entry
     if "E" not in engine.active_intents:
-        print("FAIL: entry was NOT dispatched (deferred or rejected) — cannot test the fill path.")
-        return 1
+        print("FAIL: entry NOT dispatched (deferred / rejected).")
+        return False
+    entry_ids = engine.order_mapping.get("E")
+    print(f"[entry] dispatched -> venue id(s) {entry_ids}")
 
-    print("[step] driving REAL watch_orders until the sandbox auto-fills the entry ...")
-    fill = asyncio.run(_await_entry_fill(broker, "E"))
-    print(f"[fill] entry filled on sandbox: type={fill.event_type} qty={fill.fill_qty} "
-          f"price={fill.fill_price} pine_id={fill.pine_id}")
+    try:
+        fill = asyncio.run(_await_entry_fill(broker, "E"))
+    except (asyncio.TimeoutError, TimeoutError):
+        print("FAIL: no fill observed within timeout.")
+        return False
+    print(f"[fill] filled qty={fill.fill_qty} price={fill.fill_price}")
 
-    exits_before = list(engine.active_intents.keys())
-    print("[step] engine.on_order_event + apply_async_events -> DRAIN + ARM-ON-FILL")
+    before = set(engine.active_intents)
     engine.on_order_event(fill)
-    engine.apply_async_events()
+    engine.apply_async_events()                          # DRAIN + ARM-ON-FILL
+    armed = [k for k in engine.active_intents if k not in before and k != "E"]
+    exit_key = armed[0] if armed else None
+    exit_ids = engine.order_mapping.get(exit_key) if exit_key else None
+    print(f"[arm] position.size={pos.size} exit intent={exit_key!r} -> venue id(s) {exit_ids}")
 
-    armed = [k for k in engine.active_intents if k not in exits_before]
-    print(f"[after-drain] position.size={pos.size} newly-armed intents={armed}")
-    exit_key = None
-    for k in engine.active_intents:
-        if "\x00" in k or k not in ("E",):   # exit keys are 'X<sep>E'
-            if k != "E":
-                exit_key = k
-    print(f"[result] exit intent registered = {exit_key!r}  "
-          f"venue order ids = {engine.order_mapping.get(exit_key) if exit_key else None}")
+    ok = bool(exit_ids)
+    print(f"[{symbol}] {'PASS' if ok else 'FAIL'}: arm-on-fill "
+          f"{'placed a real protective exit' if ok else 'did NOT place the exit'}"
+          + (f' (id {exit_ids})' if ok else ''))
+    return ok
 
-    ok = bool(exit_key) and bool(engine.order_mapping.get(exit_key))
-    print("\n=== VERDICT ===")
-    if ok:
-        print("PASS: a REAL sandbox fill drove _arm_protective_exits_after_fill, which placed "
-              f"a REAL protective exit on the sandbox (order id(s) {engine.order_mapping[exit_key]}).")
-    else:
-        print("FAIL: the arm-on-fill path did not register/dispatch the protective exit.")
-    return 0 if ok else 1
+
+def main(argv) -> int:
+    from types import SimpleNamespace
+    from pynecore import lib
+    lib._script = SimpleNamespace(initial_capital=500_000_000.0)   # record_fill reads self.equity
+
+    if not CONFIG.exists():
+        sys.exit(f"sandbox config not found: {CONFIG}")
+    sb = tomllib.loads(CONFIG.read_text())
+    _mint_token(sb)
+
+    # Default: the derivative (sandbox code) + the stock. VN30F1M is runnable on request
+    # (``... VN30F1M``) but is not in the sandbox catalog — see INSTRUMENTS note.
+    symbols = argv[1:] or ["41I1G9000", "HPG"]
+    results = {}
+    for symbol in symbols:
+        spec = INSTRUMENTS.get(symbol)
+        if spec is None:
+            print(f"[skip] {symbol}: no instrument spec")
+            continue
+        try:
+            results[symbol] = _run_instrument(sb, symbol, spec)
+        except Exception as exc:                          # noqa: BLE001
+            print(f"[{symbol}] ERROR: {type(exc).__name__}: {exc}")
+            results[symbol] = False
+
+    print(f"\n{'='*66}\n=== VERDICT ===")
+    for symbol, ok in results.items():
+        print(f"  {symbol:10s} {'PASS' if ok else 'FAIL'}")
+    return 0 if results and all(results.values()) else 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv))
