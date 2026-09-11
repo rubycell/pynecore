@@ -1,8 +1,8 @@
 Vendored: DNSE official OpenAPI SDK ("sample SDK")
 Source:   https://github.com/dnse-tech/openapi-sdk  (python/dnse)
-Tag:      v2.0.0
-Commit:   1532e33470cca87210363e892a9e9960a4806508
-Vendored: 2026-08-06
+Tag:      v2.2.0
+Commit:   3ab1c2019
+Vendored: 2026-09-11 (bumped v2.0.0->v2.2.0: TLS cert verification enabled; + market-index-influence + volume-profile methods)
 
 Why vendored (not pip): per project policy, the DNSE SDK source is vendored, not
 pip-installed. This is the OFFICIAL SDK recommended by DNSE's changelog/versioning

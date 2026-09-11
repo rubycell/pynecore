@@ -219,15 +219,21 @@ def __test_tls_verify_swap_enforces_cert_verification__():
 
 
 def __test_tls_verify_swap_overrides_sdk_insecure_default__():
-    """Before/after: the vendored SDK's own default is unverified
-    (``cert_reqs=CERT_NONE``, ``assert_hostname=False``); the wrapper must
-    replace it, not merely coexist with it."""
+    """The wrapper must ENFORCE full TLS verification independent of whatever the
+    vendored SDK's own PoolManager config happens to be. v2.0.0 shipped
+    ``cert_reqs=CERT_NONE`` (fully unverified); v2.2.0 dropped that but still sets
+    ``assert_hostname=False`` and pins no CA bundle. Either way the raw SDK does
+    NOT pin certifi's bundle -- the wrapper is what adds real verification -- so we
+    assert the DIFFERENCE the wrapper makes rather than the SDK's exact (drifting)
+    default."""
     from pynecore_dnse._sdk import DNSEClient as RawSdkClient
 
     raw = RawSdkClient("key", "secret")
-    assert raw._http.connection_pool_kw.get("cert_reqs") == "CERT_NONE", \
-        "sanity check: confirms the SDK's own default really is insecure"
+    assert raw._http.connection_pool_kw.get("ca_certs") != certifi.where(), \
+        "sanity check: the raw SDK does NOT pin certifi's CA bundle (the wrapper adds it)"
 
     wrapped = DNSEClient("key", "secret")
     assert wrapped._sdk._http.connection_pool_kw.get("cert_reqs") == "CERT_REQUIRED", \
-        "wrapper must override the SDK's insecure default"
+        "wrapper must enforce CERT_REQUIRED regardless of the SDK default"
+    assert wrapped._sdk._http.connection_pool_kw.get("ca_certs") == certifi.where(), \
+        "wrapper must pin certifi's CA bundle regardless of the SDK default"
