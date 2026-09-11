@@ -3,8 +3,12 @@
 Builds on :class:`DNSEProvider` (history + metadata) and implements the
 ``BrokerPlugin`` abstracts using DNSE's **native conditional orders**
 (``orderCategory=STOP|OCO`` on the account-scoped ``/accounts/{accountNo}/orders``
-endpoints). Server-side stops fire even if the plugin is offline. v2 is
-**REST-only** — no WebSocket transport; bars and fills come from REST polling.
+endpoints). Server-side stops fire even if the plugin is offline.
+
+Transport: the ORDER path (place / cancel / fill detection) is REST poll-based —
+there is no WS order-event transport yet (#107). Market data is mixed: 1m+ bars
+are REST closed-bar polls, while sub-minute bars are synthesized from the venue
+WebSocket per-print stream (#100). So the plugin is NOT WebSocket-free.
 
 Design:
 
@@ -336,13 +340,15 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             short_selling=CapabilityLevel.NATIVE,
         )
 
-    # --- live plumbing (REST-only) ---
+    # --- live plumbing (REST order path; sub-minute market data is WS, #100) ---
 
     @override
     async def connect(self) -> None:
-        # REST-only: nothing to connect. Touch the client so the endpoint
-        # banner is logged. NOTE: this validates NOTHING — a dead credential
-        # surfaces on the first classified read/write (#68), not here.
+        # No persistent ORDER socket to open — the order path is REST, and the
+        # #100 sub-minute market-data WS is started lazily inside watch_ohlcv, not
+        # here. So connect() only touches the client to log the endpoint banner.
+        # NOTE: this validates NOTHING — a dead credential surfaces on the first
+        # classified read/write (#68), not here.
         _ = self.client
         self._connected = True
         self._restore_identity_from_journal()

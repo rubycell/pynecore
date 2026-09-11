@@ -143,7 +143,8 @@ Fork-specific venue plugins, editable-installed (so they import as
 
 - **`plugins/dnse/`** — DNSE (Vietnamese broker) plugin. Two entry points:
   `dnse` (`DNSEProvider` — OHLCV history + metadata) and `dnse_broker`
-  (`DNSEBroker` — native STOP/OCO conditional orders). REST-only, built on the
+  (`DNSEBroker` — native STOP/OCO conditional orders). REST order path (no WS
+  order-event transport yet, #107; sub-minute bars are WS per-print, #100), built on the
   **vendored** DNSE openapi-sdk v2.0.0 at `plugins/dnse/pynecore_dnse/_vendor/dnse/`
   (do NOT pip-install the SDK). Run: `pyne run <out>.py dnse:VN30F1M@5` for data,
   `… dnse_broker:VN30F1M@5 --broker` for live orders. Tests: `plugins/dnse/tests/`
@@ -196,8 +197,10 @@ probes were built from the DOCS alone. Rules (measured 2026-08-26):
   Market-data channels (tick/quotes/ohlc) prove themselves in seconds during
   trading hours (measured: ~136 prints + ~650 quote frames per 30 s).
 - **The engine's "WS connected and subscribed" banner is generic live-runner
-  text** — for the REST-only DNSE plugin it prints WITHOUT any socket existing
-  (`connect()` is a no-op). Never take it as WS evidence.
+  text** — the DNSE plugin's `connect()` is a no-op (the order path is REST), so
+  the banner prints even on a 1m run where no order socket is opened. A real WS
+  DOES exist for sub-minute market data (#100, started lazily in `watch_ohlcv`),
+  but the banner is never evidence of an ORDER-event socket. Never take it as such.
 - Working probe: `plugins/dnse/testing/live_test/probe_ws_market_data.py`
   (`--trading` for order/position channels). Findings live on card #50.
 

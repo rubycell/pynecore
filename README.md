@@ -176,7 +176,7 @@ auto-discovered through the `pyne.plugin` entry-point group:
 
 | Plugin | Entry points | What it does |
 |---|---|---|
-| **DNSE** — [`plugins/dnse`](plugins/dnse) | `dnse` (data) · `dnse_broker` (broker) | Vietnamese derivatives & stocks: OHLCV history + **native STOP/OCO conditional orders** on DNSE's OpenAPI, built on the vendored `openapi-sdk` 2.0.0. REST-only. |
+| **DNSE** — [`plugins/dnse`](plugins/dnse) | `dnse` (data) · `dnse_broker` (broker) | Vietnamese derivatives & stocks: OHLCV history + **native STOP/OCO conditional orders** on DNSE's OpenAPI, built on the vendored `openapi-sdk` 2.0.0. REST order path; sub-minute bars via the venue WebSocket (#100). |
 
 ```bash
 # historical / live data feed (no --from: it truncates the shared .ohlcv cache;
