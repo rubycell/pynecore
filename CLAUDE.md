@@ -313,6 +313,23 @@ the full lifecycle on `order.DERIVATIVE.json`.
   price (unchecked), a MARKET fills at averagePrice=0. So it tests order-state + WS delivery +
   engine event handling, NOT SL/TP triggering, matching, or P&L (use tracked `.ohlcv`
   backtests for price behaviour). Conditional STOP/OCO placement still needs production. Data resets.
+- **The full engine runs against the sandbox, not just the raw client.**
+  `plugins/dnse/testing/sandbox_arm_on_fill_probe.py` drives the real `DNSEBroker` +
+  `OrderSyncEngine` and a real auto-fill to prove the engine's arm-on-fill path places a real
+  protective exit — graded from the venue order record, for BOTH a derivative (`41I1G9000`,
+  qty 1) and a stock (`HPG`, qty 100). Engine-driven probes need `event_loop=None` (per-call
+  `asyncio.run`), `lib._script` stubbed (`SimpleNamespace(initial_capital=...)`, for
+  `record_fill`), a 4-alphanumeric `run_tag`, and a flat `get_position` stub (next bullet).
+- **The sandbox does NOT net/match** (pure order-lifecycle sim): `/positions` returns
+  accumulating `deals` (key `deals`, NOT `positions`/`data`), an opposing order never flattens
+  a position, and the plugin's netting `get_position` can't read that shape (0 rows vs
+  `total>=1` -> "truncated, refusing to conclude"). Stub `get_position -> None` for engine
+  tests — it is only the reconcile view-confirm; fills drive position state via the event.
+- **Catalog / classification gotchas.** `VN30F1M` is NOT a sandbox symbol (`SYMBOL_NOT_EXIST`,
+  #113) — the VN30 front-month is coded `41I1G9000`, which classifies STOCK (only `VN30F*` ->
+  DERIVATIVE) so needs a `market_type` pin, and qty is per-instrument (derivative 1, HOSE
+  stock 100 = one board lot, price ~26.x thousand VND). Harmless: a fill logs `executions read
+  http=404` (no executions endpoint) -> booked at cumulative VWAP.
 
 ## request.security() on DNSE — indices work, wired by symbol_map (not `--security`)
 
