@@ -188,6 +188,23 @@ exit path already tracks its child via `externalOrderId`, the stop-entry path do
 not). When reading order state: `Activated` on the conditional book means *look up
 the child on the normal book* — never treat it as terminal-without-fill.
 
+## DNSE positions are VENUE-DERIVED from fills — we create ORDERS, not positions (confirmed 2026-09-12)
+
+No create-position API exists. You `POST .../orders`; a fill makes the **venue** create/update the
+position, with a venue-assigned `id` (e.g. `177410795472387`, NOT our coid) + a venue `createdDate`.
+The whole position surface is read + lifecycle: `GET .../positions`, `GET /positions/{id}`,
+`POST /positions/{id}/close`, `.../pnl-configs`. A position is a lifecycle object: `status`
+(OPEN/PENDING_CLOSE/CLOSED/ODD_LOT) + five quantities (accumulate/trade/closed/open/overNight),
+netting `openQuantity = accumulate - closed`.
+
+So our "position" is **the venue's aggregation of our fills**, and `get_position` (venue-read of
+`openQuantity x side` in `broker.py`) is the authoritative cross-check against the engine's
+incremental fill-tracking (the reference-plugin pattern for derivatives). **UNCONFIRMED (#115):**
+whether that venue-read is reliable/timely enough to reconcile against, and its limits — T+ delay,
+overnight split, whether prod nets an opposing order into the position (the sandbox's `deals` do
+NOT), PENDING_CLOSE. Mapping tested only vs mocks — confirm on prod before trusting it or building
+position-dependent tests.
+
 ## DNSE WebSocket testing rules — how the "silent WS" false verdict happened (CRITICAL)
 
 Two venue facts were wrongly recorded as "WS is silent" for ~2 weeks because
