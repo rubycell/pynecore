@@ -380,13 +380,15 @@ Three notations name the SAME rolling VN30 futures contracts:
 | `HNX:VN301!` / `HNX:VN302!` | TradingView's continuous front / next-month notation for the same |
 | `41I1G9000` | the actual **dated contract** — KRX's deterministic naming for one specific expiration |
 
-`VN30F1M`/`F2M` are NAMES, **not types** (do not call them `symbolType`s): they classify nothing
-— the only real "type" is `market_type` = STOCK/DERIVATIVE, and all of the above are DERIVATIVE —
-and they **move**: each expiration `VN30F1M` points at a new dated code (the roll). `resolve_contract`
-maps an alias -> the current dated code via `/market/instruments` (the venue owns the roll; we never
-compute KRX codes; its per-instance cache can go stale across a roll — a rollover concern). The
-TradingView keys (`HNX:VN30x!`) are NOT DNSE aliases -> they need a `symbol_map` line
-(`"HNX:VN301!" = "dnse:VN30F1M"`). Exactly which of these resolve on prod is UNCONFIRMED (#113).
+**Confirmed on prod (2026-09-12):** `/market/instruments` carries `symbolType=VN30F1M symbol=41I1G9000`
+and `symbolType=VN30F2M symbol=41I1GA000`, so `resolve_contract` (which matches `symbolType`) ALREADY
+resolves BOTH month aliases to their dated code. DNSE's field is literally named `symbolType`, but the
+VALUES are rolling **aliases**, not a classification type — the only real "type" is `market_type`
+(STOCK/DERIVATIVE; all of the above are DERIVATIVE) — and they **move**: each expiration `VN30F1M`
+repoints to a new dated code (the roll). `resolve_contract` reads that mapping from the venue (never
+computes KRX codes) — BUT its per-instance cache can serve a STALE dated code across a roll (the real
+remaining concern, #113). TradingView keys (`HNX:VN30x!`) are NOT DNSE `symbolType`s -> they need a
+`symbol_map` line (`"HNX:VN301!" = "dnse:VN30F1M"`).
 
 ## request.security() on DNSE — indices work, wired by symbol_map (not `--security`)
 
