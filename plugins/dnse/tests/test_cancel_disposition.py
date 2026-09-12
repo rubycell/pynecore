@@ -16,6 +16,8 @@ confirms.
 """
 import asyncio
 
+import pytest
+
 import pynecore.lib as lib
 
 lib.bar_index = 0  # let the [BROKER] log formatter render during broker._emit()
@@ -371,3 +373,32 @@ def __test_already_filled_parent_stays_mapped_for_child_adoption__(
     assert second is CancelDispositionOutcome.ALREADY_FILLED, (
         f"the per-key answer degraded to {second.value!r} — the engine "
         f"needs ALREADY_FILLED to restore legs from cancel_tentative (#55)")
+
+
+# --- Settling test (#114/#115 sandbox-e2e finding) ---------------------------
+# The sandbox replay e2e looped a cancel 166x ("already in terminal state Filled",
+# bars 309->473). This isolates the cause: classify() is CODE-only (code_of reads
+# body['code']); the generic "ERROR" the venue returned is NOT in TERMINAL_CODES and
+# the terminal MESSAGE is never consulted -> write_refused -> UNKNOWN -> retry forever.
+# It is NOT "the engine ignores ALREADY_FILLED" (test B proves a RECOGNISED terminal
+# code + Filled read-back resolves). Whether PROD hits it depends on prod's reject code
+# for a filled-order cancel (UNMEASURED). xfail(strict) asserts the DESIRED behavior ->
+# XPASS the moment the classifier learns the terminal message (then drop this marker).
+@pytest.mark.xfail(strict=True, reason="message-blind cancel classification: generic "
+                   "'ERROR' code + 'already in terminal state Filled' message -> UNKNOWN "
+                   "-> infinite cancel-retry (sandbox e2e #114); prod-affectedness unmeasured")
+def __test_generic_error_code_with_filled_message_should_resolve_already_filled__(fake_client, tmp_path):
+    """Generic error CODE but a message that clearly says the order Filled, and the detail
+    read-back confirms FILLED -> must resolve ALREADY_FILLED so the engine stops retrying.
+    Today the message is ignored -> UNKNOWN -> the 166x loop seen on the sandbox e2e."""
+    b = _broker(fake_client, tmp_path,
+                cancel_order=(400, {"code": "ERROR",
+                                    "message": "order already in terminal state Filled"}),
+                get_order_detail=_detail("Filled", filled=1.0))
+    _track(b)
+
+    outcome = asyncio.run(b.execute_cancel_with_outcome(_cancel_envelope()))
+
+    assert outcome is CancelDispositionOutcome.ALREADY_FILLED, (
+        f"a cancel reject whose MESSAGE says the order already Filled must resolve to "
+        f"ALREADY_FILLED even when the error CODE is generic; got {outcome!r}")
