@@ -197,16 +197,31 @@ The whole position surface is read + lifecycle: `GET .../positions`, `GET /posit
 (OPEN/PENDING_CLOSE/CLOSED/ODD_LOT) + five quantities (accumulate/trade/closed/open/overNight),
 netting `openQuantity = accumulate - closed`.
 
-**`get_position` is the WRONG granularity for this plugin (CRITICAL, corrected 2026-09-12).**
-`broker.py get_position` sums `openQuantity x side` over ALL rows for the asset — the whole-ACCOUNT
-net — and `sync_engine.py reconcile` ADOPTS that as *this run's* position. But the venue holds
-exactly ONE net position per asset, while we run **many strategies x many users on the same asset**;
-the account-net = the SUM of all of them, so it CANNOT represent any single strategy's position.
-A strategy's position must be tracked from ITS OWN tagged fills (our `client_order_id`/coid) — the
-venue physically cannot attribute per-strategy. So do NOT reconcile a strategy against `get_position`
-(the reference-plugin venue-read pattern assumes ~one strategy per account; ours does not). Fixing
-this (per-strategy fill-tracking; stop adopting the account-net) is #115. The venue net is still
-useful as an ACCOUNT-level safety/oversell check, never as a per-strategy position.
+**Per-strategy position isolation is BUILT and green (`#73`) — do NOT "fix" it away.**
+The venue holds ONE net position per asset (`broker.py get_position` sums `openQuantity x side` over
+ALL non-CLOSED rows for the symbol = the whole-ACCOUNT net; `None` at net==0), and we run many
+strategies x many users on that one asset. The engine already isolates each run from that shared net
+(so my earlier "reconcile naively adopts the account-net" was WRONG):
+- **Startup adoption is CLAMPED to the run-owned slice** (`sync_engine.py _clamp_adoption_to_owned`,
+  #73/C1): a run adopts only the exposure its OWN journal fills produced (`_durable_owned_signed_size`
+  — signed sum of this run's `filled_qty` cursors; foreign `ADOPTED_STARTUP_EXTRA` legs excluded),
+  never another run's slice. BOTH startup branches clamp (plain + replayed-close, `sync_engine.py`
+  ~4546/~4869).
+- **Periodic external-flatten reads the RAW account net BY DESIGN** (#73/C2, ~4633): `net==0` on a
+  netting account is proof of ABSENCE (nobody holds anything), so clearing is safe; an owned-*belief*
+  there would destructively clear a live position.
+- Partial divergence mid-run is warn-only, never adopted (#48).
+Per-run identity: `run_tag` (restart-STABLE SHA256 of strategy_id+source+symbol+tf+account+label,
+`run_identity.py`) + the per-run journal (`run_instance_id`). Green: `test_journal_wiring` +
+`test_divergence_matrix` + `test_079` (27 pass); live `Live-L1-T10-DualStrategy` (order-level, ✅).
+**INVARIANT (pinned by `plugins/dnse/tests/test_get_position_account_net.py`): `get_position` MUST
+return the whole-account net, UNFILTERED by run** — #73/C2 uses it as the absence-proof. "Fixing" it
+to return "our share" would SILENTLY break external-flatten detection.
+**Limitation (venue physics, not a bug):** two OPPOSING-direction strategies cannot coexist on one
+netting account (they net away); an external PARTIAL close cannot be attributed to a specific run.
+The one real gap is coverage — T10 is NO-FILL (order-level); a FILL-level DNSE isolation test (two
+engines, one sandbox account, both fill, each `_durable_owned_signed_size` reflects only its own
+fills) is #115, and is where the sandbox harness (#114) lands.
 
 ## DNSE WebSocket testing rules — how the "silent WS" false verdict happened (CRITICAL)
 
