@@ -370,6 +370,24 @@ the full lifecycle on `order.DERIVATIVE.json`.
   stock 100 = one board lot, price ~26.x thousand VND). Harmless: a fill logs `executions read
   http=404` (no executions endpoint) -> booked at cumulative VWAP.
 
+## DNSE VN30-futures symbol taxonomy — an alias is NOT a "type"
+
+Three notations name the SAME rolling VN30 futures contracts:
+
+| Notation | What it is |
+|---|---|
+| `VN30F1M` / `VN30F2M` | conventional **aliases** for the month-1 / month-2 (front / next) contract |
+| `HNX:VN301!` / `HNX:VN302!` | TradingView's continuous front / next-month notation for the same |
+| `41I1G9000` | the actual **dated contract** — KRX's deterministic naming for one specific expiration |
+
+`VN30F1M`/`F2M` are NAMES, **not types** (do not call them `symbolType`s): they classify nothing
+— the only real "type" is `market_type` = STOCK/DERIVATIVE, and all of the above are DERIVATIVE —
+and they **move**: each expiration `VN30F1M` points at a new dated code (the roll). `resolve_contract`
+maps an alias -> the current dated code via `/market/instruments` (the venue owns the roll; we never
+compute KRX codes; its per-instance cache can go stale across a roll — a rollover concern). The
+TradingView keys (`HNX:VN30x!`) are NOT DNSE aliases -> they need a `symbol_map` line
+(`"HNX:VN301!" = "dnse:VN30F1M"`). Exactly which of these resolve on prod is UNCONFIRMED (#113).
+
 ## request.security() on DNSE — indices work, wired by symbol_map (not `--security`)
 
 DNSE serves market INDICES (`VNINDEX`, `VN30`) on `/price/ohlc?type=INDEX` — ~1 year of
