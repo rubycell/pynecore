@@ -62,6 +62,13 @@ _SANDBOX_ARTIFACTS = {
     "oscillation": (r"position size=-", "position oscillation (sandbox does not net)"),
     "cancel-loop": (r"already in terminal state Filled", "cancel-retry loop (#116, message-blind)"),
     "vwap-404":    (r"executions read http=404", "no executions endpoint -> VWAP booking"),
+    "amend-405":   (r"amend[^\n]*(?:http=405|-> rejected)",
+                    "sandbox rejects AMEND/modify (HTTP-405) — a strategy that re-places or moves a "
+                    "resting order (limit chasing `low[1]` every bar, trailing stops) CANNOT run here; "
+                    "use a fixed-price/market entry, or verify it in a backtest"),
+    "run-errored": (r"run ended before a clean stop",
+                    "the run ERRORED before a clean stop (often the amend-405 above) — the verdict is "
+                    "from a PARTIAL run, not a clean pass/fail"),
 }
 #: conditional-order idioms the sandbox REJECTS (orderCategory STOP/OCO) — a compat gate.
 _INCOMPAT = re.compile(r"strategy\.(entry|exit|order)\b[^\n]*\b(stop|oca_)", re.IGNORECASE)
