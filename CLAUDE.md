@@ -360,6 +360,17 @@ the full lifecycle on `order.DERIVATIVE.json`.
   price (unchecked), a MARKET fills at averagePrice=0. So it tests order-state + WS delivery +
   engine event handling, NOT SL/TP triggering, matching, or P&L (use tracked `.ohlcv`
   backtests for price behaviour). Conditional STOP/OCO placement still needs production. Data resets.
+- **Order ops + fill cadence (measured 2026-09-12, live).** The fill is a fixed server-side
+  TIMER, not a matcher: every order walks `PendingNew -> New -> [PartiallyFilled] -> Filled` at
+  ~0.3 s per transition (Filled in ~1.2 s), independent of size/price/side. `qty=1` fills in one
+  step (no partial); `qty>1` gets exactly ONE `PartiallyFilled` tick with a VARIABLE chunk
+  (measured 9/30, 80/100 — not a fixed fraction) then the remainder on the next tick — ideal for
+  exercising the engine's partial-fill + WS-event paths. Per-op: **place** NORMAL LO/MTL works
+  (200); **cancel a RESTING order** works (204 -> `Canceled` — the ~0.6 s `New` window beats the
+  ~1.2 s fill, so a prompt cancel lands); **amend/modify** does NOT (`PUT /orders/{id}` ->
+  `HTTP-405`, no endpoint) — a strategy that re-places/moves a resting order (limit chasing
+  `low[1]`, trailing stops) CANNOT run on the sandbox; **conditional STOP/OCO** does NOT
+  (`400 UNSUPPORTED_ORDER_CATEGORY`). The `/sandbox-e2e` runner flags the amend-405 + STOP cases.
 - **Sandbox testing does NOT go through `pyne run --broker`** — there is no `dnse_sandbox`
   entry point, the one-plugin model (above) means data+orders share one plugin, and the sandbox
   has no market data. Drive it from a standalone probe: `sandbox_lifecycle_probe.py` (raw client
