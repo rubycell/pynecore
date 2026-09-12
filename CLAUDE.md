@@ -197,13 +197,16 @@ The whole position surface is read + lifecycle: `GET .../positions`, `GET /posit
 (OPEN/PENDING_CLOSE/CLOSED/ODD_LOT) + five quantities (accumulate/trade/closed/open/overNight),
 netting `openQuantity = accumulate - closed`.
 
-So our "position" is **the venue's aggregation of our fills**, and `get_position` (venue-read of
-`openQuantity x side` in `broker.py`) is the authoritative cross-check against the engine's
-incremental fill-tracking (the reference-plugin pattern for derivatives). **UNCONFIRMED (#115):**
-whether that venue-read is reliable/timely enough to reconcile against, and its limits — T+ delay,
-overnight split, whether prod nets an opposing order into the position (the sandbox's `deals` do
-NOT), PENDING_CLOSE. Mapping tested only vs mocks — confirm on prod before trusting it or building
-position-dependent tests.
+**`get_position` is the WRONG granularity for this plugin (CRITICAL, corrected 2026-09-12).**
+`broker.py get_position` sums `openQuantity x side` over ALL rows for the asset — the whole-ACCOUNT
+net — and `sync_engine.py reconcile` ADOPTS that as *this run's* position. But the venue holds
+exactly ONE net position per asset, while we run **many strategies x many users on the same asset**;
+the account-net = the SUM of all of them, so it CANNOT represent any single strategy's position.
+A strategy's position must be tracked from ITS OWN tagged fills (our `client_order_id`/coid) — the
+venue physically cannot attribute per-strategy. So do NOT reconcile a strategy against `get_position`
+(the reference-plugin venue-read pattern assumes ~one strategy per account; ours does not). Fixing
+this (per-strategy fill-tracking; stop adopting the account-net) is #115. The venue net is still
+useful as an ACCOUNT-level safety/oversell check, never as a per-strategy position.
 
 ## DNSE WebSocket testing rules — how the "silent WS" false verdict happened (CRITICAL)
 
