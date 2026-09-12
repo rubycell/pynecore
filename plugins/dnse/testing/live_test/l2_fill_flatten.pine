@@ -1,6 +1,9 @@
 //@version=6
 // LIVE TEST LEVEL 2 — one real 1-contract FILL, then flatten on sight. SUPERVISED ONLY.
 //
+// @sandbox-expect: entry.placed entry.filled position>=1 close.placed close.filled
+//   (sandbox grades the ORDER PATH only — not SL/TP/netting/P&L; position oscillates.)
+//
 // Gate: run ONLY after LEVEL 1 (live1/live2/live3 place+cancel) all pass. This is the FIRST
 // test that takes a REAL position. It enters exactly ONE market long (1 contract) on the
 // first realtime bar, then closes THAT entry on the NEXT evaluation after the position

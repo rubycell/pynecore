@@ -58,3 +58,4 @@ backup/
 
 # Editable-install build metadata
 *.egg-info/
+*.sandbox_e2e.log
