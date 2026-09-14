@@ -1,0 +1,89 @@
+# Indicator / Strategy / Library Settings
+
+[script]
+#overlay = true
+#format = "inherit"
+#precision =
+#scale =
+#pyramiding = 1
+#calc_on_order_fills = false
+#calc_on_every_tick = false
+#calc_on_every_history_tick = false
+#max_bars_back = 0
+#timeframe =
+#timeframe_gaps = true
+#explicit_plot_zorder = false
+#max_lines_count = 50
+#max_labels_count = 50
+#max_boxes_count = 50
+#calc_bars_count = 0
+#max_polylines_count = 50
+#dynamic_requests = false
+#behind_chart = true
+#backtest_fill_limits_assumption = 0
+#default_qty_type = "fixed"
+#default_qty_value = 1
+#initial_capital = 500000000
+#currency = "NONE"
+#slippage = 1
+#commission_type = "percent"
+#commission_value = 0.0
+#process_orders_on_close = false
+#close_entries_rule = "FIFO"
+#margin_long = 18.48
+#margin_short = 18.48
+#risk_free_rate = 2.0
+#use_bar_magnifier = true
+#fill_orders_on_standard_ohlc = false
+
+# Input Settings
+
+[inputs.oracleMode]
+# Input metadata, cannot be modified
+# input_type: "bool"
+#     defval: false
+#      title: "Oracle mode (OFFLINE backtest verification ONLY)"
+#    confirm: false
+# Change here to modify the input value
+#value =
+
+[inputs.slPct]
+# Input metadata, cannot be modified
+# input_type: "float"
+#     defval: 0.2
+#      title: "Stop-loss % below the fill"
+#     minval: 0.01
+#       step: 0.01
+#    confirm: false
+# Change here to modify the input value
+#value =
+
+[inputs.tpPct]
+# Input metadata, cannot be modified
+# input_type: "float"
+#     defval: 0.3
+#      title: "Take-profit % above the fill"
+#     minval: 0.01
+#       step: 0.01
+#    confirm: false
+# Change here to modify the input value
+#value =
+
+[inputs.maxHoldBars]
+# Input metadata, cannot be modified
+# input_type: "int"
+#     defval: 3
+#      title: "Live: flatten after N bars if SL/TP has not"
+#     minval: 1
+#    confirm: false
+# Change here to modify the input value
+#value =
+
+[inputs.doubleCheckPct]
+# Input metadata, cannot be modified
+# input_type: "float"
+#     defval: -0.5
+#      title: "Live: adverse-move double-check flatten %"
+#    confirm: false
+# Change here to modify the input value
+#value =

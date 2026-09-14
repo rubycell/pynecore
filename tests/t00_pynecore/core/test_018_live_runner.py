@@ -145,6 +145,39 @@ def __test_live_generator_yields_ohlcv_objects__():
     assert bars[0].is_closed is True
 
 
+def __test_live_generator_yields_wake_sentinel_when_signalled__():
+    """#121: a set ``wake_event`` (the broker engine signalling a fill) makes the
+    live feed yield the ``WAKE`` sentinel on the MAIN-thread consumer, so
+    script_runner can drain + arm protection at once instead of at the next bar.
+    The consumer clears the signal as it services the wake (mimicked here)."""
+    import threading
+    from pynecore.core.script_runner import WAKE
+
+    wake = threading.Event()
+    wake.set()
+    provider = MockLiveProvider([_make_ohlcv(1000, is_closed=True)])
+
+    saw_wake = False
+    for item in live_ohlcv_generator(provider, "BTC/USDT", "1D", wake_event=wake):
+        if item is WAKE:
+            saw_wake = True
+            wake.clear()  # what script_runner does via engine.consume_wake()
+    assert saw_wake, "a set wake_event must make the live feed yield the WAKE sentinel"
+
+
+def __test_live_generator_no_wake_when_unsignalled__():
+    """#121: with no wake signal, the feed yields only real bars — the WAKE path
+    is inert (poll-only, pre-#121 behaviour) when nothing signalled."""
+    import threading
+    from pynecore.core.script_runner import WAKE
+
+    wake = threading.Event()  # never set
+    provider = MockLiveProvider([_make_ohlcv(1000, is_closed=True)])
+    _, bars = _drain(provider, "BTC/USDT", "1D", wake_event=wake)
+    assert WAKE not in bars, "an unsignalled wake_event must never yield WAKE"
+    assert all(isinstance(b, OHLCV) and b.is_closed for b in bars)
+
+
 def __test_live_generator_connects_and_disconnects__():
     """live_ohlcv_generator calls connect on start and disconnect on finish"""
     updates = [

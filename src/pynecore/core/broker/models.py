@@ -452,10 +452,14 @@ class ExchangeCapabilities:
     # sync — closing the ~1-bar positioned-but-unprotected window on a
     # standalone-exit, no-attach, closed-bar venue (DNSE). Opt-in per plugin so
     # attach-semantics venues (Bybit/Capital.com/cTrader), which arm protection
-    # natively on fill, stay BYTE-FOR-BYTE unchanged. The arm always runs on the
-    # MAIN thread through the existing single-consumer drain (never the broker
-    # loop — that deadlocks, sync_engine.py:19457), registering the armed bracket
-    # in _active_intents so the next sync sees no diff and cannot double-place.
+    # natively on fill, stay BYTE-FOR-BYTE unchanged. The arm runs on the MAIN
+    # thread through the existing single-consumer drain — either at the next
+    # bar-close ``sync`` or, #121, promptly when the broker-loop pump SIGNALS a
+    # fill and the live loop wakes the main thread to drain at once (never a
+    # background thread — that would race the Pine script's order-book edits;
+    # never the broker loop — that deadlocks _run_async). Registering the armed
+    # bracket in _active_intents makes the following sync see no diff, so it
+    # cannot double-place.
     arm_protection_on_fill: bool = False
 
     # #87: True when the plugin executes a both-set entry (limit AND stop)

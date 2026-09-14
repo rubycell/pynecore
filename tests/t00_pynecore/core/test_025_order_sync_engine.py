@@ -14449,3 +14449,183 @@ def __test_111_arm_protection_on_fill_arms_bracket_at_drain__():
         "the next sync must see no diff (value-identical armed intent) and not "
         f"re-dispatch. Got {len(b.exit_calls)}."
     )
+
+
+
+# === #121: arm-on-fill WAKE — SIGNAL on the broker loop, DRAIN on the main thread ===
+#
+# Thread model (proven by the no-deadlock test below): the broker-loop pump only
+# SETS ``_wake_event`` (lock-free, no state mutation); the MAIN thread polls
+# ``wake_pending()`` and drains + arms via ``apply_async_events`` — so all engine
+# state mutation stays single-threaded (never racing the Pine script) and the arm
+# still crosses to the broker loop exactly as the bar-close drain already does.
+
+
+def __test_121_fill_signals_wake_and_main_thread_drain_arms_protection__():
+    """#121: a fill under arm-on-fill SIGNALS ``wake_pending``; the main-thread
+    wake drain (``consume_wake`` + ``apply_async_events``) then arms the
+    protective exit — closing the #107 window WITHOUT waiting for the next bar's
+    ``sync``. Idempotent: the following ``sync`` sees the armed intent and does
+    not double-place."""
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    engine._exit_orders_execute_standalone = True
+    engine._arm_protection_on_fill = True  # the opt-in (DNSE declares it by default)
+
+    pos.entry_orders["E"] = _entry_order("E", 1.0, stop=50_000.0)
+    # LONG entry -> protective exit SELLS (negative size); TP above / SL below.
+    pos.exit_orders[("X", "E")] = _exit_order(
+        "E", -1.0, "X", limit=50_100.0, stop=49_900.0,
+    )
+
+    engine.sync(BAR_TS)
+    assert len(b.entry_calls) == 1
+    assert b.exit_calls == [], "#82b: bracket withheld before the fill (naked standalone)"
+    assert not engine.wake_pending(), "no wake before any fill"
+
+    # The venue fills the entry; the pump enqueues the event AND signals the wake.
+    engine.on_order_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+        xchg_id="xchg-1",
+    ))
+    assert engine.wake_pending(), "a fill under arm-on-fill must signal the wake"
+    # Baseline anchor: before the main-thread drain runs, nothing is armed yet.
+    assert b.exit_calls == [], "before the wake drain the fill is queued and unarmed"
+
+    # THE WAKE, on the MAIN thread — exactly what script_runner does for a WAKE
+    # sentinel: consume the signal, then drain + arm. No bar, no sync.
+    engine.consume_wake()
+    engine.apply_async_events()
+
+    assert not engine.wake_pending(), "consume_wake clears the signal"
+    assert pos.size == 1.0, "the wake drain applied the fill to the position"
+    assert len(b.exit_calls) == 1, (
+        "#121: the main-thread wake drain must arm the protective exit off the "
+        f"fill event, WITHOUT a bar/sync. Got {len(b.exit_calls)}."
+    )
+
+    # Idempotency: the following bar-close sync rebuilds the SAME intent, sees it
+    # already in _active_intents, and does NOT dispatch a second bracket.
+    engine.sync(BAR_TS)
+    assert len(b.exit_calls) == 1, "next sync must see no diff and not re-dispatch"
+
+
+def __test_121_wake_signal_not_raised_when_arm_protection_off__():
+    """#121: with arm-on-fill OFF (the default), a fill does NOT signal the wake —
+    every non-opted-in venue keeps the accepted next-bar arming behaviour."""
+    b = MockBroker()
+    engine, _pos = _mk_engine(b)
+    assert engine._arm_protection_on_fill is False
+    engine.on_order_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+        xchg_id="xchg-1",
+    ))
+    assert not engine.wake_pending(), "arm-off: a fill must not signal the wake"
+
+
+def __test_121_wake_signal_gated_to_fill_and_partial_events__():
+    """#121: with arm-on-fill ON, only fill/partial events signal the wake — a
+    non-fill event (e.g. ``created``) must not, since it opens/grows no position."""
+    b = MockBroker()
+    engine, _pos = _mk_engine(b)
+    engine._arm_protection_on_fill = True
+
+    engine.on_order_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+        xchg_id="xchg-1", event_type='created',
+    ))
+    assert not engine.wake_pending(), "a non-fill event must not signal the wake"
+
+    engine.on_order_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+        xchg_id="xchg-2", event_type='partial', filled_qty=1.0, remaining_qty=1.0,
+    ))
+    assert engine.wake_pending(), "a partial fill must signal the wake"
+
+
+class _SlowMockBroker(MockBroker):
+    """MockBroker whose order/read coroutines take a beat, so the pump (broker
+    loop) and the main-thread wake drain genuinely OVERLAP while the drain is
+    crossing back to the loop for ``execute_exit`` — the window a deadlock would
+    strike in."""
+
+    async def execute_entry(self, envelope):
+        await asyncio.sleep(0.02)
+        return await MockBroker.execute_entry(self, envelope)
+
+    async def execute_exit(self, envelope):
+        await asyncio.sleep(0.02)
+        return await MockBroker.execute_exit(self, envelope)
+
+    async def get_position(self, symbol):
+        await asyncio.sleep(0.01)
+        return await MockBroker.get_position(self, symbol)
+
+
+def __test_121_wake_no_deadlock_real_loop_pump_signals_main_thread_drains__():
+    """#121 THREAD-MODEL PROOF (real two-thread, no deadlock).
+
+    Exercises the ACTUAL production shape: a REAL background event loop (like the
+    ``broker-event-loop`` thread) runs the pump (``run_event_stream`` consuming
+    ``watch_orders``), which — on the fill — SIGNALS ``_wake_event`` from the loop
+    thread. The MAIN thread then drains + arms via ``apply_async_events``, whose
+    arm crosses BACK to the loop through ``run_coroutine_threadsafe(...).result()``
+    while the loop is live. This must complete within a short timeout:
+
+      * the drain runs on the MAIN thread (never the loop), so ``.result()``
+        resolves — the loop is free to run the arm coroutine;
+      * the pump never touches engine state or any engine lock, so it cannot
+        block the drain.
+
+    A single-thread ``event_loop=None`` test would NOT exercise
+    ``run_coroutine_threadsafe`` and so would miss the deadlock this guards."""
+    import queue as _queue
+
+    loop = asyncio.new_event_loop()
+    loop_thread = threading.Thread(target=loop.run_forever, daemon=True,
+                                   name="test-broker-loop")
+    loop_thread.start()
+    try:
+        for _ in range(3):
+            b = _SlowMockBroker()
+            pos = BrokerPosition()
+            engine = OrderSyncEngine(
+                broker=b, position=pos, symbol=SYMBOL, run_tag=RUN_TAG,
+                event_loop=loop, execute_timeout=5.0, mintick=1.0,
+            )
+            engine._exit_orders_execute_standalone = True
+            engine._arm_protection_on_fill = True
+            pos.entry_orders["E"] = _entry_order("E", 1.0, stop=50_000.0)
+            pos.exit_orders[("X", "E")] = _exit_order(
+                "E", -1.0, "X", limit=50_100.0, stop=49_900.0,
+            )
+            engine.sync(BAR_TS)  # dispatch the entry (crosses to the loop)
+
+            # The pump delivers the fill FROM THE LOOP THREAD and signals the wake.
+            b.streamed_events = [_fill_event(
+                "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+                xchg_id="xchg-1",
+            )]
+            pump_future = asyncio.run_coroutine_threadsafe(
+                engine.run_event_stream(), loop)
+
+            # MAIN thread: wait for the loop-thread pump to signal, then drain+arm.
+            deadline = time.monotonic() + 10.0
+            while not engine.wake_pending() and time.monotonic() < deadline:
+                time.sleep(0.005)
+            assert engine.wake_pending(), (
+                "DEADLOCK/miss: the loop-thread pump never signalled the wake")
+            engine.consume_wake()
+            engine.apply_async_events()   # main-thread drain + arm, crosses to loop
+
+            assert pos.size == 1.0, "the fill is applied exactly once"
+            assert len(b.exit_calls) == 1, (
+                "the protective exit must arm exactly once on the main-thread "
+                f"wake drain. Got {len(b.exit_calls)}.")
+            try:
+                pump_future.result(timeout=2.0)   # the stream ended cleanly
+            except (_queue.Empty, TimeoutError, asyncio.TimeoutError):
+                pass
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        loop_thread.join(timeout=5.0)

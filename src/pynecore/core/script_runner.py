@@ -47,12 +47,19 @@ __all__ = [
     'import_script',
     'ScriptRunner',
     'LIVE_TRANSITION',
+    'WAKE',
     'SecurityRequirement',
     'DataRequirements',
 ]
 
 LIVE_TRANSITION = OHLCV(timestamp=-1, open=-1, high=-1, low=-1, close=-1, volume=-1)
 """Sentinel inserted between historical and live OHLCV data in the iterator."""
+
+WAKE = OHLCV(timestamp=-2, open=-2, high=-2, low=-2, close=-2, volume=-2)
+"""#121 arm-on-fill wake: the live feed yields this (out of band, carrying no
+bar) when the broker engine signalled a fill. The live loop drains + arms
+protection on the MAIN thread and does NOT run the script for it — closing the
+~1-bar unprotected window (#107) without a background thread racing the script."""
 
 _LAST_PATH_NODE = 2
 """Last node of the assumed intrabar path a COOF re-execution can stand on.
@@ -2485,6 +2492,26 @@ class ScriptRunner:
                     # for a bar the bot is no longer trading.
                     if self._order_sync_engine is not None:
                         cast('OrderSyncEngine', self._order_sync_engine).raise_if_halted()
+
+                    # #121 arm-on-fill WAKE: the feed signalled a fill landed
+                    # (out of band, carrying no bar). Drain it and arm protection
+                    # NOW, on THIS (main) thread — the engine's single-writer
+                    # invariant, so it never races the Pine script below — then
+                    # keep waiting for real bars. The script is NOT run for a
+                    # wake. A recoverable broker loss just retries at the next
+                    # real drain; a halt surfaces via raise_if_halted above.
+                    if bar_update is WAKE:
+                        engine = self._order_sync_engine
+                        if engine is not None:
+                            engine = cast('OrderSyncEngine', engine)
+                            engine.consume_wake()
+                            try:
+                                engine.apply_async_events()
+                            except ExchangeConnectionError as e:
+                                broker_warning(
+                                    "arm-on-fill wake drain skipped after "
+                                    "connection error: %s — retrying next drain", e)
+                        continue
 
                     candle = bar_update
                     is_new_bar = (candle.timestamp != last_bar_timestamp)

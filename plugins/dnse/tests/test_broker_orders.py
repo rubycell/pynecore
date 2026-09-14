@@ -504,6 +504,9 @@ def __test_get_capabilities_snapshot__(fake_client, tmp_path):
     assert caps.short_selling is CapabilityLevel.NATIVE
     assert caps.trailing_stop is CapabilityLevel.SOFTWARE
     assert caps.idempotency is CapabilityLevel.SOFTWARE
+    # #121 (operator directive: no naked entries): DNSE arms the protective
+    # SL/TP on the fill event, not at the next bar-close sync. ON by default.
+    assert caps.arm_protection_on_fill is True
 
 
 def __test_connect_disconnect_lifecycle__(fake_client, tmp_path):

@@ -1665,6 +1665,16 @@ class OrderSyncEngine:
         # the flag flips so a gate that observes ``_quarantined`` never
         # reads half-initialized latch state.
         self._quarantine_lock = threading.Lock()
+        # #121: arm-on-fill WAKE signal. With ``arm_protection_on_fill`` on, the
+        # broker-loop pump SETS this the instant a fill/partial arrives (a
+        # thread-safe, lock-free ``Event.set`` — the pump NEVER mutates engine
+        # state). The MAIN thread's live loop watches it and, when set, drains +
+        # arms on the MAIN thread via ``apply_async_events`` — promptly, instead
+        # of at the next bar close. The drain therefore stays SINGLE-THREADED
+        # (the engine's existing invariant: only the main thread mutates state,
+        # never racing the Pine script), so no engine-side lock is needed. See
+        # ``script_runner`` (WAKE sentinel) and ``live_runner`` (the wake feed).
+        self._wake_event = threading.Event()
         # Intent keys whose blocked dispatch was already logged, so a
         # re-emitted signal or a retried modify logs once, not every sync.
         self._quarantine_blocked_logged: set[str] = set()
@@ -2120,9 +2130,27 @@ class OrderSyncEngine:
         """Queue a broker :class:`OrderEvent` for processing on the next sync.
 
         Called from the :meth:`run_event_stream` background task or by
-        tests injecting synthetic events.
+        tests injecting synthetic events. Both the queue put and the #121
+        wake signal live here so every enqueue path (the live pump and
+        synthetic-event injectors) behaves identically.
         """
         self._event_queue.put(event)
+        self._maybe_signal_arm_wake(event)
+
+    def _maybe_signal_arm_wake(self, event: OrderEvent) -> None:
+        """#121: SIGNAL the main-thread arm-on-fill wake when a fill/partial
+        arrives.
+
+        A no-op unless the plugin opted in via ``arm_protection_on_fill`` and
+        the event is a fill/partial (the only events that open/grow a position
+        needing protection). Setting the :class:`threading.Event` is lock-free,
+        so it is safe from the broker event-loop pump — it never blocks that
+        loop and never mutates engine state. The MAIN thread's live loop polls
+        :meth:`wake_pending` and drains+arms via :meth:`apply_async_events`.
+        When nothing polls it (unit tests, arm-on-fill off) the flag is inert.
+        """
+        if self._arm_protection_on_fill and event.event_type in ('filled', 'partial'):
+            self._wake_event.set()
 
     async def run_event_stream(self) -> None:
         """Drain :meth:`BrokerPlugin.watch_orders` into the event queue.
@@ -2152,7 +2180,10 @@ class OrderSyncEngine:
         try:
             async for event in stream:
                 _blog_info("event %s", event)
-                self._event_queue.put(event)
+                # Enqueue + (for a fill/partial under arm-on-fill) SIGNAL the
+                # main-thread wake. Routed through ``on_order_event`` so the pump
+                # and synthetic-event injectors share one enqueue+signal path.
+                self.on_order_event(event)
         except NotImplementedError:
             _log.info(
                 "broker does not implement watch_orders; "
@@ -2188,6 +2219,21 @@ class OrderSyncEngine:
                 pass
             except Exception as exc:  # noqa: BLE001 - teardown must proceed
                 _log.debug("event stream terminated with %r during stop", exc)
+
+    def wake_pending(self) -> bool:
+        """#121: True once the pump signalled an arm-on-fill wake and it has not
+        been consumed. The MAIN-thread live loop polls this and, when True,
+        clears it (:meth:`consume_wake`) and drains + arms via
+        :meth:`apply_async_events` — keeping ALL engine-state mutation on the
+        main thread (the engine's single-writer invariant), never on a
+        background thread that could race the Pine script's order-book edits."""
+        return self._wake_event.is_set()
+
+    def consume_wake(self) -> None:
+        """Clear the wake signal — the main-thread live loop calls this right
+        before draining, so a fill that lands DURING the drain re-signals and is
+        serviced on the next loop pass (never lost)."""
+        self._wake_event.clear()
 
     @property
     def halted(self) -> bool:

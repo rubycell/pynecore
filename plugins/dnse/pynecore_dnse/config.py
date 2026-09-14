@@ -72,4 +72,17 @@ class DNSEBrokerConfig(DNSEConfig):
     #: guard (#37 panel) forbids forming N+1 before closed N — an unbounded
     #: wait would stall the feed through every session close.
     tick_close_timeout: float = 20.0
+    #: #121 dual-transport failsafe: subscribe the PROD WS broker order-event
+    #: channel (``order.broker.{market_type}.{investorId}.json``) IN ADDITION to
+    #: the REST poll, so a fill — and thus its protective SL/TP arming — is
+    #: detected in ~ms instead of up to one poll period. ADDITIVE ONLY: the poll
+    #: stays the proven floor and dedups against the WS via the shared
+    #: ``_last_seen`` cumulative watermark; any WS drop/error/silence degrades to
+    #: poll-only latency, never a protection gap. Kill-switch: set False to run
+    #: poll-only (the pre-#121 behaviour) with no code change.
+    enable_ws_order_events: bool = True
+    #: Seconds before reconnecting the WS order feed after a drop/error (prod
+    #: closed with a server 1000 in #92). Bounded backoff; the poll floor covers
+    #: the interval.
+    ws_order_reconnect_interval: float = 3.0
 
