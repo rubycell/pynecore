@@ -419,6 +419,15 @@ computes KRX codes) — BUT its per-instance cache can serve a STALE dated code 
 remaining concern, #113). TradingView keys (`HNX:VN30x!`) are NOT DNSE `symbolType`s -> they need a
 `symbol_map` line (`"HNX:VN301!" = "dnse:VN30F1M"`).
 
+**Operator-confirmed roll mechanics (2026-09-14):** the `VN30F1M`/`F2M` aliases repoint to the next
+dated contract on the **morning AFTER expiry** (Friday), not on expiry day — so a process started
+before that morning holds a stale alias->contract mapping at Friday's open (#113: re-resolve per
+trading day, never per-instance-forever). When the 3rd Thursday is a **holiday**, the final trade
+date moves to the **preceding trading day** (confirms #118's walk-back). The API's documented
+`finalTradeDate` shape is the compact `20260416` (doc-typed "string"; derivatives + covered
+warrants only — stocks never carry it), while the venue has ALSO served ISO `2026-08-20` live
+(2026-08-14): both forms must parse (`expiry.parse_venue_date` does).
+
 ## request.security() on DNSE — indices work, wired by symbol_map (not `--security`)
 
 DNSE serves market INDICES (`VNINDEX`, `VN30`) on `/price/ohlc?type=INDEX` — ~1 year of
