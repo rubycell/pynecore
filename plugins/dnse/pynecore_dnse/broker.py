@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _dc_replace
 from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -1322,8 +1322,8 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
 
     def _place(self, envelope, side: str, qty: float, *, price: float,
                category: str = "NORMAL", stop_price: float | None = None,
-               stop_order_price: float | None = None, leg_type=None
-               ) -> list[ExchangeOrder]:
+               stop_order_price: float | None = None, leg_type=None,
+               coid_suffix: str = "") -> list[ExchangeOrder]:
         """Place one native order (NORMAL / STOP / OCO) and record its identity.
 
         #119: this is the WRITE funnel — every price the plugin ever puts on
@@ -1358,6 +1358,16 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
 
         ident = self._ident_str(envelope, leg_type)
         coid = self._coid(envelope, leg_type)
+        # #123 add-a-leg: a protective EXIT that grows with a partial entry fill
+        # places an ADDITIONAL conditional leg for the newly filled slice (the
+        # conditional book cannot amend qty — it PARKs, #18/#85/#93 — so a grow
+        # is a fresh leg placed alongside the armed one, never a cancel+replace
+        # that would bare the whole position). Each extra leg needs its OWN
+        # journal row / restart identity, so disambiguate its coid. The coid is
+        # DNSE-LOCAL (never sent to the venue — the venue assigns its own id),
+        # so a suffix is a safe, collision-free journal key.
+        if coid_suffix:
+            coid = f"{coid}{coid_suffix}"
         intent = envelope.intent
         # #36 persist-FIRST: the row exists BEFORE the POST leaves the process
         # — a crash in ANY later window leaves an auditable restart bridge.
@@ -1599,6 +1609,15 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
           cancels route by the id that actually acts.
         - sl only -> native STOP; tp only -> NORMAL LO.
         """
+        return self._place_exit(envelope)
+
+    def _place_exit(self, envelope, *, coid_suffix: str = "") -> list[ExchangeOrder]:
+        """Place ONE protective exit leg (OCO / STOP / LO) for ``envelope``.
+
+        Shared by :meth:`execute_exit` (the first arm) and the #123 add-a-leg
+        grow in :meth:`_amend` (each later partial-entry slice). ``coid_suffix``
+        disambiguates the extra legs' journal identity — see :meth:`_place`.
+        """
         from pynecore.core.broker.models import LegType
         from pynecore.core.broker.exceptions import OrderSkippedByPlugin
         intent = envelope.intent
@@ -1610,15 +1629,15 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             return self._place(envelope, intent.side, intent.qty, price=tp,
                                category="OCO", stop_price=sl,
                                stop_order_price=self._stop_fill_price(intent.side, sl),
-                               leg_type=LegType.TAKE_PROFIT)
+                               leg_type=LegType.TAKE_PROFIT, coid_suffix=coid_suffix)
         if sl is not None:
             return self._place(envelope, intent.side, intent.qty,
                                price=self._stop_fill_price(intent.side, sl),
                                category="STOP", stop_price=sl,
-                               leg_type=LegType.STOP_LOSS)
+                               leg_type=LegType.STOP_LOSS, coid_suffix=coid_suffix)
         if tp is not None:
             return self._place(envelope, intent.side, intent.qty, price=tp,
-                               leg_type=LegType.TAKE_PROFIT)
+                               leg_type=LegType.TAKE_PROFIT, coid_suffix=coid_suffix)
         raise OrderSkippedByPlugin(
             "DNSE plugin cannot express this exit: no tp_price/sl_price "
             "(trailing stops are not implemented)",
@@ -2056,6 +2075,22 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             return await (super().modify_exit(old, new) if is_exit
                           else super().modify_entry(old, new))
         order_id = str(ids[0])
+        # #123 add-a-leg: a protective EXIT whose qty GROWS (same levels) as a
+        # partial entry fills cannot be amended on the conditional/OCO book — a
+        # qty amend PARKs (#18/#85/#93). Parking would leave the newly filled
+        # lot NAKED; a cancel+replace would bare the WHOLE position between the
+        # cancel and the replace. Instead place an ADDITIONAL protective leg
+        # sized to the delta and leave the armed leg(s) untouched — zero naked
+        # window (the delta legs together with the original exactly cover the
+        # grown position, so no reversal-through-flat either). Scoped to the
+        # conditional (STOP) / OCO books; a NORMAL-book exit (pure TP LO) amends
+        # qty in place through ``_amend_normal`` below.
+        is_conditional_exit = (
+            is_exit and (
+                (self._order_category_for(order_id) or "NORMAL") != "NORMAL"
+                or self._placed_category.get(order_id) == "OCO"))
+        if is_conditional_exit and self._is_pure_qty_grow(old.intent, new.intent):
+            return self._add_protective_leg(old, new)
         # #85 (operator-identified, panel-adjudicated): the conditional book
         # CANNOT be amended (#18: HTTP 500 always — re-measured live
         # 2026-09-08), so a per-bar Pine modify silently never reached the
@@ -2112,6 +2147,60 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             f"(#18/#93) — parked, old order {order_id} stays armed",
             client_order_id=order_id,
             predecessor_cancel_ids=())
+
+    @staticmethod
+    def _is_pure_qty_grow(old_intent, new_intent) -> bool:
+        """A protective-exit modify that only RAISES qty (levels unchanged).
+
+        The #123 partial-entry extend: as later slices fill, the engine grows
+        the whole-row exit's qty while every price level stays put. Any level
+        change (a trailing SL move) is NOT this and still PARKs (#85/#93)."""
+        if int(new_intent.qty) <= int(old_intent.qty):
+            return False
+        return all(
+            getattr(old_intent, attr, None) == getattr(new_intent, attr, None)
+            for attr in ("sl_price", "tp_price", "limit", "stop"))
+
+    def _add_protective_leg(self, old, new) -> list[ExchangeOrder]:
+        """#123: place an EXTRA protective leg for the newly filled slice.
+
+        The armed leg(s) stay LIVE (never cancelled), so the position is never
+        bared; the delta leg protects the freshly filled lot(s). Together they
+        exactly cover the grown position (no over-protection -> no reversal on a
+        netting account). Returns EVERY tracked leg id for the key so the
+        engine's order map covers them all — a later engine-initiated cancel of
+        this exit then cancels the whole set (``execute_cancel`` iterates
+        ``_order_ids[key]``)."""
+        key = old.intent.intent_key
+        pre_count = len(self._order_ids.get(key, []))
+        delta = int(new.intent.qty) - int(old.intent.qty)
+        # A fresh envelope carrying ONLY the delta qty at the SAME levels; the
+        # coid suffix (session-unique via the leg count) gives it its own
+        # journal identity without a venue-visible change.
+        leg_env = _dc_replace(new, intent=_dc_replace(new.intent, qty=float(delta)))
+        self._place_exit(leg_env, coid_suffix=f"~g{pre_count}")
+        ids = list(self._order_ids.get(key, []))
+        log.broker_info(
+            "#123 extended protection for %s: placed an additional %d-lot leg "
+            "for the newly filled slice; %d leg(s) now armed (no cancel — the "
+            "existing protection stayed live)", key, delta, len(ids))
+        return [self._exchange_order_stub(oid, new.intent) for oid in ids]
+
+    def _exchange_order_stub(self, order_id: str, intent) -> ExchangeOrder:
+        """A minimal :class:`ExchangeOrder` naming an already-tracked leg id.
+
+        The engine only reads ``.id`` off a ``modify_exit`` result (to refresh
+        its order map); the remaining fields are cosmetic placeholders."""
+        return ExchangeOrder(
+            id=str(order_id),
+            symbol=self.resolve_contract(),
+            side=getattr(intent, "side", "sell"),
+            order_type=OrderType.LIMIT,
+            qty=float(getattr(intent, "qty", 0.0) or 0.0),
+            filled_qty=0.0,
+            remaining_qty=float(getattr(intent, "qty", 0.0) or 0.0),
+            price=None, stop_price=None, average_fill_price=None,
+            status=OrderStatus.OPEN, timestamp=0.0, fee=0.0, fee_currency="")
 
     @staticmethod
     def _intent_price(intent) -> float:

@@ -1102,6 +1102,18 @@ class OrderSyncEngine:
         self._pine_bracket_reconstruct_done: bool = False
 
         self._active_intents: dict[str, Intent] = {}
+        # #123: total protective VENUE qty currently placed for each protective
+        # ExitIntent key. The #82b clamp in :meth:`_dispatch_new` sizes the
+        # arming exit down to the reducible (filled) slice, so on a PARTIAL
+        # entry fill the armed venue qty is smaller than the whole-row intent
+        # kept in ``_active_intents`` (that stays whole-row for value identity
+        # with Pine). This ledger — not the belief — drives
+        # :meth:`_arm_protective_exits_after_fill` to EXTEND protection to each
+        # later slice as it fills (growing only the DELTA, so no bar leaves a
+        # filled lot naked). Reset on every first-arm (``key not in
+        # _active_intents``), so a retirement that pops the intent key also
+        # resets this implicitly on the next arm — no per-retirement cleanup.
+        self._armed_protective_venue_qty: dict[str, float] = {}
         # Bounded-retry bookkeeping for entries the exchange rejects outright
         # (terminal reject: nothing opened), keyed by ``EntryIntent.intent_key``
         # and holding ``(rejected snapshot, consecutive reject count)``. A
@@ -9206,12 +9218,16 @@ class OrderSyncEngine:
         firing; they already run every bar on the re-emitted intent, so a
         per-bar-pure interceptor (the contract) tolerates it.
 
-        Idempotent: an exit already in ``_active_intents`` (armed at a prior
-        sync, or by an earlier fill in a cumulative-partial progression) is
-        skipped, as is one whose parent is not (yet) in ``open_trades``. An exit
-        whose position is somehow still not reducible re-raises ``#82b``'s
-        :class:`OrderSkippedByPlugin`, swallowed here exactly as the diff loop
-        swallows it — the next ``sync`` retries, unchanged.
+        Idempotent on the FIRST arm: an exit already armed at a prior sync, or
+        one whose parent is not (yet) in ``open_trades``, is not re-placed. But
+        an exit already in ``_active_intents`` is NOT blindly skipped (#123):
+        when a later partial fill grows the position past the armed venue qty
+        (tracked in ``_armed_protective_venue_qty``), protection is EXTENDED to
+        the newly filled slice — growing only the delta, clamped to the
+        reducible position. An exit whose position is somehow still not
+        reducible re-raises ``#82b``'s :class:`OrderSkippedByPlugin`, swallowed
+        here exactly as the diff loop swallows it — the next ``sync`` retries,
+        unchanged.
         """
         raw = build_intents(
             {}, self._position.exit_orders, self._symbol,
@@ -9224,17 +9240,79 @@ class OrderSyncEngine:
             if not isinstance(intent, ExitIntent):
                 continue
             intent_key = intent.intent_key
-            if intent_key in self._active_intents:
-                continue  # already armed (prior sync / earlier partial)
             if intent.from_entry not in open_entry_ids:
                 continue  # parent not live -> nothing to protect; leave to sync
             if intent.has_unresolved_ticks:
                 continue  # no price yet to resolve the level; sync will defer it
+            # #123: the venue can only protect the FILLED slice of a partially
+            # filled parent — the #82b clamp in ``_dispatch_new`` sizes the
+            # arming order down to the reducible position. On a MULTI-LOT entry
+            # that fills in slices (measured live on DNSE: 9/30, 80/100), each
+            # later slice grows the position past what the first arm covers, so
+            # the newly filled lot(s) would otherwise sit NAKED until a later
+            # bar-close (the amend path is native-suppressed on DNSE, and the
+            # idempotent skip below never revisited an armed key). Track the
+            # armed VENUE qty per key and EXTEND protection to the delta as the
+            # position grows. ``_active_intents`` stays the WHOLE-ROW intent
+            # (value identity with Pine so the next bar-close sync sees no diff);
+            # the ledger, not the belief, decides when to extend.
+            reducible = self._reducible_exit_qty(intent.side)
+            target = min(abs(intent.qty), reducible)
+            if target <= 0.0:
+                continue  # #82b: nothing reducible yet; next fill/sync retries
+            if intent_key not in self._active_intents:
+                # First arm for this key: dispatch the clamped slice (``#82b``
+                # inside ``_dispatch_new`` sizes it to ``reducible``), register
+                # the WHOLE-ROW intent for value identity, and seed the ledger
+                # with the qty that actually reached the venue.
+                try:
+                    self._dispatch_new(intent)
+                except OrderSkippedByPlugin:
+                    continue  # #82b: still not reducible; next sync retries
+                self._active_intents[intent_key] = intent
+                self._armed_protective_venue_qty[intent_key] = target
+                continue
+            if intent_key not in self._armed_protective_venue_qty:
+                # Already armed, but NOT by this session's arm-on-fill path
+                # (a restart reconstructed the active intent; the in-memory
+                # ledger is empty). We cannot know how much the venue already
+                # protects, so growing by ``target`` could OVER-protect and
+                # reverse the account through flat. Leave it to the ordinary
+                # diff / reconcile path exactly as before this fix — the
+                # arm-on-fill extend only ever grows protection IT placed.
+                continue
+            already_armed = self._armed_protective_venue_qty[intent_key]
+            # Already armed by this session: extend protection to any newly
+            # filled slice by GROWING the venue protection from ``already_armed``
+            # to ``target``.
+            # ``target`` is clamped to ``reducible`` so the grown protection can
+            # never exceed the live position (a whole-row-sized exit on a
+            # netting account would reverse through flat, #82). The grow leaves
+            # the existing protection in place: a venue that can amend grows the
+            # order in place, DNSE ADDS a delta leg (its conditional amend PARKs,
+            # #18/#85/#93) — either way no bar is left with a filled lot naked.
+            deficit = target - already_armed
+            if deficit <= 1e-9:
+                continue  # venue already protects the whole reducible position
+            old_leg = dataclasses.replace(intent, qty=already_armed)
+            new_leg = dataclasses.replace(intent, qty=target)
             try:
-                self._dispatch_new(intent)
-            except OrderSkippedByPlugin:
-                continue  # #82b: still not reducible; next sync retries as today
-            self._active_intents[intent_key] = intent
+                self._dispatch_modify(old_leg, new_leg)
+            except (OrderSkippedByPlugin, OrderDispositionUnknownError,
+                    _PartialBracketModifyDeferred) as exc:
+                # The grow could not be applied this drain (a standalone-exit
+                # venue whose conditional grow PARKs, or a transient skip). The
+                # existing slice stays armed at ``already_armed``; warn LOUDLY
+                # that the freshly filled lot(s) are not yet protected and let
+                # the next fill / bar-close sync retry the extend.
+                _blog_warning(
+                    "#123 could NOT extend protection for %s from %s to %s "
+                    "(%s) — the newly filled slice is UNPROTECTED until the "
+                    "grow lands; retrying on the next fill/sync",
+                    format_intent_key(intent_key), already_armed, target, exc,
+                )
+                continue
+            self._armed_protective_venue_qty[intent_key] = target
 
     def _sync_pine_exit_qty(self, bracket: ExitIntent, new_qty: float) -> None:
         """Mutate the Pine-side exit :class:`Order` to match the amended qty.

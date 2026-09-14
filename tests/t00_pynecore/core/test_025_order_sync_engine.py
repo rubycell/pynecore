@@ -14730,18 +14730,18 @@ def __test_121_partial_entry_arms_protective_exit_sized_to_filled_slice__():
     )
 
 
-def __test_121_partial_entry_remainder_current_behavior_second_lot_unprotected__():
-    """#121 partial-fill remainder (CHARACTERIZATION of the CURRENT bug): after
-    the remainder fills (position 1 -> 2), the engine does NOT extend the
-    protective exit — no amend, no second leg — so the 2nd lot is unprotected.
+def __test_121_partial_entry_remainder_grows_protection_without_a_naked_window__():
+    """#123 (fixed): after the remainder fills (position 1 -> 2), the engine
+    EXTENDS the protective exit to the full position by GROWING it — and does so
+    WITHOUT ever cancelling the already-armed protection, so no bar is left with
+    a filled lot naked.
 
-    This is the GREEN pin of the buggy status-quo; the companion
-    ``__test_..._should_extend_protection_to_full_position__`` (xfail-strict)
-    pins the DESIRED behavior and will flip when the bug is fixed. Root cause:
-    ``_amend_bracket_qty_for_entry_fill`` (sync_engine.py:9053) short-circuits at
-    ``target_qty == bracket_intent.qty`` because the belief was registered
-    UNCLAMPED (qty 2 == cumulative fill 2), so it never grows the venue's qty-1
-    order.
+    Was the GREEN pin of the buggy status-quo (no amend, 2nd lot naked); flipped
+    to pin the fix. Mechanism: ``_arm_protective_exits_after_fill`` now tracks
+    the armed VENUE qty (``_armed_protective_venue_qty``) — clamped to the filled
+    slice by #82b — and, when the remainder grows the position past it, drives a
+    grow through ``_dispatch_modify`` (belief stays whole-row for value identity;
+    the ledger, not the belief, decides the extend).
     """
     b, engine, pos = _partial_arm_engine()
 
@@ -14752,6 +14752,7 @@ def __test_121_partial_entry_remainder_current_behavior_second_lot_unprotected__
     ))
     _wake_drain(engine)
     assert _protective_venue_qty(b) == 1.0
+    assert b.cancel_calls == [], "the first slice is armed with no cancel"
 
     # Remainder: +1 -> cumulative filled 2, position 2.
     engine.on_order_event(_fill_event(
@@ -14761,37 +14762,76 @@ def __test_121_partial_entry_remainder_current_behavior_second_lot_unprotected__
     _wake_drain(engine)
 
     assert pos.size == 2.0, "the remainder grew the position to the full 2 lots"
-    assert b.modify_exit_calls == [], (
-        "CURRENT BEHAVIOR (bug): no modify_exit is dispatched to grow the "
-        "bracket — the belief-vs-venue divergence makes the amend a no-op."
+    assert len(b.modify_exit_calls) == 1, (
+        "the remainder fill dispatches exactly one grow (modify_exit) to extend "
+        "the bracket from the filled slice to the full position."
     )
-    assert len(b.exit_calls) == 1, "no second protective leg is dispatched either"
-    assert _protective_venue_qty(b) == 1.0, (
-        "CURRENT BEHAVIOR (bug): the venue still protects only 1 lot while the "
-        f"position is 2 — the 2nd lot is naked. Got {_protective_venue_qty(b)}."
+    old_env, new_env = b.modify_exit_calls[-1]
+    assert old_env.intent.qty == 1.0 and new_env.intent.qty == 2.0, (
+        "the grow goes from the armed slice (1) to the full position (2)."
     )
-    # A following bar-close sync does NOT heal it: the diff sees the rebuilt
-    # whole-row intent (qty 2) == the belief (qty 2) and emits nothing.
+    # NO NAKED WINDOW: the grow never cancels the already-armed protection —
+    # the existing leg stays live the whole time (a MockBroker amend grows in
+    # place; DNSE adds a delta leg, pinned by the DNSE-level tests).
+    assert b.cancel_calls == [], (
+        "the extend must NOT cancel the armed protection — no bar may be left "
+        "with the position unprotected (add-a-leg / in-place grow, never "
+        "cancel+replace)."
+    )
+    assert _protective_venue_qty(b) == 2.0, (
+        "the venue now protects the whole 2-lot position; the 2nd lot is no "
+        f"longer naked. Got {_protective_venue_qty(b)}."
+    )
+    # A following bar-close sync is a no-op: the whole-row belief (qty 2) equals
+    # the Pine rebuild, so the diff emits nothing (no redundant amend).
+    n_modifies = len(b.modify_exit_calls)
     engine.sync(BAR_TS + 60_000)
-    assert b.modify_exit_calls == [], "the next sync sees no diff and never heals the gap"
-    assert _protective_venue_qty(b) == 1.0, "still 1 lot protected after the sync"
+    assert len(b.modify_exit_calls) == n_modifies, (
+        "the next bar-close sync sees no diff and issues no redundant amend"
+    )
+    assert _protective_venue_qty(b) == 2.0, "still fully protected after the sync"
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "#121 partial-fill protection BUG: the arm-on-fill drain registers the "
-    "UNCLAMPED whole-row exit (qty 2) in _active_intents while the venue holds "
-    "the clamped slice (qty 1), so _amend_bracket_qty_for_entry_fill's "
-    "target==belief short-circuit (sync_engine.py:9053) never grows the venue "
-    "order when the remainder fills. The 2nd lot stays unprotected. Flip to a "
-    "passing test when the engine tracks the CLAMPED armed qty and extends "
-    "protection to the full position."
-))
-def __test_121_partial_entry_remainder_should_extend_protection_to_full_position__():
-    """#121 partial-fill remainder (DESIRED behavior, xfail-strict): once the
-    entry is fully filled (position 2), the venue-side protective exit MUST
-    cover the whole position (qty 2), whether by an amend, a resized intent, or
-    a second leg. Operator directive: 'we cannot place an order without
-    protection.' """
+def __test_121_partial_entry_grow_is_skipped_when_ledger_is_absent__():
+    """#123 restart safety: the arm-on-fill extend only grows protection THIS
+    session's arm-on-fill placed. If the exit is active but the in-memory
+    ``_armed_protective_venue_qty`` ledger has no entry for it (a restart
+    reconstructed the active intent), a later fill must NOT dispatch a grow — we
+    cannot know how much the venue already protects, and growing blindly could
+    OVER-protect and reverse the account through flat. It falls back to the
+    ordinary diff/reconcile path exactly as before this fix.
+    """
+    b, engine, pos = _partial_arm_engine()
+
+    engine.on_order_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+        xchg_id="xchg-1", event_type='partial', filled_qty=1.0, remaining_qty=1.0,
+    ))
+    _wake_drain(engine)
+    assert _protective_venue_qty(b) == 1.0
+    n_exits, n_modifies = len(b.exit_calls), len(b.modify_exit_calls)
+
+    # Simulate a restart: the active intent survives (rebuilt from Pine) but the
+    # in-memory armed-qty ledger is lost.
+    del engine._armed_protective_venue_qty["X\0E"]
+
+    engine.on_order_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+        xchg_id="xchg-1", event_type='filled', filled_qty=2.0, remaining_qty=0.0,
+    ))
+    _wake_drain(engine)
+
+    assert pos.size == 2.0
+    assert len(b.exit_calls) == n_exits, "no blind extra protective leg after restart"
+    assert len(b.modify_exit_calls) == n_modifies, "no blind grow after restart"
+
+
+def __test_121_partial_entry_remainder_extends_protection_to_full_position__():
+    """#121/#123 (DESIRED behavior, now PASSING): once the entry is fully filled
+    (position 2), the venue-side protective exit MUST cover the whole position
+    (qty 2). Operator directive: 'we cannot place an order without protection.'
+    Formerly xfail-strict — flipped when the engine began tracking the CLAMPED
+    armed qty and extending protection to each filled slice."""
     b, engine, pos = _partial_arm_engine()
 
     engine.on_order_event(_fill_event(
