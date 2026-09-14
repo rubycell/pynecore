@@ -362,8 +362,15 @@ near leg fills and the far leg must be CANCELLED.
   INHERENT to a no-attach, closed-bar REST venue and is **accepted, not fixed** (operator
   decision 2026-09-11). The official plugins (bybit/capitalcom/ctrader) avoid it by
   attaching the bracket to the position; DNSE cannot. The trading WS order channel
-  (`order.DERIVATIVE.json` — UPPERCASE, #107) does deliver fill/partial events and could
-  drive an arm-on-fill fix, but that is a shared-engine threading change parked on #107.
+  delivers fill/partial events ON THE SANDBOX (`order.DERIVATIVE.json`, #107/#109) — but this has
+  NEVER been captured on PROD (verified 2026-09-14): every prod probe subscribed to the SANDBOX
+  channel `order.{market_type}` via `subscribe_order_event`, whereas PROD requires
+  `subscribe_broker_order_event` -> `order.broker.{market_type}.{investor_id}.{encoding}` (docs +
+  vendored SDK client.py:275). The venue ACKs a wrong channel name as `active` and streams nothing
+  (the #50 trap), so the #92 prod attempt saw zero order frames. A prod WS arm-on-fill needs (a) the
+  CORRECT prod channel and (b) a MAIN-THREAD wake — a broker-loop drain deadlocks (it calls
+  run_coroutine_threadsafe onto its own loop + lock-inverts with sync, sync_engine.py:19534). Tracked
+  on #121 (wake + dual poll/WS transport) / #107.
 
 - **`/orders/history` is NORMAL-book-only** (measured 2026-09-06,
   `probe_b3_readonly_measurements.py`: 276/276 rows over 17 trading days —
