@@ -313,20 +313,22 @@ def __test_modify_exit_no_tracked_id_falls_back_to_super_cancel_and_execute__(
     assert b._client.count("put_order") == 0
 
 
-def __test_conditional_stop_exit_qty_grow_parks_not_amended__(fake_client, tmp_path):
-    """The DNSE venue analog of the #121 partial-fill gap: GROWING a resting
-    conditional (STOP-book) SL's qty from 1 to 2 does NOT amend — it PARKs.
+def __test_conditional_stop_exit_qty_grow_adds_a_leg_no_naked_window__(fake_client, tmp_path):
+    """#123 (fixed): GROWING a resting conditional (STOP-book) SL's qty from 1
+    to 2 as a partial entry fills ADDS A SECOND STOP leg for the new slice — it
+    does NOT park, and does NOT cancel the armed leg.
 
-    When a partial entry fills, the arm-on-fill drain protects the filled slice
-    with a qty-1 conditional SL. As the remainder fills the engine would need to
-    extend that SL to qty 2 — but on the conditional book that is a qty amend,
-    which DNSE refuses (#18/#85/#93): ``_park_exit_modify`` raises
-    ``OrderDispositionUnknownError`` and the old STOP stays armed at qty 1. So
-    the 2nd lot cannot be protected by growing the conditional — verdict (c),
-    under-protected, at the venue level. Pins the venue physics that makes the
-    engine-side gap unfixable via amend on DNSE.
+    The conditional book cannot amend qty (a qty amend PARKs, #18/#85/#93), so a
+    grow is a fresh leg placed ALONGSIDE the armed one: the position is never
+    bared (add-a-leg, ZERO naked window), and the two qty-1 stops together
+    exactly cover the 2-lot position (no reversal-through-flat on the netting
+    account). Was the ``_parks_not_amended`` pin of the pre-fix venue physics;
+    flipped to pin the fix. A price MOVE (trailing) still parks — see
+    ``__test_conditional_stop_exit_price_move_still_parks__``.
     """
-    b = _broker(fake_client, tmp_path)
+    b = _broker(fake_client, tmp_path,
+               post_order=(201, {"id": "STOP-2", "symbol": "VN30F1M", "side": "NB",
+                                  "quantity": 1, "orderStatus": "New"}))
     old = _envelope(ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
                                side="sell", qty=1, sl_price=90.0))
     new = _envelope(ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
@@ -335,20 +337,47 @@ def __test_conditional_stop_exit_qty_grow_parks_not_amended__(fake_client, tmp_p
     b._order_ids[key] = ["STOP-1"]
     b._order_category["STOP-1"] = "STOP"        # resting on the conditional book
 
+    result = asyncio.run(b.modify_exit(old, new))
+
+    assert b._client.count("post_order") == 1, (
+        "the grow places exactly ONE additional STOP leg for the new slice")
+    assert b._client.count("put_order") == 0, "never a conditional-book qty amend"
+    # NO NAKED WINDOW: the armed leg is neither cancelled nor replaced.
+    assert b._client.count("cancel_order") == 0, (
+        "the extend must NOT cancel the armed protection (no naked window)")
+    assert b._order_ids[key] == ["STOP-1", "STOP-2"], (
+        "the armed leg stays; the delta leg is APPENDED (not replaced), so a "
+        "later engine cancel of the exit cancels BOTH")
+    assert {o.id for o in result} == {"STOP-1", "STOP-2"}, (
+        "modify_exit returns every tracked leg so the engine maps them all")
+
+
+def __test_conditional_stop_exit_price_move_still_parks__(fake_client, tmp_path):
+    """A conditional-book SL PRICE move (trailing) still PARKs (#18/#85/#93) —
+    the #123 add-a-leg path is scoped to a pure qty GROW at unchanged levels, so
+    trailing-exit behaviour on DNSE is unchanged (the stale stop stays armed)."""
+    b = _broker(fake_client, tmp_path)
+    old = _envelope(ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
+                               side="sell", qty=1, sl_price=90.0))
+    new = _envelope(ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
+                               side="sell", qty=1, sl_price=88.0))   # level moved
+    key = old.intent.intent_key
+    b._order_ids[key] = ["STOP-1"]
+    b._order_category["STOP-1"] = "STOP"
+
     with pytest.raises(OrderDispositionUnknownError):
         asyncio.run(b.modify_exit(old, new))
-    assert b._client.count("put_order") == 0, (
-        "a conditional-book qty amend must never reach the wire — it PARKs, "
-        "leaving the qty-1 stop armed and the 2nd lot naked (#18/#85/#93)"
-    )
+    assert b._client.count("post_order") == 0 and b._client.count("put_order") == 0
 
 
-def __test_oca_exit_qty_grow_parks_not_amended__(fake_client, tmp_path):
-    """The OCO-bracket variant of the same gap: growing an OCO-origin exit's qty
-    (1 -> 2) is not a pure TP-price move, so it PARKs (#93) rather than amending
-    the umbrella. The SL leg lives in the OCO umbrella; no child PUT can grow it.
-    """
-    b = _broker(fake_client, tmp_path)
+def __test_oca_exit_qty_grow_adds_a_leg_no_naked_window__(fake_client, tmp_path):
+    """#123 (fixed), OCO variant: growing an OCO-origin exit's qty (1 -> 2) is
+    not a pure TP move, so it cannot amend the umbrella (#93) — instead it ADDS
+    a second OCO leg for the new slice, leaving the armed OCO live (no naked
+    window). Was the ``_parks_not_amended`` pin; flipped to pin the fix."""
+    b = _broker(fake_client, tmp_path,
+               post_order=(201, {"id": "OCO-UMB-2", "orderStatus": "New", "quantity": 1}),
+               get_order_detail=_immediate_oco_detail)
     old = _envelope(ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
                                side="sell", qty=1, tp_price=120.0, sl_price=90.0))
     new = _envelope(ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
@@ -358,11 +387,14 @@ def __test_oca_exit_qty_grow_parks_not_amended__(fake_client, tmp_path):
     b._order_category["OCO-CHILD-LO"] = "NORMAL"   # the tracked working child LO
     b._placed_category["OCO-CHILD-LO"] = "OCO"     # but the PLACED shape was OCO
 
-    with pytest.raises(OrderDispositionUnknownError):
-        asyncio.run(b.modify_exit(old, new))
-    assert b._client.count("put_order") == 0, (
-        "an OCO qty grow is not a pure TP move -> PARK (#93), never a wire PUT"
-    )
+    result = asyncio.run(b.modify_exit(old, new))
+
+    assert b._client.count("post_order") == 1, "one additional OCO leg for the new slice"
+    assert b._client.count("put_order") == 0, "an OCO qty grow is never a wire PUT"
+    assert b._client.count("cancel_order") == 0, "no cancel of the armed OCO (no naked window)"
+    # The delta OCO's working LO ("LO-IMMEDIATE") is APPENDED to the armed child.
+    assert b._order_ids[key] == ["OCO-CHILD-LO", "LO-IMMEDIATE"]
+    assert {o.id for o in result} == {"OCO-CHILD-LO", "LO-IMMEDIATE"}
 
 
 def __test_modify_entry_with_tracked_id_amends_in_place__(fake_client, tmp_path):
