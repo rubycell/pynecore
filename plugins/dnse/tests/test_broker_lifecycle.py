@@ -313,6 +313,58 @@ def __test_modify_exit_no_tracked_id_falls_back_to_super_cancel_and_execute__(
     assert b._client.count("put_order") == 0
 
 
+def __test_conditional_stop_exit_qty_grow_parks_not_amended__(fake_client, tmp_path):
+    """The DNSE venue analog of the #121 partial-fill gap: GROWING a resting
+    conditional (STOP-book) SL's qty from 1 to 2 does NOT amend — it PARKs.
+
+    When a partial entry fills, the arm-on-fill drain protects the filled slice
+    with a qty-1 conditional SL. As the remainder fills the engine would need to
+    extend that SL to qty 2 — but on the conditional book that is a qty amend,
+    which DNSE refuses (#18/#85/#93): ``_park_exit_modify`` raises
+    ``OrderDispositionUnknownError`` and the old STOP stays armed at qty 1. So
+    the 2nd lot cannot be protected by growing the conditional — verdict (c),
+    under-protected, at the venue level. Pins the venue physics that makes the
+    engine-side gap unfixable via amend on DNSE.
+    """
+    b = _broker(fake_client, tmp_path)
+    old = _envelope(ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
+                               side="sell", qty=1, sl_price=90.0))
+    new = _envelope(ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
+                               side="sell", qty=2, sl_price=90.0))
+    key = old.intent.intent_key
+    b._order_ids[key] = ["STOP-1"]
+    b._order_category["STOP-1"] = "STOP"        # resting on the conditional book
+
+    with pytest.raises(OrderDispositionUnknownError):
+        asyncio.run(b.modify_exit(old, new))
+    assert b._client.count("put_order") == 0, (
+        "a conditional-book qty amend must never reach the wire — it PARKs, "
+        "leaving the qty-1 stop armed and the 2nd lot naked (#18/#85/#93)"
+    )
+
+
+def __test_oca_exit_qty_grow_parks_not_amended__(fake_client, tmp_path):
+    """The OCO-bracket variant of the same gap: growing an OCO-origin exit's qty
+    (1 -> 2) is not a pure TP-price move, so it PARKs (#93) rather than amending
+    the umbrella. The SL leg lives in the OCO umbrella; no child PUT can grow it.
+    """
+    b = _broker(fake_client, tmp_path)
+    old = _envelope(ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
+                               side="sell", qty=1, tp_price=120.0, sl_price=90.0))
+    new = _envelope(ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
+                               side="sell", qty=2, tp_price=120.0, sl_price=90.0))
+    key = old.intent.intent_key
+    b._order_ids[key] = ["OCO-CHILD-LO"]
+    b._order_category["OCO-CHILD-LO"] = "NORMAL"   # the tracked working child LO
+    b._placed_category["OCO-CHILD-LO"] = "OCO"     # but the PLACED shape was OCO
+
+    with pytest.raises(OrderDispositionUnknownError):
+        asyncio.run(b.modify_exit(old, new))
+    assert b._client.count("put_order") == 0, (
+        "an OCO qty grow is not a pure TP move -> PARK (#93), never a wire PUT"
+    )
+
+
 def __test_modify_entry_with_tracked_id_amends_in_place__(fake_client, tmp_path):
     b = _broker(fake_client, tmp_path,
                put_order=(200, {"id": "ORD1", "orderStatus": "New", "quantity": 3}))
