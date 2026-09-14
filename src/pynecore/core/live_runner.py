@@ -54,7 +54,7 @@ from pynecore.core.syminfo import SymInfo
 from pynecore.types.ohlcv import OHLCV
 from pynecore.core.plugin import is_retryable_provider_error
 from pynecore.core.plugin.live_provider import LiveProviderPlugin
-from pynecore.core.script_runner import LIVE_TRANSITION
+from pynecore.core.script_runner import LIVE_TRANSITION, WAKE
 from pynecore.lib.log import broker_info, broker_warning
 from pynecore.core.session import is_in_session, is_point_in_session
 from pynecore.lib.timeframe import _in_seconds
@@ -503,6 +503,7 @@ def live_ohlcv_generator(
         event_loop: asyncio.AbstractEventLoop | None = None,
         engine_event_stream: Coroutine[Any, Any, Any] | None = None,
         raise_on_connect_failure: bool = False,
+        wake_event: 'threading.Event | None' = None,
 ) -> Generator[OHLCV, None, None]:
     """
     Bridge async watch_ohlcv() to a sync Generator[OHLCV, None, None].
@@ -1701,6 +1702,16 @@ def live_ohlcv_generator(
 
                     yield item
                 else:
+                    # #121 arm-on-fill wake: if the broker engine signalled a
+                    # fill, yield the WAKE sentinel so the MAIN-thread consumer
+                    # (script_runner) drains + arms protection at once — checked
+                    # at the top of every pass (and on each ≤1 s ``get`` timeout),
+                    # so a fill is serviced within ~1 s, not at the next bar. The
+                    # consumer clears the signal as it drains; a fill landing
+                    # during the drain re-signals and is picked up next pass.
+                    if wake_event is not None and wake_event.is_set():
+                        yield WAKE
+                        continue
                     try:
                         item = bar_queue.get(timeout=1.0)
                     except Empty:

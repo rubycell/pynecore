@@ -1863,6 +1863,12 @@ def run(
             if live and provider_data:
                 import itertools
                 assert provider_data.parsed_string.timeframe is not None
+                # #121: hand the live feed the engine's arm-on-fill wake signal
+                # so a fill wakes the MAIN-thread consumer to drain + arm
+                # protection at once (a ``WAKE`` sentinel), instead of waiting
+                # for the next bar close. None in data-only (non-broker) runs.
+                _engine = getattr(runner, '_order_sync_engine', None)
+                _wake_event = getattr(_engine, '_wake_event', None)
                 live_iter = live_ohlcv_generator(
                     provider=provider_data.provider_instance,
                     symbol=provider_data.parsed_string.symbol,
@@ -1875,6 +1881,7 @@ def run(
                     # real cause here, not be masked by start_broker()'s
                     # reconcile ("live connection not established").
                     raise_on_connect_failure=broker_plugin is not None,
+                    wake_event=_wake_event,
                 )
                 runner.ohlcv_iter = itertools.chain(runner.ohlcv_iter, live_iter)
 

@@ -165,12 +165,35 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         #: venue order id -> the book it lives in ("NORMAL"/"STOP") for cancel/amend.
         self._order_category: dict[str, str] = {}
         #: venue order id -> (cumulative_fill, status) from the last poll.
+        #: #121: SHARED across the REST poll AND the WS order feed — both diff
+        #: their observed cumulative against THIS one watermark inside
+        #: ``_scan_row``, so the same fill on both transports advances it once
+        #: and emits one delta (cross-transport dedup; a cumulative <= watermark
+        #: is a duplicate -> dropped).
         self._last_seen: dict[str, tuple] = {}
+        #: #121 dual-transport failsafe (see config.enable_ws_order_events).
+        #: Lazily-started PROD WS order-event source; None until first
+        #: ``watch_orders`` cycle (or when disabled). Both transports feed the
+        #: engine's ONE event queue via ``watch_orders``.
+        self._ws_order_source = None
+        self._ws_start_task = None  # in-flight background connect+subscribe
+        self._ws_disabled_logged = False
+        #: Investor id for the WS broker channel, resolved once from /accounts.
+        self._investor_id: str | None = None
+        #: Monotonic backoff deadline after a WS start failure — poll-only until
+        #: then (bounded by ws_order_reconnect_interval); a mid-stream drop is
+        #: handled by the vendored client's auto_reconnect, not this.
+        self._ws_next_retry_monotonic: float = 0.0
         _cfg = getattr(self, "config", None)
         self._poll_interval: float = float(
             getattr(_cfg, "order_poll_interval", None) or 0.5)
         self._bar_poll_interval: float = float(
             getattr(_cfg, "bar_poll_interval", None) or 3.0)
+        #: #121 dual-transport WS order feed (config; see enable_ws_order_events).
+        self._enable_ws_order_events: bool = bool(
+            getattr(_cfg, "enable_ws_order_events", True))
+        self._ws_reconnect_interval: float = float(
+            getattr(_cfg, "ws_order_reconnect_interval", None) or 3.0)
         # --- #37 dual-mode feed (S1' — dispatch inside watch_ohlcv) ---
         self._feed_mode: str = str(getattr(_cfg, "feed_mode", None) or "ohlc")
         #: #100 LTF (sub-minute) feed state: lazily-started WS tick source +
@@ -322,6 +345,16 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             # position behind them — the engine must withhold them until
             # the parent entry fills and clamp qty to the live position.
             exit_orders_execute_standalone=True,
+            # #121 (operator directive: "we cannot place an order without
+            # protection"): arm the dependent SL/TP the instant the entry
+            # fills instead of at the next bar-close sync. ON by default for
+            # DNSE — an entry must never sit unprotected for a whole bar
+            # (~60s at 1m). The engine's #121 wake worker fires the arm ~1-2s
+            # after the fill event (0.5s watch_orders poll + wake dispatch +
+            # REST place). A zero window is impossible on DNSE (the SL is a
+            # separate conditional placed only AFTER the fill), but this closes
+            # the ~1-bar window measured in #107.
+            arm_protection_on_fill=True,
             # #87: a both-set entry is executed HERE as one stop-limit
             # (native conditional STOP; crossed-at-placement -> immediate
             # capped LO, #34). The engine must not also arm its software
@@ -485,6 +518,143 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
     @override
     async def disconnect(self) -> None:
         self._connected = False
+        await self._stop_ws_order_source()  # #121: close the WS order feed, if any
+
+    # --- #121 dual-transport WS order feed (ADDITIVE failsafe over the poll) ---
+
+    def _mask_id(self, value) -> str:
+        s = str(value or "")
+        return ("*" * max(len(s) - 4, 0)) + s[-4:] if s else ""
+
+    def _resolve_investor_id(self) -> "str | None":
+        """The account's investorId (the WS broker channel key), from /accounts.
+
+        Cached. Returns None on any failure — the caller degrades to poll-only.
+        The account body already carries ``investorId`` (docs
+        dnse-get-accounts.md); the same /accounts read that resolves account_no.
+        """
+        if self._investor_id:
+            return self._investor_id
+        try:
+            status, body = self.client.get_accounts()
+        except Exception as exc:                                  # noqa: BLE001
+            log.broker_warning("WS order feed: /accounts read failed (%s) — poll-only",
+                               type(exc).__name__)
+            return None
+        accounts = (body.get("accounts") or []) if isinstance(body, dict) else []
+        if status != 200 or not accounts:
+            return None
+        investor_id = accounts[0].get("investorId")
+        if investor_id:
+            self._investor_id = str(investor_id)
+            log.broker_info("[BROKER] resolved investorId=%s for the WS order feed",
+                            self._mask_id(investor_id))
+        return self._investor_id
+
+    def _ensure_ws_order_source(self) -> None:
+        """Kick off the PROD WS order source in the BACKGROUND (never blocking
+        the poll loop). Connect + investor-id read run in a detached task, so a
+        slow/failed WS handshake can NEVER delay the REST poll floor — the whole
+        contract of the #121 failsafe. Idempotent: at most one start in flight;
+        after a start failure it backs off ``ws_order_reconnect_interval``. A
+        mid-stream drop is handled by the vendored client's ``auto_reconnect``."""
+        if self._ws_order_source is not None or self._ws_start_task is not None:
+            return
+        if not self._enable_ws_order_events:
+            if not self._ws_disabled_logged:
+                self._ws_disabled_logged = True
+                log.broker_info("[BROKER] WS order feed disabled by config — "
+                                "poll-only (#121)")
+            return
+        if time.monotonic() < self._ws_next_retry_monotonic:
+            return  # in start-failure backoff; poll is the floor meanwhile
+        self._ws_start_task = asyncio.ensure_future(self._start_ws_order_source_bg())
+
+    async def _start_ws_order_source_bg(self) -> None:
+        """Background: resolve investor id (off-loop — it is a blocking REST
+        read), construct + start the WS source. On success publishes
+        ``_ws_order_source``; on any failure logs and arms the backoff. NEVER
+        raises out (it is a detached task) except a designed halt."""
+        try:
+            investor_id = await asyncio.to_thread(self._resolve_investor_id)
+            if not investor_id:
+                self._ws_next_retry_monotonic = (
+                    time.monotonic() + self._ws_reconnect_interval)
+                return
+            from .ws_order_source import WSOrderSource
+            src = WSOrderSource(self.config.api_key, self.config.api_secret,
+                                investor_id, self.market_type)
+            await src.start()
+            self._ws_order_source = src
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:                                  # noqa: BLE001
+            log.broker_warning(
+                "WS order feed start failed (%s: %s) — poll remains the floor; "
+                "retrying in %ss", type(exc).__name__, exc,
+                self._ws_reconnect_interval)
+            self._ws_next_retry_monotonic = (
+                time.monotonic() + self._ws_reconnect_interval)
+        finally:
+            self._ws_start_task = None
+
+    async def _collect_ws_order_events(self, timeout: float) -> "list":
+        """Wait up to ``timeout`` s for WS order frames and return their
+        OrderEvents (deduped via the shared ``_last_seen`` watermark in
+        ``_scan_row``). Replaces the poll's fixed sleep. WS off/quiet/down/
+        still-connecting -> waits ``timeout`` and returns [] (poll-only
+        behaviour, unchanged).
+
+        A WS exception is NEVER allowed to kill the watch loop — the whole point
+        of the failsafe is that WS degrades latency, never protection. A
+        BrokerManualInterventionError from ``_scan_row`` (the designed halt) is
+        the one thing that still propagates, exactly as on the poll path."""
+        self._ensure_ws_order_source()      # background start; returns at once
+        src = self._ws_order_source
+        if src is None:
+            await asyncio.sleep(timeout)     # WS not ready -> exactly the old sleep
+            return []
+        try:
+            raw_rows = await src.collect(timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:                                  # noqa: BLE001
+            log.broker_warning("WS order collect failed (%s: %s) — poll remains "
+                               "the floor", type(exc).__name__, exc)
+            await asyncio.sleep(timeout)  # keep the poll cadence; no tight loop
+            return []
+        events = []
+        for raw in raw_rows:
+            try:
+                scanned = await self._scan_row(raw)
+            except BrokerManualInterventionError:
+                raise                    # designed escalation: the engine halts
+            except Exception as exc:                              # noqa: BLE001
+                # A poisoned WS frame must not kill detection — the poll re-reads
+                # the same order and its watermark advances there instead. NOT
+                # marked seen here (the raise skips _scan_row's advance).
+                log.broker_warning("WS frame scan raised (%s: %s) — poll will "
+                                   "re-detect", type(exc).__name__, exc)
+                continue
+            events.extend(scanned)
+        return events
+
+    async def _stop_ws_order_source(self) -> None:
+        task = self._ws_start_task
+        self._ws_start_task = None
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):           # noqa: BLE001
+                pass
+        src = self._ws_order_source
+        self._ws_order_source = None
+        if src is not None:
+            try:
+                await src.stop()
+            except Exception:                                     # noqa: BLE001
+                pass
 
     @property
     @override
@@ -2210,7 +2380,18 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         residue = ResidueTracker(grace_s=self._residue_grace_s)
         poll_inflight = None
         while True:
-            await asyncio.sleep(self._poll_interval)
+            # #121 dual transport: this REPLACES the old top-of-loop
+            # ``await asyncio.sleep(self._poll_interval)``. It waits up to one
+            # poll period for WS-detected fills and yields them PROMPTLY (deduped
+            # against the REST poll via the shared _last_seen watermark inside
+            # _scan_row). When the WS is off / quiet / down / still-connecting it
+            # simply sleeps ~_poll_interval and returns [], i.e. it degrades to
+            # exactly the old sleep — the poll floor's cadence is unchanged. It
+            # then ALWAYS falls through to the poll below (a WS frame just makes
+            # this cycle return early, adding at most a prompt extra poll during
+            # a fill burst; the poll stays single-flight, so no parallel reads).
+            for ws_event in await self._collect_ws_order_events(self._poll_interval):
+                yield ws_event
             if self._pending_oco:
                 try:
                     # Umbrellas queued at place time live on the unscanned OCO

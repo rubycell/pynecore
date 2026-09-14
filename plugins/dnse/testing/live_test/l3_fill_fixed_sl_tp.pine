@@ -1,0 +1,113 @@
+//@version=6
+// LIVE TEST LEVEL 3 — market fill + a FIXED below-market conditional STOP + TP. SUPERVISED ONLY.
+//
+// WHY THIS FILE EXISTS (2026-09-14): the morning F9 run at 1m never exercised a REAL conditional
+// stop. F9 TRAILS its SL, and the trail fired on the first wait-bar and raised the long's SL
+// ABOVE market, so the venue treated the crossed stop as a capped LIMIT (stopPrice=None on the
+// venue record) — no resting conditional STOP was ever measured. This case removes the trail: the
+// SL is FIXED a fixed distance BELOW the actual fill and NEVER amended, so it rests on the
+// conditional book as a genuine BELOW-market STOP. That lets the live run measure fill -> real-STOP
+// placement latency and read the #118 GTD clamp on the SL's venue record (a conditional whose GTD
+// is now clamped to the contract's finalTradeDate, currently 2026-09-17).
+//
+// @sandbox-expect: entry.placed entry.filled position>=1
+//   The SL/TP legs are CONDITIONAL (a strategy.exit OCO stop+limit) -> the DNSE Sandbox REJECTS
+//   orderCategory=STOP/OCO and has no price sim, so "SL rests at the below-entry level" and the
+//   TP level are a BACKTEST job (run THIS file in oracleMode over tracked .ohlcv), NOT a sandbox
+//   one. On the sandbox only the marketable-LO entry reaches the venue and fills.
+//
+// ENTRY: ONE marketable long (price-less strategy.entry -> the DNSE plugin sends a marketable LO at
+// the band edge; fills at market, capped by the +/-7% band). NOT a stop/breakout entry: the point
+// is a clean market fill so the SL/TP are derived from the ACTUAL fill, not a pre-fill guess.
+//
+// BRACKET (frozen at the fill, never amended -> never trails, never crosses):
+//   * SL = avg_fill * (1 - slPct)  -> strictly BELOW the fill -> a real resting conditional STOP.
+//   * TP = avg_fill * (1 + tpPct)  -> strictly ABOVE the fill.
+//   Derived from strategy.position_avg_price (known only AFTER the fill) so the SL is guaranteed
+//   below market by construction — the exact crossed-stop trap F9 hit cannot happen here. The two
+//   legs share an oca_name, so the venue runs one-cancels-other server-side.
+//
+// SAFETY GUARDS (all load-bearing; verified against l2/l2b live behaviour):
+//   * default_qty_value=1, pyramiding=0  -> exactly one lot, never stacks.
+//   * `var traded` enter-once latch       -> exactly ONE real entry per live run. NOT
+//       `strategy.opentrades==0` / `position_size==0`: those are STATE tests that become true
+//       again after every close, which turned l2b into a continuous re-enterer (measured
+//       2026-09-11: 78 round-trips, ~223 conditional re-placements -> the #18 HTTP-500 loop).
+//   * `barstate.isrealtime` gate          -> the entry NEVER fires on historical warmup. A plain
+//       `dnse:` backtest of this file (oracleMode off) therefore places ZERO trades — that quiet
+//       backtest IS the warmup-safety proof, and it is CHECKED, not assumed.
+//   * strategy.cancel("X") + strategy.close("E") -> flatten touches ONLY our own entry/exit; an
+//       external/adopted position or order is never swept (unlike cancel_all()).
+//
+// LIVE BACKSTOPS (only when oracleMode is off — the oracle must let SL/TP resolve for grading):
+//   * MAX-HOLD: after `maxHoldBars` bars still open, cancel the exit and close("E"). Bounds
+//     exposure while still giving the SL a bar or two to rest and be graded (SL arms ~1 bar after
+//     the fill, #82b/#107). Raise it if the venue-record grading needs longer.
+//   * ADVERSE double-check at doubleCheckPct (OUTSIDE the SL band) -> fires only if the SL did not.
+//     PnL% is computed MANUALLY: strategy.opentrades.profit_percent() reads 0.0 for an OPEN trade
+//     in PyneCore/upstream (measured 2026-09-11), which had made this backstop dead code.
+//
+// oracleMode (input, default FALSE): the ONLY switch between the live and the offline-oracle shape.
+//   FALSE (live/default): isrealtime gate + enter-once + live backstops.
+//   TRUE  (offline verify only): drops the gate and the backstops and RE-ENTERS while flat, so a
+//     backtest over tracked .ohlcv produces many entry->SL/TP round-trips whose trade CSV proves
+//     the SL sits at the below-entry level and the TP above. Never set TRUE for a live run.
+//
+// PRECONDITION (live, hard): continuous session, FLAT account (or dedicated sub-account),
+// supervised, DNSE app open for one-tap flatten. FILL tier — see the suite README run order.
+strategy("LIVE3 fill+fixed-SL+TP", overlay=true, pyramiding=0, initial_capital=500000000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     margin_long=18.48, margin_short=18.48,
+     slippage=1,
+     calc_on_every_tick=false, process_orders_on_close=false)
+
+oracleMode     = input.bool(false, "Oracle mode (OFFLINE backtest verification ONLY)")
+slPct          = input.float(0.20, "Stop-loss % below the fill", minval=0.01, step=0.01)
+tpPct          = input.float(0.30, "Take-profit % above the fill", minval=0.01, step=0.01)
+maxHoldBars    = input.int(3, "Live: flatten after N bars if SL/TP has not", minval=1)
+doubleCheckPct = input.float(-0.5, "Live: adverse-move double-check flatten %")
+
+var bool  traded   = false   // enter-once latch (live) — EXACTLY one real entry per run
+var float slLevel  = na      // FIXED below-entry stop, frozen at the fill (never amended)
+var float tpLevel  = na      // FIXED above-entry target, frozen at the fill
+var int   heldBars = 0       // bars the current position has been open (live backstop clock)
+
+// (1) THE ENTRY — one marketable long.
+//   live:   fires once, only on the realtime bar (warmup can never trade).
+//   oracle: re-enters whenever flat, so the backtest yields many gradeable round-trips.
+enterLive   = barstate.isrealtime and not traded
+enterOracle = oracleMode and strategy.position_size == 0
+if enterLive or enterOracle
+    strategy.entry("E", strategy.long, comment="MKT 1-lot")
+    traded  := true
+    slLevel := na            // re-arm from THIS trade's own fill (oracle re-entry)
+    tpLevel := na
+
+// (2) ARM the frozen bracket ONCE, from the ACTUAL average fill (known only after the fill).
+//     Placed exactly once per trade; the levels never change -> no amend, no trail, no cross.
+if strategy.position_size > 0 and na(slLevel)
+    avg = strategy.position_avg_price
+    slLevel := avg * (1.0 - slPct / 100.0)
+    tpLevel := avg * (1.0 + tpPct / 100.0)
+    strategy.exit("X", from_entry="E", stop=slLevel, limit=tpLevel, oca_name="brk",
+                  comment_profit="TP@" + str.tostring(tpLevel, format.mintick),
+                  comment_loss="SL@" + str.tostring(slLevel, format.mintick))
+
+// (3) LIVE-ONLY backstops. Never in oracle mode — the oracle must let the SL/TP fill for grading.
+heldBars := strategy.position_size != 0 ? heldBars + 1 : 0
+
+if not oracleMode and strategy.position_size != 0 and heldBars >= maxHoldBars
+    strategy.cancel("X")                       // pull our resting SL/TP first...
+    strategy.close("E", comment="FLATTEN")     // ...then close only OUR entry
+
+// adverse-move double-check — manual PnL% (profit_percent() is 0.0 on an open trade). Long-only.
+_bsEntry   = strategy.opentrades > 0 ? strategy.opentrades.entry_price(strategy.opentrades - 1) : 0.0
+_bsLive    = strategy.position_size != 0 and not na(_bsEntry) and _bsEntry != 0.0
+openPnlPct = _bsLive ? (close - _bsEntry) / _bsEntry * 100.0 : 0.0
+if not oracleMode and strategy.position_size != 0 and openPnlPct < doubleCheckPct
+    strategy.cancel("X")
+    strategy.close("E", comment="DOUBLECHECK")
+
+plot(strategy.position_size, "pos", display=display.data_window)
+plot(slLevel, "sl", display=display.data_window)
+plot(tpLevel, "tp", display=display.data_window)
