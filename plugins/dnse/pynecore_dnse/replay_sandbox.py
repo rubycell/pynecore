@@ -10,8 +10,9 @@ untouched (this is a separate class reached only via ``dnse_replay_sandbox:...``
 - **Data** overrides the provider methods to replay the fixture at ``$REPLAY_SANDBOX_FIXTURE``.
 - **Orders** inherit :class:`DNSEBroker` — config points at the sandbox (base_url/keys/token) —
   with the sandbox accommodations proven in ``testing/sandbox_arm_on_fill_probe.py``:
-  ``get_position`` stubbed flat (the sandbox has no netting position model) and ``market_type``
-  pinnable via ``$REPLAY_SANDBOX_MARKET_TYPE`` (the raw sandbox derivative code classifies STOCK).
+  ``get_position`` stubbed flat (the sandbox has no netting position model) and the market-type
+  CLASSIFICATION pinnable via ``$REPLAY_SANDBOX_MARKET_TYPE`` (the raw sandbox derivative code
+  classifies STOCK); the pin is authoritative, so the #119 price-unit guard accepts it.
 
 The sandbox rejects conditional STOP/OCO and has no price sim, so strategies run here must use
 ONLY market/limit (NORMAL) orders and drive SL/TP/PTP/OCA from strategy logic against the
@@ -102,11 +103,17 @@ class ReplaySandboxBroker(DNSEBroker):
 
     # --- ORDER-path sandbox accommodations (see sandbox_arm_on_fill_probe.py) ---
 
-    @property
     @override
-    def market_type(self) -> str:
+    def classify_market_type(self, symbol: str | None = None) -> "tuple[str, bool]":
+        # The env pin is an OPERATOR ASSERTION, so it answers AUTHORITATIVE
+        # (#119/G1) and ``market_type`` — which derives from this — keeps
+        # honouring it. The sandbox catalog serves no secdef, so the real
+        # classifier could only GUESS here, and a guessed classification is
+        # exactly what the price-unit codec refuses to write on.
         forced = os.environ.get("REPLAY_SANDBOX_MARKET_TYPE")
-        return forced or super().market_type
+        if forced:
+            return forced, True
+        return super().classify_market_type(symbol)
 
     @override
     def resolve_contract(self, symbol: str | None = None) -> str:

@@ -30,6 +30,17 @@ class DNSEBrokerConfig(DNSEConfig):
     trading_token: str = ""
     token_file: str = "workdir/state/dnse_trading_token.json"
     stop_slippage_ticks: int = 3
+    #: #119/G2 — live STOCK order placement is OPT-IN. The write path is
+    #: measured (21.0 -> 400 floor-reject, 21000 -> 200, so đồng on the wire),
+    #: but a wrong-unit write is LOUD while every readback is SILENT: the units
+    #: of the order detail's ``price``, ``averagePrice``, the executions
+    #: ``lastPrice`` and the position ``costPrice`` are ASSUMED đồng and have
+    #: never been confirmed against a real stock fill. A 1000x readback does
+    #: not 400 — it just books a 1000x P&L and mints SL/TP levels 1000x off.
+    #: Keep this False until ONE hand-verified real stock fill has confirmed
+    #: those four readbacks, then flip it (and delete this paragraph's
+    #: "never been confirmed"). Derivatives are unaffected by this flag.
+    enable_stock_orders: bool = False
     #: Order-book poll period (seconds). One cycle = 2 requests (NORMAL + STOP
     #: books) and is how fast a fill becomes visible. DNSE allows 100,000
     #: Get-Orders req/hour PER API KEY: 0.5 s = 4 req/s = 14,400/h = 14% of the
