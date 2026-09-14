@@ -100,9 +100,12 @@ class _ArmDNSEBroker(dnse_broker.DNSEBroker):
     None of these touch the live plugin (rule: no-test-hooks-in-plugin-code)."""
     _forced_mt = None
 
-    @property
-    def market_type(self) -> str:
-        return self._forced_mt or super().market_type
+    def classify_market_type(self, symbol=None):
+        # Forcing the type is an OPERATOR ASSERTION -> authoritative (#119/G1),
+        # so the price-unit codec accepts it; ``market_type`` derives from this.
+        if self._forced_mt:
+            return self._forced_mt, True
+        return super().classify_market_type(symbol)
 
     async def get_position(self, symbol):
         return None   # sandbox has no netting position model — see module docstring
@@ -131,6 +134,10 @@ def _run_instrument(sb: dict, symbol: str, spec: dict) -> bool:
         api_key=sb["api_key"], api_secret=sb["api_secret"],
         base_url=sb["base_url"], ws_url=sb.get("ws_url", "wss://ws-sb-openapi.dnse.com.vn"),
         token_file=sb["token_file"],
+        # #119/G2: stock placement is opt-in. This is the SANDBOX (mock venue,
+        # no real money), which is where the stock order path is exercised —
+        # the flag stays False for production configs.
+        enable_stock_orders=True,
     )
     broker = _ArmDNSEBroker(symbol=symbol, timeframe="1", config=cfg)
     broker._client = DNSEClient(sb["api_key"], sb["api_secret"], base_url=sb["base_url"])

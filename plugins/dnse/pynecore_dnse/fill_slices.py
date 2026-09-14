@@ -13,6 +13,12 @@ emits ONE average-priced remainder that ALSO advances it (so a late-arriving
 execution row lands at-or-below the watermark and is discarded — the
 remainder double-count P1 named), and over-coverage clamps the last slice.
 Quantity is conserved on every path.
+
+**Units (#119):** every price here — ``lastPrice`` and the ``average_price``
+the caller passes — is a WIRE price, i.e. ĐỒNG for stocks and index points for
+derivatives. This module is deliberately unit-agnostic (it only selects and
+clamps); ``DNSEBroker._fill_slice_events`` converts the selected prices to the
+FEED unit before they reach an ``OrderEvent``.
 """
 import json
 from dataclasses import dataclass
@@ -22,7 +28,7 @@ from dataclasses import dataclass
 class FillSlice:
     cumulative: float        # per-report cumulative fillQuantity (the selector)
     qty: float               # this slice's lastQuantity
-    price: float             # this slice's lastPrice
+    price: float             # this slice's lastPrice — WIRE unit (#119)
     event_no: "int | None"   # diagnostics only — repeats in the documented sample
 
 

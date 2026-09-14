@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+from time import monotonic as _monotonic
 from typing import Callable, TypeVar
 
 from pynecore.core.plugin import override
@@ -53,6 +54,12 @@ _ICT = timezone(timedelta(hours=7))
 #: non-200 read, so inferring INDEX from an empty secdef would misroute a real
 #: stock to the index endpoint on a transient failure. Indices follow the cash
 #: market's schedule, so they keep ``_MORNING_STOCK``.
+#: How long an EMPTY ``_secdef`` answer is trusted before the read is retried
+#: (seconds). Short enough that a transient failure heals within a bar, long
+#: enough that a genuinely unlisted symbol cannot turn ``market_type`` — read
+#: on every client call — into a per-call REST request.
+_SECDEF_RETRY_S = 60.0
+
 _INDEX_SYMBOLS = frozenset({
     "VNINDEX", "VN30", "VN100", "VNMIDCAP", "VNSMALLCAP", "VNALLSHARE",
     "HNX", "HNXINDEX", "HNX30", "UPCOM", "UPCOMINDEX",
@@ -228,12 +235,22 @@ class DNSEProvider(ProviderPlugin[DNSEConfigT]):
         ``/price/{symbol}/secdef`` returns a LIST (one row per board) and is
         empty for a symbolType alias, so derivatives are looked up by their
         resolved contract code.
+
+        An EMPTY answer is cached only for ``_SECDEF_RETRY_S`` (#119/G1): it
+        means either "not a listed security" OR "this read failed", and the
+        old permanent ``{}`` made a transient failure STICKY for the whole
+        run — which froze :meth:`classify_market_type` on its guess (a dated
+        derivative code would stay classified STOCK forever). A successful
+        row is still cached permanently.
         """
         cache = getattr(self, "_secdef_cache", None)
         if cache is None:
             cache = self._secdef_cache = {}
-        if symbol in cache:
-            return cache[symbol]
+        cached = cache.get(symbol)
+        if cached is not None:
+            row, read_at = cached
+            if row or (_monotonic() - read_at) < _SECDEF_RETRY_S:
+                return row
         lookup = symbol
         if symbol.upper().startswith("VN30F"):
             lookup = self.resolve_contract(symbol)
@@ -244,7 +261,7 @@ class DNSEProvider(ProviderPlugin[DNSEConfigT]):
             row = body
         else:
             row = {}
-        cache[symbol] = row
+        cache[symbol] = (row, _monotonic())
         return row
 
     def _reference_price(self, symbol: str) -> float:
@@ -285,13 +302,28 @@ class DNSEProvider(ProviderPlugin[DNSEConfigT]):
         security's, so reading ``self.symbol`` here classifies the security
         correctly (same model as the cTrader plugin's ``_resolve_symbol_id``).
         """
-        symbol = (self.symbol or "").upper()
+        return self.classify_market_type()[0]
+
+    def classify_market_type(self, symbol: str | None = None
+                            ) -> tuple[str, bool]:
+        """``(market_type, authoritative)`` for ``symbol`` (default: this run's).
+
+        ``authoritative`` is True only when the answer came from a SOURCE, not
+        from a guess: the explicit index list, or the venue's own
+        ``securityGroupId``. The trailing ``VN30F`` prefix rule is a GUESS —
+        it answers STOCK for every symbol that is not a VN30F alias, including
+        a dated derivative contract code (``41I1G9000``) whose secdef read
+        merely failed. Anything that scales prices by the stock factor must
+        refuse to act on a guess (#119/G1); everything else (which endpoint
+        family to call) keeps using the guess exactly as before.
+        """
+        symbol = (symbol or self.symbol or "").upper()
         if symbol in _INDEX_SYMBOLS:
-            return "INDEX"
+            return "INDEX", True
         group = (self._secdef(symbol).get("securityGroupId") or "").upper()
         if group:
-            return "DERIVATIVE" if group == "FU" else "STOCK"
-        return "DERIVATIVE" if symbol.startswith("VN30F") else "STOCK"
+            return ("DERIVATIVE" if group == "FU" else "STOCK"), True
+        return ("DERIVATIVE" if symbol.startswith("VN30F") else "STOCK"), False
 
     # --- timeframe conversion ---
 

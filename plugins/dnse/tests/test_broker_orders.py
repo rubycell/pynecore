@@ -439,13 +439,37 @@ def __test_gtd_is_clamped_to_the_contract_final_trade_date__(fake_client, tmp_pa
         "GTD must be clamped to the final trade date, never past it"
 
 
-def __test_gtd_falls_back_when_the_secdef_has_no_expiry__(fake_client, tmp_path):
-    """A missing field must not make the plugin unable to place anything at all."""
-    b = _broker(fake_client, tmp_path)          # default secdef row: no finalTradeDate
+def __test_gtd_keeps_the_plain_window_for_a_stock__(fake_client, tmp_path, monkeypatch):
+    """A STOCK has no final trade date, so its GTD must stay the plain +days window.
+
+    REPURPOSED (#118): this test used to be
+    ``__test_gtd_falls_back_when_the_secdef_has_no_expiry__`` and pinned the +7d
+    FAIL-OPEN for *any* symbol with no ``finalTradeDate``. That fail-open is the #118
+    bug on a DERIVATIVE — the venue serves no expiry for most of the month, so +7d
+    reaches past the real final trade date in expiry week and every conditional is
+    refused with ``CO-ORD-006``. The clamp is therefore DERIVATIVE-gated, and this test
+    now pins the other half of that gate: the stock path must be left alone. (The
+    derivative half is pinned by ``test_gtd_expiry_clamp_starved.py``.)
+    """
+    b = _broker(fake_client, tmp_path, get_security_definition=(200, [
+        {"symbol": "HPG", "securityGroupId": "ST",       # ST -> market_type STOCK
+         "ceilingPrice": "22.75", "floorPrice": "19.85"}]))
+    b.symbol = "HPG"
+    assert b.market_type == "STOCK", "fixture must classify HPG as STOCK"
+    warnings = []
+    monkeypatch.setattr(broker.log, "broker_warning",
+                        lambda message, *args: warnings.append(message % args))
+
     parsed = datetime.strptime(b._gtd(days=7), "%Y-%m-%dT%H:%M:%SZ").replace(
         tzinfo=timezone.utc)
+
     assert parsed > datetime.now(timezone.utc) + timedelta(days=6), \
-        "with no usable expiry the plain +days window must still be produced"
+        "a stock has no expiry to clamp to — the plain +days window must survive"
+    # Discriminating half: without the DERIVATIVE gate the stock still ends up with
+    # +7d, but it goes through the expiry resolver and warns about a contract code it
+    # can never have. Silence proves the gate, not just the outcome.
+    assert warnings == [], \
+        f"a stock must not enter the expiry clamp at all; it logged {warnings}"
 
 
 def __test_loan_package_id_caches_after_first_resolve__(fake_client, tmp_path):

@@ -29,7 +29,7 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
 from pynecore.core.plugin import override
@@ -52,6 +52,10 @@ from .journal_wiring import (
     journal_fill_progress, journal_rejected, journal_server_ref,
     journal_submitted, journal_terminal,
 )
+from .price_units import (
+    DERIVATIVE_WIRE_SCALE, STOCK_WIRE_SCALE, StockOrdersDisabledError,
+    UnverifiedClassificationError, from_wire, quantize_wire, to_wire,
+)
 from .recovery_ladder import classify_recovery
 from .residue_detector import ResidueTracker
 from .transport_errors import guard as _guard_transport
@@ -70,7 +74,13 @@ from pynecore.core.broker.idempotency import (
     KIND_ENTRY, KIND_EXIT_TP, KIND_EXIT_SL, KIND_CLOSE)
 
 from .provider import DNSEConfig, DNSEProvider
-from . import errors
+from . import errors, expiry
+
+
+def _midnight_utc(day: _date) -> datetime:
+    """Midnight UTC of ``day`` — the GTD form DNSE accepts (see ``_clamp_gtd_to_expiry``)."""
+    return datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+
 
 _SIDE_TO_DNSE = {"buy": "NB", "sell": "NS"}
 _DNSE_TO_SIDE = {"NB": "buy", "NS": "sell"}
@@ -255,6 +265,9 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         self._pending_oco: set[str] = set()
         self._last_bar_ts: int = 0
         self._loan_id: int | None = None
+        #: #119/G1: a READ that hit a guessed STOCK classification warns once
+        #: per instance (the read keeps the identity scale — see _wire_scale).
+        self._unverified_scale_warned: bool = False
 
     # --- account / token ---
 
@@ -762,6 +775,70 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                      high=bar["h"], low=bar["l"], close=bar["c"],
                      volume=bar["v"], is_closed=False)
 
+    # --- price unit codec (#119) ---
+
+    def _wire_scale(self, *, writing: bool) -> float:
+        """Feed->wire scale for THIS symbol, with both #119 hard guards.
+
+        Derivatives and indices quote the same number on both sides of the
+        boundary (scale 1). A STOCK's order book counts đồng while its feed
+        counts thousands (scale 1000), but that factor is applied ONLY when
+        the classification is authoritative and stock trading is enabled:
+
+        * **G1** — ``classify_market_type`` answers STOCK for ANY symbol whose
+          secdef read came back empty, including a dated derivative contract
+          code. Scaling a derivative by 1000 would book a 1000x fill and mint
+          SL/TP levels 1000x away — an unprotected position, strictly worse
+          than the bug being fixed. A write therefore refuses; a READ cannot
+          refuse (it would kill reconcile on one bad poll), so it keeps the
+          identity scale — the pre-#119 behaviour — and warns once.
+        * **G2** — even an authoritative stock write needs
+          ``enable_stock_orders``; the readback units are still unconfirmed.
+        """
+        try:
+            market_type, authoritative = self.classify_market_type()
+        except Exception:                                          # noqa: BLE001
+            if writing:
+                raise            # a write must never guess (G1)
+            # A read must never die on one unreadable secdef: treat it as the
+            # unprovable case below (warn once, keep the identity scale).
+            market_type, authoritative = "STOCK", False
+        if market_type != "STOCK":
+            return DERIVATIVE_WIRE_SCALE
+        if not authoritative:
+            if writing:
+                raise UnverifiedClassificationError(
+                    f"DNSE refuses a STOCK-scaled write on {self.symbol!r}: the "
+                    f"classification is a GUESS (secdef carried no "
+                    f"securityGroupId), and a guessed STOCK is exactly how a "
+                    f"dated derivative contract would get its price multiplied "
+                    f"by {STOCK_WIRE_SCALE:.0f} (#119/G1)")
+            if not self._unverified_scale_warned:
+                self._unverified_scale_warned = True
+                log.broker_warning(
+                    "price readbacks on %s are UNSCALED: the symbol classifies "
+                    "STOCK only by guess (secdef empty or unreadable), so the "
+                    "đồng->thousands conversion is not provable — reporting "
+                    "venue prices verbatim (#119/G1)", self.symbol)
+            return DERIVATIVE_WIRE_SCALE
+        if writing and not bool(getattr(self.config, "enable_stock_orders", False)):
+            raise StockOrdersDisabledError(
+                f"DNSE live STOCK orders are disabled for {self.symbol!r}: set "
+                f"enable_stock_orders=true in the plugin config to allow them. "
+                f"The wire unit is measured, but the fill/position readback "
+                f"units are not yet confirmed by a real stock fill (#119/G2)")
+        return STOCK_WIRE_SCALE
+
+    def _wire_price(self, price: float, scale: float) -> float:
+        """FEED price -> the quantized WIRE price the order book accepts."""
+        return quantize_wire(to_wire(float(price), scale), scale)
+
+    def _from_wire(self, price: "float | None") -> "float | None":
+        """WIRE price -> the FEED unit the engine and the strategy speak."""
+        if price is None:
+            return None
+        return from_wire(float(price), self._wire_scale(writing=False))
+
     # --- order construction ---
 
     def _to_exchange_order(self, raw: dict) -> ExchangeOrder:
@@ -775,6 +852,8 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         # stop entry as a limit AT the stop price (marketable, wrong book).
         # Reachable since #77 made the restart snapshot non-empty.
         has_stop = stop_price is not None and float(stop_price or 0) != 0.0
+        # #119: this is the READ funnel — every venue price row the engine ever
+        # sees comes through here, so the wire->feed conversion happens once.
         return ExchangeOrder(
             id=str(raw.get("id")),
             symbol=raw.get("symbol") or self.symbol or "",
@@ -782,9 +861,10 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             order_type=OrderType.STOP if has_stop else OrderType.LIMIT,
             qty=qty, filled_qty=filled,
             remaining_qty=float(raw.get("leaveQuantity") or max(qty - filled, 0)),
-            price=float(raw.get("price") or 0) or None,
-            stop_price=float(stop_price) if stop_price else None,
-            average_fill_price=float(raw.get("averagePrice") or 0) or None,
+            price=self._from_wire(float(raw.get("price") or 0) or None),
+            stop_price=self._from_wire(float(stop_price) if stop_price else None),
+            average_fill_price=self._from_wire(
+                float(raw.get("averagePrice") or 0) or None),
             status=_STATUS_MAP.get(
                 str(raw.get("orderStatus", "")).upper().replace("_", "").replace("-", ""),
                 OrderStatus.PENDING),
@@ -858,7 +938,10 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         offset = ticks * self._mintick()
         price = stop_price + offset if side == "buy" else stop_price - offset
         ceiling, floor = self._band()
-        return round(min(max(price, floor), ceiling), 1)
+        # Band + offset are FEED units; the tick snap happens once, in wire
+        # units, inside ``_place`` (#119) — rounding to 0.1 here would quietly
+        # coarsen a stock to a 100 đ grid whose real tick is 10 or 50 đ.
+        return min(max(price, floor), ceiling)
 
     def _mintick(self) -> float:
         """Tick size for the traded contract (VN30F1M derivatives: 0.1)."""
@@ -880,23 +963,119 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         2026-08-13 (+7 = 2026-08-20, exactly the final trade date), which is why this
         surfaced as a sudden, whole-day failure rather than a gradual one.
 
-        Falls back to the plain +days window when the secdef carries no usable date, so a
-        missing field cannot make the plugin unable to place anything at all.
+        **STOCKS keep the plain +days window** (they have no final trade date), so the
+        whole clamp is DERIVATIVE-gated. ``durationType=DAY`` is NOT an option for a bare
+        STOP: measured on prod 2026-09-14 the venue answers ``400 CO-ORD-004`` for it
+        (while GTD 2026-09-17T00:00:00Z, the real final trade date, placed 201).
         """
-        target = datetime.now(timezone.utc) + timedelta(days=days)
-        try:
-            final = str(self._secdef(self.symbol or "").get("finalTradeDate") or "")[:10]
-            if final:
-                # Cap at MIDNIGHT UTC of the final trade date, which is how DNSE itself
-                # reports it. Not 23:59Z: the venue reads the date in ICT (UTC+7), so
-                # 23:59Z on the final date is already 07:00 the NEXT day there and is
-                # refused. Measured 2026-08-14 — GTD 2026-08-20T04:00Z was accepted,
-                # 2026-08-20T23:59Z was not.
-                last = datetime.strptime(final, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                target = min(target, last)
-        except Exception:                                           # noqa: BLE001
-            pass                        # no usable expiry -> keep the plain window
+        now = datetime.now(timezone.utc)
+        target = now + timedelta(days=days)
+        if self.market_type == "DERIVATIVE":
+            target = self._clamp_gtd_to_expiry(target, now=now)
         return target.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _clamp_gtd_to_expiry(self, target: datetime, *, now: datetime) -> datetime:
+        """Clamp a candidate GTD into ``[next open day, final trade date]``.
+
+        Two bounds, both of which the old code lacked (#118):
+
+        * **Ceiling** — midnight UTC of the final trade date, which is how DNSE itself
+          reports it. Not 23:59Z: the venue reads the date in ICT (UTC+7), so 23:59Z on
+          the final date is already 07:00 the NEXT day there and is refused. Measured
+          2026-08-14 — GTD 2026-08-20T04:00Z was accepted, 2026-08-20T23:59Z was not.
+        * **Floor** — the next open day. Without it a stale/past expiry (an alias-keyed
+          secdef cache serving a rolled-away contract, #113) produced a GTD **in the
+          past**, which the venue refuses just as hard. The floor winning is itself an
+          operator-facing event, so it logs.
+        """
+        floor = _midnight_utc(expiry.next_open_day_after(now.date()))
+        final = self._final_trade_date(now.date())
+        if final is not None:
+            target = min(target, _midnight_utc(final))
+        if target < floor:
+            log.broker_warning(
+                "GTD floored: final trade date %s is not in the future (now %s) — "
+                "using %s. The contract expires today or the secdef is stale (#113); "
+                "this conditional may still be refused (#118)",
+                final, now.strftime("%Y-%m-%d"), floor.strftime("%Y-%m-%d"))
+            target = floor
+        return target
+
+    def _final_trade_date(self, today: _date) -> _date | None:
+        """The contract's final trade date — venue value first, computed second.
+
+        The venue's ``finalTradeDate`` is INTERMITTENT (present 2026-08-14, absent in the
+        2026-08-04 fixture and in the 2026-09-14 live read), so a missing field is the
+        normal case, not an error. Resolution order:
+
+        1. ``finalTradeDate`` from the secdef, parsed strictly
+           (:func:`expiry.parse_venue_date` — an unknown format now WARNS instead of
+           being swallowed by a bare ``except: pass``).
+        2. the last venue value seen this run, cached **by the DATED contract code** —
+           never by the alias, which is what makes the existing permanent ``_secdef``
+           cache dangerous across a roll (#113).
+        3. computed from the dated code: 3rd Thursday of its month, walked back off
+           weekends/holidays (:func:`expiry.computed_final_trade_date`). Logged once per
+           contract, because a computed date carries the holiday-coverage caveat.
+
+        ``None`` when the symbol is not a dated contract and the venue serves nothing —
+        the caller then keeps the plain window (fail-open, as before).
+        """
+        contract = self.resolve_contract()
+        cache = getattr(self, "_final_trade_date_cache", None)
+        if cache is None:
+            cache = self._final_trade_date_cache = {}
+        cached = cache.get(contract)
+        if cached is not None:
+            return cached
+
+        raw = self._secdef(self.symbol or "").get("finalTradeDate")
+        try:
+            served = expiry.parse_venue_date(raw)
+        except ValueError as exc:
+            served = None
+            log.broker_warning(
+                "unreadable finalTradeDate for %s (%s) — falling back to the computed "
+                "expiry; a NEW venue date format needs a parser update (#118)",
+                contract, exc)
+        if served is not None:
+            # Cache ONLY under a genuinely dated code: caching under an unresolved
+            # alias would rebuild the #113 hazard (a permanent entry surviving a roll).
+            if expiry.contract_month(contract) is not None:
+                cache[contract] = served
+            return served
+
+        computed = expiry.computed_final_trade_date(contract, today=today)
+        self._warn_computed_expiry_once(contract, computed)
+        return computed
+
+    def _warn_computed_expiry_once(self, contract: str, computed: _date | None) -> None:
+        """One loud line per contract when the venue serves no expiry.
+
+        A silent fallback is how #118 survived from 2026-08-04 to 2026-09-14: the plugin
+        placed unplaceable conditionals and nothing in the output said why.
+        """
+        warned = getattr(self, "_computed_expiry_warned", None)
+        if warned is None:
+            warned = self._computed_expiry_warned = set()
+        if contract in warned:
+            return
+        warned.add(contract)
+        if computed is None:
+            log.broker_warning(
+                "no venue finalTradeDate for %s and it is not a dated VN30 contract "
+                "code — GTD stays the plain window, so a conditional placed in expiry "
+                "week can be refused with CO-ORD-006 (#118)", contract)
+        elif not expiry.holiday_coverage_is_verified(computed):
+            log.broker_warning(
+                "no venue finalTradeDate for %s — using COMPUTED %s (3rd Thursday). "
+                "This is PAST the verified holiday table (%s), so an unlisted (lunar) "
+                "closure could make it a day late (#118)",
+                contract, computed, expiry.HOLIDAY_TABLE_VERIFIED_THROUGH)
+        else:
+            log.broker_warning(
+                "no venue finalTradeDate for %s — using COMPUTED %s (3rd Thursday, "
+                "walked back off weekends/holidays) (#118)", contract, computed)
 
     def _loan_package_id(self) -> int:
         if self._loan_id is None:
@@ -975,26 +1154,35 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                category: str = "NORMAL", stop_price: float | None = None,
                stop_order_price: float | None = None, leg_type=None
                ) -> list[ExchangeOrder]:
-        """Place one native order (NORMAL / STOP / OCO) and record its identity."""
+        """Place one native order (NORMAL / STOP / OCO) and record its identity.
+
+        #119: this is the WRITE funnel — every price the plugin ever puts on
+        the venue's order book is converted and tick-snapped here (and in
+        ``_amend_normal``), so intents arrive in the FEED unit and leave in the
+        WIRE unit exactly once. ``_wire_scale`` also enforces both hard guards,
+        BEFORE the journal row is written and the POST leaves the process.
+        """
+        scale = self._wire_scale(writing=True)
         payload = {
             "symbol": self.resolve_contract(),   # tradable KRX contract, not the alias
             "side": _SIDE_TO_DNSE[side],
             "orderType": "LO",
-            "price": round(float(price), 1),
+            "price": self._wire_price(price, scale),
             "quantity": int(qty),
             "loanPackageId": self._loan_package_id(),
         }
         if category == "STOP":
             payload.update({
-                "stopPrice": round(float(stop_price), 1),
+                "stopPrice": self._wire_price(stop_price, scale),
                 "conditionOperator": ">=" if side == "buy" else "<=",
                 "durationType": "GTD",
                 "durationDateTime": self._gtd(),
             })
         elif category == "OCO":
             payload.update({
-                "stopPrice": round(float(stop_price), 1),
-                "stopOrderPrice": round(float(stop_order_price or stop_price), 1),
+                "stopPrice": self._wire_price(stop_price, scale),
+                "stopOrderPrice": self._wire_price(
+                    stop_order_price or stop_price, scale),
                 "durationType": "DAY",
             })
 
@@ -1010,6 +1198,8 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             from_entry=getattr(intent, "from_entry", None),
             leg_kind=getattr(leg_type, "name", None),
             category=category, order_type=payload["orderType"],
+            # WIRE unit (đồng for stocks), like the venue rows a future
+            # recovery matcher would compare it against (#119).
             price=payload.get("price"))
         status, body = self._write(lambda tok: self.client.post_order(
             self.account_id, self.market_type, payload, tok, order_category=category))
@@ -1755,9 +1945,15 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
 
     @staticmethod
     def _intent_price(intent) -> float:
+        """The one price a NORMAL-book amend can carry, in FEED units.
+
+        Unrounded since #119: the tick snap belongs in WIRE units (a stock's
+        real tick is 10-50 đ = 0.01-0.05 thousands, which ``round(_, 1)``
+        flattened to a 100 đ grid). Callers quantize via ``_wire_price``.
+        """
         price = (getattr(intent, "limit", None) or getattr(intent, "stop", None)
                  or getattr(intent, "tp_price", None) or getattr(intent, "sl_price", None))
-        return round(float(price), 1) if price else 0.0
+        return float(price) if price else 0.0
 
     @staticmethod
     def _intent_signature(intent) -> tuple:
@@ -1786,19 +1982,26 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         diff would emit the venue's UNMEASURED no-op PUT shape (#86 panel).
         A modify that changes neither field writes nothing for the same
         reason.
+
+        #119: the diff is computed entirely in WIRE units — the venue detail
+        is already wire, the intent is converted the same way ``_place``
+        converts it. Mixing the two (detail in đồng vs intent in thousands)
+        made every stock diff true, so a NO-CHANGE modify emitted a
+        wrong-unit PUT and the half-applied check could never confirm.
         """
         intent = new.intent
-        new_price = self._intent_price(intent)
+        scale = self._wire_scale(writing=True)
+        new_price = self._wire_price(self._intent_price(intent), scale)
         new_qty = int(intent.qty)
         detail = self._order_detail_dict(order_id)
         try:
-            cur_price = round(float(detail.get("price")), 1)  # type: ignore[union-attr]
+            cur_price = quantize_wire(float(detail.get("price")), scale)  # type: ignore[union-attr, arg-type]
             cur_qty = int(detail.get("quantity"))             # type: ignore[union-attr, arg-type]
         except (AttributeError, TypeError, ValueError):
             # Venue truth unreadable this instant — best effort from the
             # old envelope (correct in every case except a prior
             # half-applied amend, which the next successful read heals).
-            cur_price = self._intent_price(old.intent)
+            cur_price = self._wire_price(self._intent_price(old.intent), scale)
             cur_qty = int(old.intent.qty)
         payloads = []
         if new_price != cur_price:
@@ -1867,8 +2070,11 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                     order_id, order.status, first_status)
                 return [order]
             try:
+                # Both sides WIRE units: the detail as served, the payload as
+                # ``_amend_normal`` built it (#119).
                 landed = (int(detail.get("quantity")) == int(qty_payload["quantity"])
-                          and round(float(detail.get("price")), 1)
+                          and quantize_wire(float(detail.get("price")),
+                                            self._wire_scale(writing=True))
                           == float(qty_payload["price"]))
             except (TypeError, ValueError):
                 landed = False
@@ -2166,14 +2372,16 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         # Any other status retires a pending adoption for this parent.
         self._adopt_attempts.pop(order_id, None)
         delta = max(cumulative - previous, 0.0)
-        average_price = float(raw.get("averagePrice") or 0)
+        # WIRE unit (#119) — converted once, at the OrderEvent boundary below
+        # and inside ``_fill_slice_events`` (whose slice prices are wire too).
+        average_price_wire = float(raw.get("averagePrice") or 0)
         # #56: fill-bearing transitions book PER-SLICE events at the slice's
         # own price (the executions feed) — never the cumulative VWAP. The
         # read is gated on delta > 0 (status-only transitions skip it, P2).
         slice_events: "list[tuple[float, float]]" = []
         if delta > 0:
             slice_events = await self._fill_slice_events(
-                order_id, previous, cumulative, average_price)
+                order_id, previous, cumulative, average_price_wire)
         # read-before-mark-seen: _last_seen advances only after the slice
         # outcome is decided (the fallback keeps quantity conserved).
         self._last_seen[order_id] = (cumulative, raw_status)
@@ -2229,13 +2437,13 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             return events
         return [OrderEvent(
             order=order, event_type=event_type,
-            fill_price=average_price or None,
+            fill_price=self._from_wire(average_price_wire or None),
             fill_qty=delta or None, timestamp=int(time.time()),
             pine_id=pine_id, from_entry=from_entry, leg_type=leg_type,
             cancel_reason=cancel_reason)]
 
     async def _fill_slice_events(self, order_id: str, previous: float,
-                                 cumulative: float, average_price: float
+                                 cumulative: float, average_price_wire: float
                                  ) -> "list[tuple[float, float]]":
         '''#56: the per-slice (qty, price) emissions for one fill delta.
 
@@ -2243,8 +2451,15 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         failed/slow/429 executions read falls back to ONE average-priced
         delta event — a fill is never lost to the slice feed. Selection is
         the budget clamp in fill_slices.select_events.
+
+        #119 units: ``average_price_wire`` and every ``lastPrice`` the
+        executions feed serves are WIRE prices (đồng for stocks), so the whole
+        selection runs in wire units and the RESULT is converted to the feed
+        unit here — ``fill_slices`` stays a pure, unit-agnostic selector.
         '''
-        fallback = [(max(cumulative - previous, 0.0), average_price)]
+        fallback = [(max(cumulative - previous, 0.0),
+                     from_wire(average_price_wire,
+                               self._wire_scale(writing=False)))]
         if time.monotonic() < self._executions_cooldown_until:
             return fallback
         category = self._order_category.get(order_id, "NORMAL")
@@ -2273,8 +2488,11 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             return fallback
         events = select_events(parse_reports(body), booked_cum=previous,
                                venue_cum=cumulative,
-                               average_price=average_price)
-        return events or fallback
+                               average_price=average_price_wire)
+        if not events:
+            return fallback
+        scale = self._wire_scale(writing=False)
+        return [(qty, from_wire(price, scale)) for qty, price in events]
 
     @override
     async def get_open_orders(self, symbol: str | None = None) -> list[ExchangeOrder]:
@@ -2337,6 +2555,8 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             size = float(row.get("openQuantity") or row.get("quantity") or 0)
             signed = size if str(row.get("side", "")).upper() in ("NB", "LONG") else -size
             net += signed
+            # WIRE unit (#119): the positions book prices in đồng for stocks,
+            # like the order book. Converted once, on entry_price below.
             cost += abs(signed) * float(row.get("costPrice")
                                         or row.get("averagePrice") or row.get("price") or 0)
         if net == 0:
@@ -2347,7 +2567,7 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         # startup size adoption and could halt a defensive-close settle (#49).
         return ExchangePosition(
             symbol=symbol, side="long" if net > 0 else "short", size=volume,
-            entry_price=(cost / volume) if volume else 0.0,
+            entry_price=float(self._from_wire(cost / volume) or 0.0) if volume else 0.0,
             unrealized_pnl=0.0, liquidation_price=None,
             leverage=1.0, margin_mode="cross")
 
