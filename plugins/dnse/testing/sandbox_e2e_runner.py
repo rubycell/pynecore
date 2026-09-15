@@ -101,8 +101,17 @@ def ensure_fresh_token(cfg: dict) -> None:
     """Re-mint the sandbox trading token if missing/older than the TTL (OTP 666666)."""
     tf = REPO / cfg["token_file"] if not os.path.isabs(cfg["token_file"]) else Path(cfg["token_file"])
     if tf.exists():
-        age = time.time() - tf.stat().st_mtime
-        if age < TOKEN_TTL_S and json.loads(tf.read_text()).get("trading_token"):
+        # Age from the token's OWN ``minted_at`` (written below) when present —
+        # file mtime is about the FILE, not the token: a copy/touch/checkout
+        # rejuvenates a long-dead token and the run then fails mid-flight.
+        try:
+            state = json.loads(tf.read_text())
+        except (ValueError, OSError):
+            state = {}                     # unreadable -> re-mint, never crash
+        minted_at = state.get("minted_at") if isinstance(state, dict) else None
+        age = time.time() - (minted_at if isinstance(minted_at, (int, float))
+                             else tf.stat().st_mtime)
+        if age < TOKEN_TTL_S and isinstance(state, dict) and state.get("trading_token"):
             print(f"[token] fresh ({age/3600:.1f}h old) — reusing")
             return
         print(f"[token] stale ({age/3600:.1f}h) — re-minting")

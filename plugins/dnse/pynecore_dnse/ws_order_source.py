@@ -1,17 +1,32 @@
 """#121 — the PROD WS order/position feed, on the vendored TradingClient.
 
 A FAILSAFE, ADDITIVE speed path that runs ALONGSIDE the REST order-book poll in
-``broker.watch_orders``. It subscribes to the DNSE **broker** channels the
-official example uses:
+``broker.watch_orders``. It subscribes BOTH order channels the venue exposes
+(``_vendor/dnse/websocket/client.py``):
 
-* ``order.broker.{market_type}.{investorId}.{encoding}`` (fills/cancels)
-* ``position.broker.{market_type}.{investorId}.{encoding}`` (position updates)
+* ``order.{MARKET_TYPE}.json`` — the SHORT channel
+  (``TradingClient.subscribe_order_event``). **Measured 2026-09-15 on PROD**:
+  4 ``do`` frames captured during a real OCO place+cancel — the first prod order
+  frames ever captured. The sandbox uses this same channel.
+* ``order.broker.{MARKET_TYPE}.{investorId}.json`` — the BROKER channel
+  (``subscribe_broker_order_event``), what this source used to subscribe
+  EXCLUSIVELY. It has NEVER delivered a captured frame on prod; it is kept
+  because subscribing it costs nothing and a venue that starts publishing there
+  must not be missed.
+* ``position.broker.{MARKET_TYPE}.{investorId}.json`` (position updates,
+  observability only).
 
-via ``TradingClient.subscribe_broker_order_event`` /
-``subscribe_broker_position_event`` (``_vendor/dnse/websocket/client.py`` — the
-PROD channels; ``subscribe_order_event`` WITHOUT ``broker.`` is the SANDBOX
-channel every prior prod probe wrongly used, which is why no prod frame has ever
-been captured).
+``market_type`` is upper-cased into the channel name: a lowercase channel name is
+silently ACCEPTED by the venue (``status: active``) and then streams NOTHING —
+that mistake produced a false "the trading WS is silent" verdict once already.
+
+Subscribing both channels is safe because the callbacks are registered ONCE on
+the client's ``order_event`` dispatch (see ``start``), and both channels feed the
+same queue -> the same ``broker._scan_row`` watermark: a frame delivered on BOTH
+channels is two identical raw rows, and the second dedups to zero events
+(``_last_seen`` keys ``(cumulative, raw_status)`` per order id — transport
+agnostic by construction). A subscribe failure on ONE channel leaves the other
+live (logged); only "no channel at all" degrades to poll-only.
 
 Design contract (why this can never make protection WORSE):
 
@@ -119,23 +134,62 @@ class WSOrderSource:
         )
 
     async def start(self) -> None:
-        """Connect + subscribe the PROD broker channels. Raises on failure —
-        the caller (``broker._ensure_ws_order_source``) swallows it to
-        poll-only."""
+        """Connect, then subscribe BOTH order channels (short + broker) plus the
+        broker position channel. One channel failing must NOT take the others
+        down — each subscribe is guarded and merely logged. Raises only when the
+        connect fails or NO order channel came up, so the caller
+        (``broker._ensure_ws_order_source``) degrades to poll-only."""
         if self._started:
             return
         await self._client.connect()
-        await self._client.subscribe_broker_order_event(
-            self._investor_id, self._market_type, on_order_event=self._on_order)
-        await self._client.subscribe_broker_position_event(
-            self._investor_id, self._market_type,
-            on_position_event=self._on_position)
+        # UPPERCASE: a lowercase channel name is accepted and streams nothing.
+        market_type = str(self._market_type or "").upper()
+        # Register the dispatch callbacks ONCE, before any subscribe: the
+        # vendored client dispatches by EVENT name ("order_event"), not by
+        # channel, so passing the callback to each subscribe would append a
+        # second handler and invoke us twice per frame. Registering here also
+        # means a failed FIRST subscribe cannot leave the surviving channel
+        # without a handler.
+        self._client.on("order_event", self._on_order)
+        self._client.on("position_event", self._on_position)
+
+        subscribed: list[str] = []
+
+        async def _try(channel: str, coroutine_factory) -> None:
+            try:
+                await coroutine_factory()
+            except Exception as exc:                              # noqa: BLE001
+                log.broker_warning(
+                    "WS subscribe failed for %s (%s: %s) — continuing with the "
+                    "remaining channels (poll remains the floor)",
+                    channel, type(exc).__name__, exc)
+            else:
+                subscribed.append(channel)
+
+        short_channel = f"order.{market_type}.json"
+        broker_channel = f"order.broker.{market_type}.{_mask(self._investor_id)}.json"
+        position_channel = (
+            f"position.broker.{market_type}.{_mask(self._investor_id)}.json")
+
+        # PROD-measured deliverer (2026-09-15) + the sandbox channel.
+        await _try(short_channel, lambda: self._client.subscribe_order_event(
+            market_type, on_order_event=None))
+        # Kept as the failsafe second transport (never yet captured on prod).
+        await _try(broker_channel, lambda: self._client.subscribe_broker_order_event(
+            self._investor_id, market_type, on_order_event=None))
+        order_channels = list(subscribed)
+        await _try(position_channel,
+                   lambda: self._client.subscribe_broker_position_event(
+                       self._investor_id, market_type, on_position_event=None))
+
+        if not order_channels:
+            raise RuntimeError(
+                "WS order feed: BOTH order channels failed to subscribe "
+                f"({short_channel} and {broker_channel}) — poll-only")
         self._started = True
         log.broker_info(
-            "[BROKER] WS order feed subscribed: order.broker.%s.%s / "
-            "position.broker.%s.%s (#121 failsafe; poll remains the floor)",
-            self._market_type, _mask(self._investor_id),
-            self._market_type, _mask(self._investor_id))
+            "[BROKER] WS order feed subscribed: %s (#121 dual-channel failsafe; "
+            "poll remains the floor)", " + ".join(subscribed))
 
     async def collect(self, timeout: float) -> list[dict]:
         """Wait up to ``timeout`` s for the next WS order frame; return it plus

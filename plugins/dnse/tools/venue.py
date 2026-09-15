@@ -190,6 +190,56 @@ def _detail_today(b: DNSEBroker, oid: str):
     return None, None
 
 
+#: #125: DNSE keeps a SEPARATE set of books per ``market_type``, and a numeric
+#: id is always a NORMAL-book id. ``venue.py cancel 55521`` (a STOCK id) probed
+#: only the DERIVATIVE books of the default symbol, collected CO-ORD-001 twice,
+#: read nothing back — and printed "STILL LIVE — recheck". A failed read must
+#: never be summarised as an answer, so the lookup now ALSO asks the other
+#: market's books (same account) and, failing that, says which books it asked.
+#: These are representative symbols, only used to pick the market_type.
+ALT_SYMBOL = {"DERIVATIVE": "HPG", "STOCK": SYMBOL}
+
+
+def alt_broker(b: DNSEBroker) -> DNSEBroker | None:
+    """A broker on the OTHER market type (same account), or ``None``."""
+    symbol = ALT_SYMBOL.get(b.market_type)
+    if not symbol:
+        return None
+    try:
+        return broker(symbol)
+    except Exception:                                                 # noqa: BLE001
+        return None
+
+
+def _market_hint(b: DNSEBroker, alt_checked: bool) -> str:
+    alt = ALT_SYMBOL.get(b.market_type)
+    if alt_checked:
+        return f" (both the {b.market_type} and the other market's books were asked)"
+    return (f" — these are the {b.market_type} books; WRONG MARKET? retry with "
+            f"--symbol {alt}" if alt else "")
+
+
+def _detail_any_market(b: DNSEBroker, oid: str):
+    """``(broker_that_found_it, book, row, alt_checked)``.
+
+    This run's books first, then the OTHER market_type's (#125). ``row is None``
+    means neither answered — an UNDETERMINED read, never "not there".
+    """
+    book, row = _detail_today(b, oid)
+    if row is not None:
+        return b, book, row, False
+    alt = alt_broker(b)
+    if alt is None:
+        return b, None, None, False
+    try:
+        book, row = _detail_today(alt, oid)
+    except Exception:                                                 # noqa: BLE001
+        return b, None, None, False
+    if row is not None:
+        return alt, f"{book}@{alt.market_type}", row, True
+    return b, None, None, True
+
+
 def _detail_history(b: DNSEBroker, oid: str, days: int = 7):
     """Previous-day orders are NOT on the detail endpoint (it answers None) —
     they live in /orders/history — the vendored SDK's ``get_order_history`` (one
@@ -211,12 +261,13 @@ def cmd_order(args) -> int:
     b = broker(args.symbol)
     worst = EXIT_OK
     for oid in args.ids:
-        book, row = _detail_today(b, oid)
+        ob, book, row, alt_checked = _detail_any_market(b, oid)
         if row is None:
             book, row = _detail_history(b, oid)
         if row is None:
             print(f"{oid}: NOT FOUND in any book or in 7 days of history — "
-                  f"UNDETERMINED (not proof it never existed)")
+                  f"UNDETERMINED (not proof it never existed)"
+                  f"{_market_hint(b, alt_checked)}")
             worst = max(worst, EXIT_UNKNOWN)
             continue
         print(f"{oid} [{book}]: status={row.get('orderStatus')} "
@@ -239,14 +290,33 @@ def cmd_cancel(args) -> int:
     b = broker(args.symbol)
     worst = EXIT_OK
     for oid in args.ids:
+        # #125: locate the id BEFORE writing — a numeric id may well live on the
+        # OTHER market's NORMAL book, and cancelling it against this run's
+        # market_type only collects CO-ORD-001 ("order not found").
+        found, book, row, alt_checked = _detail_any_market(b, oid)
+        if row is not None and found is not b:
+            print(f"{oid}: found on the {found.market_type} books [{book}] — "
+                  f"cancelling THERE (#125: each market_type has its own books)")
+        target = found if row is not None else b
         try:
-            ok = asyncio.run(b._cancel_one_disposition(oid)) in _CANCEL_OK
+            ok = asyncio.run(target._cancel_one_disposition(oid)) in _CANCEL_OK
         except Exception as exc:                                      # noqa: BLE001
             print(f"{oid}: cancel RAISED {type(exc).__name__}: {exc}")
             worst = max(worst, EXIT_UNKNOWN)
             continue
-        book, row = _detail_today(b, oid)
-        state = row.get("orderStatus") if row else "unreadable"
+        book, row = _detail_today(target, oid)
+        state = row.get("orderStatus") if row else None
+        if state is None:
+            # The VERIFICATION READ failed — that is not evidence of anything.
+            # Reporting it as "STILL LIVE" (exit 1) is the #125 bug: it invents
+            # a negative answer out of a read that never landed.
+            print(f"{oid}: cancel_one={ok} venue=UNREADABLE — the id is on no "
+                  f"{target.market_type} book"
+                  f"{_market_hint(target, alt_checked)} — UNDETERMINED, NOT "
+                  f"proof it is still live (DNSE detail reads are also "
+                  f"eventually consistent)")
+            worst = max(worst, EXIT_UNKNOWN)
+            continue
         terminal = state in ("Canceled", "Cancelled", "Filled", "Expired", "Rejected")
         print(f"{oid}: cancel_one={ok} venue={state} "
               f"{'(terminal)' if terminal else '(STILL LIVE — recheck; DNSE detail '
