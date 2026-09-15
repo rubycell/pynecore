@@ -1,0 +1,61 @@
+//@version=6
+// LIVE 2b ENTRY-UPDATE probe — a CHASING breakout entry that RE-ISSUES each 1m candle so its
+// resting conditional STOP tracks the moving breakout level. Tests whether the engine's
+// conditional-entry cancel+replace (#85 — DNSE cannot AMEND a conditional) actually moves the
+// stopPrice on DNSE each candle.
+//
+// padPct (input): 5.0 = NO-FILL probe — the entry sits ~5% ABOVE market so it CANNOT fill; we
+//   only verify the stopPrice UPDATES on DNSE each candle (no money at risk). Set to 0.0 for
+//   the normal fill test once the update is confirmed.
+//
+// WATCH (venue record / [BROKER] log), up to ~10 min at 1m:
+//   * a candle where higherHigh2 moves -> engine cancel+replaces E -> the DNSE order's
+//     stopPrice changes  == GOOD.
+//   * stopPrice NOT changing though higherHigh2 moved == update broken -- OR the run
+//     'quarantined' on an unexpected cancel (that is the #124-family VENUE cancel, not an
+//     amend bug; today's every-cancel log tells them apart).
+//
+// SAFETY: 1 lot, pyramiding=0; barstate.isrealtime gate (warmup NEVER trades -> a plain dnse:
+// backtest places ZERO orders = the warmup-safety proof, CHECKED not assumed); `everFilled`
+// latch trips on the FIRST fill and STOPS the chasing re-issue, so there is no post-close
+// re-entry loop (#18). At padPct=5 nothing ever fills, so it is a pure place/replace probe.
+strategy("LIVE2b entry-update probe", overlay=true, pyramiding=0, initial_capital=500000000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     margin_long=18.48, margin_short=18.48, slippage=1,
+     calc_on_every_tick=false, process_orders_on_close=false)
+
+padPct = input.float(0.0, "No-fill padding % above breakout (0 = normal fill test)", minval=0.0, step=0.5)
+
+var bool  everFilled = false
+var float tpLevel    = na
+var float slLevel    = na
+
+higherHigh2 = high > high[1] ? high : high[1]
+entryStop   = higherHigh2 * (1.0 + padPct / 100.0)
+
+if strategy.position_size != 0
+    everFilled := true
+
+// (1) CHASING ENTRY — re-issue each realtime candle while flat and never-yet-filled, so the
+//     resting conditional's stop tracks entryStop. padPct=5 -> never fills (5% away).
+if barstate.isrealtime and not everFilled
+    strategy.entry("E", strategy.long, stop=entryStop, comment="STOP pad")
+
+// (2) BRACKET — frozen at the ACTUAL fill (only reached at padPct=0). Placed exactly once.
+if strategy.position_size > 0 and na(tpLevel)
+    avg = strategy.position_avg_price
+    tpLevel := avg * 1.002
+    slLevel := avg * 0.998
+    strategy.exit("X", from_entry="E", limit=tpLevel, stop=slLevel, oca_name="brk",
+                  comment_profit="TP@" + str.tostring(tpLevel, format.mintick),
+                  comment_loss="SL@" + str.tostring(slLevel, format.mintick))
+
+// (3) MAX-2-candles backstop (fill phase only)
+if not na(tpLevel) and strategy.position_size != 0 and strategy.position_size[1] != 0
+    strategy.cancel_all()
+    strategy.close("E", comment="FLATTEN")
+
+plot(strategy.position_size, "pos", display=display.data_window)
+plot(entryStop, "entryStop", display=display.data_window)
+plot(tpLevel, "tp", display=display.data_window)
+plot(slLevel, "sl", display=display.data_window)

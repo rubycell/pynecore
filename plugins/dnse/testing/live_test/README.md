@@ -353,15 +353,20 @@ near leg fills and the far leg must be CANCELLED.
 
 ## Measured venue facts (why the tests look like this)
 
-- **A dependent bracket (SL/TP) arms ONE BAR AFTER the fill, not at placement** (measured
-  l2b live 2026-09-11, #107). DNSE has no order/position attach primitive (#33), so a
-  protective exit is a STANDALONE conditional the engine may only place once a position
-  exists (#82b), and the engine applies async fills at the bar-close drain — so a filled
-  position is held ~1 bar (≈60 s at 1m, up to ~15 min at 15m) with NO venue-side
-  protection. Timeline: entry fills bar N, bracket dispatched bar N+1. This window is
-  INHERENT to a no-attach, closed-bar REST venue and is **accepted, not fixed** (operator
-  decision 2026-09-11). The official plugins (bybit/capitalcom/ctrader) avoid it by
-  attaching the bracket to the position; DNSE cannot. The trading WS order channel
+- **Bracket arm timing depends on WHEN the protective exit is placed** (updated l2b live
+  2026-09-15, #121). A bracket **PRE-PLACED on the entry bar** — withheld by #82b until the fill,
+  so it is already in the exit book when the fill lands — arms on the **SAME bar and SAME timestamp
+  as the fill**: #121's arm-on-fill wake dispatches + creates the SL/TP at the fill bar, no naked
+  window (entry `id=214806` bar 502 14:17:00 → exit same bar 502 → `215286`). This SUPERSEDES the
+  earlier "~1-bar window, accepted not fixed" verdict FOR A PRE-PLACED bracket. A **REACTIVELY-placed**
+  exit (gated on `strategy.position_size > 0`, not in the book until the bar after the fill) still
+  arms **ONE BAR AFTER the fill** (measured l2b live 2026-09-11 #107; l2b_entry_update 2026-09-15,
+  fill bar 502 → exit bar 503): DNSE has no order/position attach primitive (#33), so a reactive exit
+  is a STANDALONE conditional the engine may only place once a position exists (#82b), and the engine
+  applies async fills at the bar-close drain — that position is held ~1 bar (≈60 s at 1m, up to
+  ~15 min at 15m) with NO venue-side protection. The official plugins (bybit/capitalcom/ctrader) avoid
+  the reactive gap by attaching the bracket to the position; DNSE cannot — so on DNSE, PRE-PLACING the
+  exit is what closes it. The trading WS order channel
   delivers fill/partial events ON THE SANDBOX (`order.DERIVATIVE.json`, #107/#109) — but this has
   NEVER been captured on PROD (verified 2026-09-14): every prod probe subscribed to the SANDBOX
   channel `order.{market_type}` via `subscribe_order_event`, whereas PROD requires
@@ -395,6 +400,10 @@ near leg fills and the far leg must be CANCELLED.
   entry / position) changed, five instances (08-12/14/17, 09-14 x2) — the native-OCO
   shape may cascade (or respawn the child; the engine can't tell: the OCO book is
   never scanned). Decisive observation named on #124.
+  **Fix status (live 2026-09-15, first prod confirmation):** the #124 fix now RE-ARMS the
+  protective exit instead of quarantining into a naked position (logs `#124: ... re-arming
+  (N/3), no quarantine`) — the cancel is SAFE, but the venue-cancel ROOT CAUSE (timing seen
+  at 18s/49s/~200s) is STILL OPEN.
 - **NORMAL amend edits ONE field per call — DERIVATIVES ONLY** (measured 2026-09-08 on the
   derivatives book; **STOCK measured OPPOSITE 2026-09-15**: one PUT changing BOTH price and
   quantity answered 200 and cancel+replaced to a NEW id — #117):

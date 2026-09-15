@@ -11,18 +11,19 @@ from pynecore.types import PersistentSeries, Series
 
 @script.strategy('LIVE2b fill+bracket+flatten', overlay=True, pyramiding=0, initial_capital=500000000, default_qty_type=strategy.fixed, default_qty_value=1, margin_long=18.48, margin_short=18.48, slippage=1, calc_on_every_tick=False, process_orders_on_close=False)
 def main():
-    traded: PersistentSeries[bool] = False
     tpLevel: PersistentSeries[float] = na(float)
     slLevel: PersistentSeries[float] = na(float)
 
     higherHigh2 = (high if high > high[1] else high[1])
 
-    if barstate.isrealtime and (not traded):
+    if barstate.isrealtime and strategy.opentrades == 0:
         tpLevel = higherHigh2 * 1.002
         slLevel = higherHigh2 * 0.998
         strategy.entry("E", strategy.long, stop=higherHigh2, comment="STOP 1-lot")
         strategy.exit("X", from_entry="E", limit=tpLevel, stop=slLevel, oca_name="brk", comment_profit="TP@" + string.tostring(tpLevel, format.mintick), comment_loss="SL@" + string.tostring(slLevel, format.mintick))
-        traded = True
+
+    if strategy.opentrades > 0:
+        strategy.exit("X", from_entry="E", limit=tpLevel, stop=slLevel, oca_name="brk", comment_profit="TP@" + string.tostring(tpLevel, format.mintick), comment_loss="SL@" + string.tostring(slLevel, format.mintick))
 
     DOUBLE_CHECK_PCT = -0.3
 
