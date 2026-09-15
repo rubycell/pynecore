@@ -286,6 +286,18 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         #: drains this set every cycle. In-memory like the rest (#36): lost on a
         #: restart, so recovery must re-derive from the venue books.
         self._pending_oco: set[str] = set()
+        #: #124 instrumentation: tracked venue order id -> the OCO UMBRELLA id
+        #: it was born from. The umbrella only ever reached the journal (as a
+        #: ref) and, transiently, ``_pending_oco``; a CANCELLED on the tracked
+        #: child therefore could not be read back against its umbrella at all.
+        #: Observation only — nothing routes or classifies by this map.
+        self._oco_umbrella_ids: dict[str, str] = {}
+        #: #117 (measured live 2026-09-15): venue order ids a STOCK amend
+        #: SUPERSEDED — the PUT answered 200 with a NEW id and the venue
+        #: auto-cancels the predecessor, whose ``Canceled`` push arrives
+        #: later. Registered here so that push is consumed as the engine's own
+        #: amend landing instead of leaking out as an unowned cancel.
+        self._superseded_amend_order_ids: set[str] = set()
         self._last_bar_ts: int = 0
         self._loan_id: int | None = None
         #: #119/G1: a READ that hit a guessed STOCK classification warns once
@@ -1431,6 +1443,10 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         if key:
             self._order_ids.setdefault(key, []).append(order.id)
         self._placed_category[str(order.id)] = category   # #93 G1
+        if category == "OCO" and body.get("id") is not None:
+            # #124 instrumentation: retain the umbrella id in memory so a later
+            # CANCELLED on this tracked order can be observed against it.
+            self._oco_umbrella_ids[str(order.id)] = str(body.get("id"))
         self._identity[order.id] = (
             getattr(intent, "pine_id", None),
             getattr(intent, "from_entry", None),
@@ -1851,6 +1867,7 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                     "no identity — journal closed, no event emitted",
                     order_id)
                 return None
+            await self._observe_oco_cancel(order_id)   # #124 observation only
             return OrderEvent(
                 order=order, event_type="cancelled", fill_price=None,
                 fill_qty=None, timestamp=int(time.time()),
@@ -1935,7 +1952,17 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         hinted = self._order_category_for(order_id)
         categories = [hinted] if hinted else list(_CANCEL_PROBE_BOOKS)
         write_refused = False
+        pine_id, from_entry, leg_type = self._identity_for(order_id)
         for category in categories:
+            # Forensics (load-bearing): EVERY outgoing cancel says so BEFORE it
+            # leaves the process, on the bool path too (``execute_cancel``
+            # logged nothing at all, so "no cancel was sent" could not be told
+            # apart from "the log line is missing"). Absence of this line is
+            # now proof no cancel left this process.
+            log.broker_info(
+                "cancel -> wire | order=%s book=%s pine=%s from_entry=%s leg=%s",
+                order_id, category, pine_id, from_entry,
+                getattr(leg_type, "name", None))
             status, body = await asyncio.to_thread(
                 self._write,
                 lambda tok, category=category: self.client.cancel_order(
@@ -2287,23 +2314,74 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                     client_order_id=order_id,
                     predecessor_cancel_ids=())
             return [self._to_exchange_order(detail or {"id": order_id})]
+        # #117: a STOCK amend is a REPLACE at the venue — the PUT answers 200
+        # with a NEW order id and auto-cancels the predecessor. Every later leg
+        # must therefore target the id the venue just handed back, not the one
+        # the caller passed (a second PUT on the superseded id addresses a
+        # cancelled order). A derivatives PUT returns the SAME id, so this
+        # tracks it and nothing changes.
+        current_id = str(order_id)
         for leg_index, payload in enumerate(payloads):
-            status, body = self._write(lambda tok, _p=payload: self.client.put_order(
-                self.account_id, order_id, self.market_type, _p, tok,
-                order_category="NORMAL"))
+            status, body = self._write(lambda tok, _p=payload, _id=current_id:
+                                       self.client.put_order(
+                                           self.account_id, _id, self.market_type,
+                                           _p, tok, order_category="NORMAL"))
             if status in (200, 201) and isinstance(body, dict):
                 last_body = body
+                current_id = self._remap_amended_order_id(current_id, body)
                 continue
             if leg_index == 0:
                 # Nothing applied yet — the pre-#86 failure semantics hold.
                 self._raise_write_error(
                     status, body, action="amend",
-                    ident=f"{order_id} intent={getattr(intent, 'intent_key', '?')}",
-                    coid=order_id)
+                    ident=f"{current_id} intent={getattr(intent, 'intent_key', '?')}",
+                    coid=current_id)
                 raise ExchangeOrderRejectedError(
                     f"DNSE amend: non-dict success body: {body!r}")
-            return self._recover_half_applied_amend(order_id, payload, status)
+            return self._recover_half_applied_amend(current_id, payload, status)
         return [self._to_exchange_order(last_body)]
+
+    def _remap_amended_order_id(self, order_id: str, body: dict) -> str:
+        """#117: adopt the id a successful amend returned; return the live id.
+
+        Measured live 2026-09-15: a STOCK ``PUT /orders/{id}`` answers 200 with
+        a DIFFERENT id — the venue replaced the order and auto-cancels the
+        predecessor (its ``Canceled`` push arrives later). Every tracked
+        reference must move with it or the run keeps addressing a dead id
+        (cancel, further amends, fill routing), and the predecessor's cancel
+        must be registered as EXPECTED or it reads as a cancel nobody asked
+        for. Derivatives return the SAME id: guarded on the id actually
+        changing, so that path is byte-identical to before.
+        """
+        new_id = body.get("id")
+        if new_id is None or str(new_id) == str(order_id):
+            return str(order_id)
+        new_id = str(new_id)
+        # In-place replacement, never a reassignment of the list: a #41 child
+        # adopted concurrently must survive the re-map (#85-M2 / #87 S3 style).
+        for tracked_ids in self._order_ids.values():
+            for index, tracked_id in enumerate(tracked_ids):
+                if tracked_id == order_id:
+                    tracked_ids[index] = new_id
+        for id_map in (self._order_category, self._placed_category,
+                       self._identity, self._oco_umbrella_ids):
+            if order_id in id_map:
+                id_map[new_id] = id_map.pop(order_id)
+        # The journal row keeps BOTH refs (the predecessor's cancel must still
+        # resolve to its row) while its primary exchange id becomes the new one.
+        if self.store_ctx is not None:
+            from .journal_wiring import _coid_for_venue_id
+            coid = _coid_for_venue_id(self.store_ctx, order_id)
+            if coid is not None:
+                journal_server_ref(
+                    self.store_ctx, coid=coid, venue_id=new_id,
+                    category=self._order_category.get(new_id, "NORMAL"))
+        self._superseded_amend_order_ids.add(order_id)
+        log.broker_info(
+            "#117 amend re-mapped %s -> %s (venue replaced the order); the "
+            "predecessor's later cancel is registered as expected",
+            order_id, new_id)
+        return new_id
 
     def _recover_half_applied_amend(self, order_id: str, qty_payload: dict,
                                     first_status) -> list[ExchangeOrder]:
@@ -2346,6 +2424,7 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             self.account_id, order_id, self.market_type, qty_payload, tok,
             order_category="NORMAL"))
         if status in (200, 201) and isinstance(body, dict):
+            self._remap_amended_order_id(order_id, body)   # #117: same replace
             return [self._to_exchange_order(body)]
         log.broker_error(
             "HALF-APPLIED amend on %s: price leg landed, qty leg refused "
@@ -2585,6 +2664,40 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                 outcomes[category] = None
         return rows, outcomes
 
+    async def _observe_oco_cancel(self, order_id: str) -> None:
+        """#124 instrumentation: one structured line per CANCELLED on an
+        OCO-origin order — OBSERVATION ONLY, no classification change.
+
+        A bracket is two venue records (the OCO umbrella and its NORMAL-book
+        child), and the cancel event names only the child, so the panel has no
+        way to tell which record the venue ended, nor whether the position
+        moved with it. Read both, log them, and emit the event unchanged:
+        every failure mode (read error, missing umbrella, odd body) degrades
+        to a ``read-failed`` line — the event path is never blocked.
+        """
+        umbrella_id = self._oco_umbrella_ids.get(str(order_id))
+        if umbrella_id is None and self._placed_category.get(str(order_id)) == "OCO":
+            umbrella_id = str(order_id)   # the umbrella IS the tracked order
+        if umbrella_id is None:
+            return
+        try:
+            _status, detail = await asyncio.to_thread(
+                lambda: self.client.get_order_detail(
+                    self.account_id, umbrella_id, self.market_type,
+                    order_category="OCO"))
+            detail = detail if isinstance(detail, dict) else {}
+            position = await self.get_position(self.symbol or "")
+        except Exception as exc:                                # noqa: BLE001
+            log.broker_warning("#124-OBS read-failed (%s: %s)",
+                               type(exc).__name__, exc)
+            return
+        net = 0.0 if position is None else (
+            position.size if position.side == "long" else -position.size)
+        log.broker_info(
+            "#124-OBS umbrella=%s umbrella_status=%s externalOrderId=%s "
+            "position=%s", umbrella_id, detail.get("orderStatus"),
+            detail.get("externalOrderId"), net)
+
     async def _scan_row(self, raw: dict) -> "list[OrderEvent]":
         """Process ONE polled row; return its OrderEvents (usually 0 or 1 —
         a multi-slice fill emits one event PER slice, #56).
@@ -2603,6 +2716,18 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         raw_status = str(raw.get("orderStatus") or "")
         previous, prev_status = self._last_seen.get(order_id, (0.0, None))
         if cumulative == previous and raw_status == prev_status:
+            return []
+        if order_id in self._superseded_amend_order_ids:
+            # #117: this id was REPLACED by an amend — the venue's own cancel
+            # of the predecessor. Consume it here (no event, so nothing
+            # downstream can read it as a cancel the run did not ask for);
+            # the live order is the amend's new id, which reports separately.
+            self._last_seen[order_id] = (cumulative, raw_status)
+            if order.status in _TERMINAL_STATUSES:
+                self._superseded_amend_order_ids.discard(order_id)
+                log.broker_info(
+                    "#117 expected cancel of amend predecessor %s (%s) — "
+                    "consumed, no event emitted", order_id, raw_status)
             return []
         pine_id, from_entry, leg_type = self._identity_for(order_id)
         if pine_id is None:
@@ -2693,6 +2818,8 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                       else "created")
         cancel_reason = (CANCEL_REASON_VENUE_EXPIRED
                          if order.status is OrderStatus.EXPIRED else None)
+        if event_type == "cancelled":
+            await self._observe_oco_cancel(order_id)   # #124 observation only
         if delta > 0 and slice_events:
             events = []
             for index, (slice_qty, slice_price) in enumerate(slice_events):

@@ -15254,3 +15254,90 @@ def __test_124_recognized_own_cancel_of_protective_exit_does_not_quarantine__():
     assert key not in engine._forced_cancel_pending, "the parked cancel was consumed"
     assert key not in engine.order_mapping, "the landed cancel tore down the mapping"
 
+
+
+# === #126: a HARD reject of the #123 extend must DEGRADE, not kill the drain ===
+
+
+def __test_126_extend_hard_reject_degrades_and_a_later_sync_still_extends__(caplog):
+    """#126: when the #123 protection EXTEND is hard-rejected by the venue, the
+    arm-on-fill drain must degrade (warn + keep the armed slice) instead of
+    letting the exception escape.
+
+    Measured on the DNSE sandbox 2026-09-14: ``PUT /orders/{id}`` answers
+    HTTP-405 (no amend endpoint), which surfaces as
+    :class:`ExchangeOrderRejectedError`. Before the fix
+    ``_arm_protective_exits_after_fill`` caught only the SOFT signals
+    (``OrderSkippedByPlugin`` / ``OrderDispositionUnknownError`` /
+    ``_PartialBracketModifyDeferred``), so the hard reject propagated out of
+    ``apply_async_events`` and killed the run — while the already-armed slice
+    was still perfectly live at the venue.
+
+    Pins three things: no exception escapes, the armed ledger is UNCHANGED (the
+    first slice stays protected at its armed qty), and a later retry can still
+    perform the extend. Also pins the warn-once throttle: a second failed
+    attempt at the SAME (armed -> target) episode does not re-warn.
+    """
+    b, engine, pos = _partial_arm_engine()
+    key = "X\0E"
+
+    # First partial: 1 of 2 -> arm sized to the filled slice.
+    engine.on_order_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+        xchg_id="xchg-1", event_type='partial', filled_qty=1.0, remaining_qty=1.0,
+    ))
+    _wake_drain(engine)
+    assert _protective_venue_qty(b) == 1.0
+    assert engine._armed_protective_venue_qty[key] == 1.0
+
+    # Remainder fills -> the engine wants to grow 1 -> 2, and the venue HARD
+    # rejects the amend (sandbox amend-405).
+    b.raise_on_next_modify_exit = ExchangeOrderRejectedError(
+        "HTTP-405: no amend endpoint (sandbox)",
+    )
+    with caplog.at_level(logging.WARNING, logger="pyne_core_logger"):
+        engine.on_order_event(_fill_event(
+            "buy", qty=1.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+            xchg_id="xchg-1", event_type='filled', filled_qty=2.0, remaining_qty=0.0,
+        ))
+        _wake_drain(engine)          # must NOT raise
+
+    assert pos.size == 2.0
+    assert engine.halted is False, "a rejected extend is not a fatal condition"
+    assert engine._armed_protective_venue_qty[key] == 1.0, (
+        "the rejected grow must leave the LEDGER at the qty the venue really "
+        "protects — claiming 2 would permanently suppress the retry"
+    )
+    assert engine.active_intents[key].qty == 2.0, (
+        "the whole-row belief is untouched (value identity with Pine)"
+    )
+    warnings = [
+        rec.getMessage() for rec in caplog.records
+        if rec.levelno == logging.WARNING and "could NOT extend protection" in rec.getMessage()
+    ]
+    assert len(warnings) == 1, (
+        f"the hard reject must warn exactly once for this episode, got {warnings}"
+    )
+
+    # Warn-once throttle: a second attempt that fails identically stays quiet.
+    b.raise_on_next_modify_exit = ExchangeOrderRejectedError(
+        "HTTP-405: no amend endpoint (sandbox)",
+    )
+    with caplog.at_level(logging.WARNING, logger="pyne_core_logger"):
+        caplog.clear()
+        engine._arm_protective_exits_after_fill()
+    assert [
+        rec for rec in caplog.records
+        if rec.levelno == logging.WARNING and "could NOT extend protection" in rec.getMessage()
+    ] == [], "the same failing episode must not re-warn on every retry"
+    assert engine._armed_protective_venue_qty[key] == 1.0
+
+    # A later retry that the venue accepts still extends protection to the
+    # whole position — the degrade parked the work, it did not drop it.
+    n_modifies = len(b.modify_exit_calls)
+    engine._arm_protective_exits_after_fill()
+    assert len(b.modify_exit_calls) == n_modifies + 1
+    old_env, new_env = b.modify_exit_calls[-1]
+    assert old_env.intent.qty == 1.0 and new_env.intent.qty == 2.0
+    assert engine._armed_protective_venue_qty[key] == 2.0
+    assert b.cancel_calls == [], "the extend never cancels the armed protection"

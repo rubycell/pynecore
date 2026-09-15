@@ -9320,6 +9320,35 @@ class OrderSyncEngine:
                     format_intent_key(intent_key), already_armed, target, exc,
                 )
                 continue
+            except ExchangeOrderRejectedError as exc:
+                # #126: a HARD reject of the grow (measured: DNSE sandbox
+                # ``PUT /orders/{id}`` -> HTTP-405, there is no amend endpoint)
+                # used to propagate out of the drain and kill the run — over a
+                # condition that is not fatal at all: the slice armed by the
+                # FIRST fill is still perfectly live at the venue, and the
+                # ordinary next fill / bar-close sync retries the extend.
+                # Degrade exactly like the soft branch above: keep the ledger
+                # at ``already_armed`` (claiming ``target`` would permanently
+                # suppress the retry) and leave the armed leg untouched.
+                # Throttled like the #82b skip warning: this re-fires on EVERY
+                # drain while the venue keeps refusing, so warn once per
+                # (key, armed -> target) episode — a changed episode (a further
+                # slice filled, or the grow finally landed) warns again.
+                warned = getattr(self, '_extend_reject_warned_episode', None)
+                if warned is None:
+                    warned = self._extend_reject_warned_episode = {}
+                episode = (already_armed, target)
+                if warned.get(intent_key) != episode:
+                    warned[intent_key] = episode
+                    _blog_warning(
+                        "#126 could NOT extend protection for %s from %s to %s "
+                        "— the venue REJECTED the grow (%s: %s); the armed "
+                        "slice stays live and the newly filled lot(s) are "
+                        "UNPROTECTED until a later fill/sync retries",
+                        format_intent_key(intent_key), already_armed, target,
+                        type(exc).__name__, exc,
+                    )
+                continue
             self._armed_protective_venue_qty[intent_key] = target
 
     def _sync_pine_exit_qty(self, bracket: ExitIntent, new_qty: float) -> None:

@@ -460,8 +460,10 @@ def run(args) -> int:
     print(f"  stop trigger     : {stop_trigger_price}  "
           f"({distance_fraction(reference_price, stop_trigger_price) * 100:.2f}% "
           f"from market)")
-    print(f"  stop LO price    : {stop_limit_price} (emitted only if the trigger "
-          f"ever fires)")
+    # Display only: the computed price carries a binary float-repr tail
+    # (1834.1000000000001). The WIRE value stays ``stop_limit_price`` untouched.
+    print(f"  stop LO price    : {stop_limit_price:.1f} (emitted only if the "
+          f"trigger ever fires)")
     print(f"  watch            : {args.watch_seconds} s, polling every "
           f"{args.poll_seconds} s")
     print("  cleanup          : cancel + verify terminal, always (incl. Ctrl-C)")
@@ -469,6 +471,10 @@ def run(args) -> int:
 
     if not args.yes:
         print("\nDRY RUN — nothing was sent to the venue (no order, no cancel).")
+        print("NOTE: the gates below run ONLY under --yes, so a clean dry run is "
+              "NOT evidence they pass: session phase (needs continuous/lunch), "
+              "trading-token GOOD, and the OCO-book provability read. The "
+              "pre-flight above only proves the LEVELS are safe.")
         print("Re-run with --yes to place it, after the L0 gate.")
         return EXIT_MEASURED
 
