@@ -165,6 +165,27 @@ Fork-specific venue plugins, editable-installed (so they import as
   Live testing exists but is its own gated suite (see "DNSE testing" below). Docs mirror + sync tool:
   `docs/dnse-openapi-documentation/` (`fetch_docs.py`); plans in `docs/plan/`.
 
+## STOCK amend is CANCEL+REPLACE with a NEW id; write rejects are CODED (measured 2026-09-15)
+
+Live-measured on prod (#117 probe, funded stock account):
+- `PUT /orders/{id}` on a resting STOCK LO answers 200 with a **NEW order id** —
+  the venue cancels the old id itself (reads back `Canceled` untouched) and mints a
+  replacement. **Both price AND quantity in one PUT are accepted.** Consequence:
+  after any stock amend the engine MUST re-map its tracked id from the PUT response
+  or it goes blind (#39 family) — and must EXPECT the predecessor's `Canceled` push.
+- Same-day write rejects are STRUCTURED codes, not free text: PUT on a done order →
+  `ORDER_IS_DONE`; cancel on a terminal order → `ORDER_CANCEL_STATUS_REJECTED`;
+  cancel racing `PendingNew` → `CAN_NOT_CANCEL_PENDINGNEW_ORDER_IN_OPEN_SESSION`
+  (retry after a beat, NOT terminal). The sandbox's free-text "already in terminal
+  state Filled" was NOT observed on prod → #116 looks sandbox-only (Filled-status
+  case still unmeasured — needs a same-day fill).
+- **Cross-day numeric ids do NOT resolve on the cancel endpoint** (`RESOURCE_NOT_FOUND`,
+  even for yesterday's fills). And an order detail carries **NO reject-reason field**
+  (`orderStatus='Rejected'` with nothing else) — a venue reject can never be explained
+  from the record alone.
+- A rejected-at-entry STOCK buy (no buying power) goes `Rejected` in ~3 ms with
+  `canceledQuantity=qty`; the HTTP place still answers 200.
+
 ## DNSE has TWO order books — and a triggered conditional MOVES between them (CRITICAL)
 
 Venue mechanic, operator-confirmed 2026-08-18:
@@ -187,6 +208,11 @@ account holds a real position (measured live, Live-L3-F11 → issue #39; the OCO
 exit path already tracks its child via `externalOrderId`, the stop-entry path does
 not). When reading order state: `Activated` on the conditional book means *look up
 the child on the normal book* — never treat it as terminal-without-fill.
+**Measured 2026-09-15:** an OCO umbrella is `Activated` FROM BIRTH — placement
+immediately spawns the normal-book TP child (`Activated` at the FIRST read, no
+trigger involved) — so a cancel of the umbrella answers `CO-ORD-013 "order status
+is not new"` from second one; cancel the CHILD id instead. `Activated` never means
+"triggered" by itself.
 
 ## DNSE positions are VENUE-DERIVED from fills — we create ORDERS, not positions (confirmed 2026-09-12)
 
@@ -250,6 +276,13 @@ probes were built from the DOCS alone. Rules (measured 2026-08-26):
   but the banner is never evidence of an ORDER-event socket. Never take it as such.
 - Working probe: `plugins/dnse/testing/live_test/probe_ws_market_data.py`
   (`--trading` for order/position channels). Findings live on card #50.
+- **PROD ORDER EVENTS ARE DELIVERED — captured 2026-09-15 (first time ever)** on the
+  SHORT channel `order.DERIVATIVE.json` (`subscribe_order_event`): 4 `do` frames
+  (incl. `pendingnew`) for a real OCO place+cancel — the same channel that works on
+  the sandbox. This CORRECTS the earlier "prod needs subscribe_broker_order_event"
+  claim (017e2bd): the short channel works on prod; the BROKER channel
+  (`order.broker.{mt}.{investor}` — what `ws_order_source.py` subscribes, #121)
+  remains UNCAPTURED and is the open question on #107/#121.
 
 ## INVALID_TRADING_TOKEN on conditional writes is usually NOT a token problem (CRITICAL)
 
