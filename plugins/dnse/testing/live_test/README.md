@@ -390,7 +390,14 @@ near leg fills and the far leg must be CANCELLED.
 - **DNSE does not cascade** an entry cancel to its exit legs — and a *plugin*-side cascade
   breaks the engine's ownership model (quarantine + re-placed orphan, measured; #19 is an
   ENGINE fix, pending). Interim rule: cancel exit ids explicitly.
-- **NORMAL amend edits ONE field per call** (measured 2026-09-08, operator-recalled):
+  **Scope caveat (forensics 2026-09-15, #124):** that was measured on the OCA/STOP shape.
+  The native-OCO working CHILD was observed dying when its protected context (parent
+  entry / position) changed, five instances (08-12/14/17, 09-14 x2) — the native-OCO
+  shape may cascade (or respawn the child; the engine can't tell: the OCO book is
+  never scanned). Decisive observation named on #124.
+- **NORMAL amend edits ONE field per call — DERIVATIVES ONLY** (measured 2026-09-08 on the
+  derivatives book; **STOCK measured OPPOSITE 2026-09-15**: one PUT changing BOTH price and
+  quantity answered 200 and cancel+replaced to a NEW id — #117):
   price OR quantity, never both — `400 INVALID_INPUT "Only allow edit order
   quantity or price"`; the payload must still CARRY both keys (omitting
   quantity → `400 EDIT_ORDER_QUANTITY_NOT_ENOUGH`). A combined edit = two

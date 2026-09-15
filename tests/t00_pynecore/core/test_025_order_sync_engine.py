@@ -15108,3 +15108,149 @@ def __test_121_partial_entry_remainder_extends_protection_to_full_position__():
         "is unprotected (#121 partial-fill gap)."
     )
 
+
+# === #124 venue-initiated cancel of a still-armed PROTECTIVE EXIT ===
+#
+# Live evidence (F9, 2026-09-14): the venue pushed a CANCELLED for a bot-owned,
+# still-armed protective exit (a TP leg of an open long) that the engine never
+# asked to cancel. The push carried ``client_order_id=None``. The engine matched
+# the order to its own intent (``P\x00E``) by EXCHANGE id — so it DID recognise
+# the order as bot-owned — but no guard classifies a venue cancel of a
+# still-armed protective exit, so it fell through to the ``unexpected cancel``
+# branch (:meth:`sync_engine.OrderSyncEngine._route_event`, ~line 6456) and
+# QUARANTINED, tearing the exit down and leaving the open position NAKED:
+#
+#   unexpected cancel for intent P|E (CANCELLED id=100186 ... pine='P' from='E' leg=tp)
+#   sync engine quarantined: Bot-owned order cancelled unexpectedly on the venue:
+#     coid=None ref='100186' intent='P\x00E'
+#   run stopped (completed) position=1     <-- NAKED
+#
+# NOTE on the card's framing: the coid=None is NOT why the order goes
+# unrecognised — key resolution is by exchange id, not coid (the engine found
+# ``P\x00E`` fine). coid=None is merely what the quarantine reason then reports.
+# The real classification defect is the MISSING guard: a venue-driven cancel of
+# a still-armed protective exit is treated as an external cancel and quarantined.
+
+
+def _arm_protective_exit_engine() -> tuple[MockBroker, OrderSyncEngine, BrokerPosition]:
+    """A long entry L (qty 1) with a whole-position protective bracket exit
+    (id ``P``, from ``L``). Dispatch, then fill the entry so the protective
+    exit is ARMED and MAPPED (``order_mapping['P\\x00L'] == ['xchg-2']``)."""
+    b = MockBroker()  # on_unexpected_cancel == "stop"
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 1.0, stop=50_000.0)
+    pos.exit_orders[("P", "L")] = _exit_order(
+        "L", -1.0, "P", limit=50_100.0, stop=49_900.0,
+    )
+    engine.sync(BAR_TS)
+    assert len(b.entry_calls) == 1
+    engine._route_event(_fill_event('buy', 1.0, 50_000.0, pine_id="L"))
+    assert pos.size == 1.0, "the entry fill opened the long"
+    assert len(b.exit_calls) == 1, "the protective exit armed on the fill"
+    assert engine.order_mapping.get("P\0L"), "the armed exit is venue-mapped"
+    assert isinstance(engine.active_intents.get("P\0L"), ExitIntent)
+    return b, engine, pos
+
+
+def _coid_none_venue_cancel_of_exit(deal_id: str) -> OrderEvent:
+    """The exact live F9 shape: a venue-pushed CANCELLED for the still-armed
+    protective exit — ``client_order_id=None``, ``filled_qty=0`` (nothing
+    executed, it was still working), ``cancel_reason=None`` (unclassified, i.e.
+    NOT one of :data:`VENUE_DRIVEN_CANCEL_REASONS`), and NOT reduce-only — the
+    engine did not initiate it, so it is absent from every expected-cancel set
+    (``_forced_cancel_pending``, ``_native_cancel_all_expected_ids``, …)."""
+    return OrderEvent(
+        order=ExchangeOrder(
+            id=deal_id, symbol=SYMBOL, side='sell',
+            order_type=OrderType.LIMIT, qty=1.0, filled_qty=0.0,
+            remaining_qty=1.0, price=50_100.0, stop_price=None,
+            average_fill_price=None, status=OrderStatus.CANCELLED,
+            timestamp=0.0, fee=0.0, fee_currency="", reduce_only=False,
+            client_order_id=None,          # <-- the #124 coid=None shape
+        ),
+        event_type='cancelled', fill_price=None, fill_qty=None,
+        timestamp=0.0, pine_id="P", from_entry="L",
+        leg_type=LegType.TAKE_PROFIT, cancel_reason=None,
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="#124: a venue-initiated CANCELLED of a still-armed protective exit "
+           "(coid=None, unclassified) is misclassified as an external "
+           "'unexpected cancel' and QUARANTINES, tearing down the exit and "
+           "leaving the open position naked. The desired behaviour is to keep "
+           "the position protected and NOT quarantine. Flip this xfail when the "
+           "classification guard lands (mirrors the #121/#123 flip idiom).",
+)
+def __test_124_venue_cancel_of_protective_exit_coid_none_quarantines_and_bares_position__():
+    """DESIRED behaviour (fails today -> xfails): the venue cancelling a
+    still-armed protective exit out from under the bot must NOT quarantine and
+    must NOT leave the open position unprotected.
+
+    Reproduces F9 offline with a MockBroker: long L is open (qty 1) and its
+    protective exit ``P`` is armed and venue-mapped; the venue then pushes a
+    CANCELLED for ``P`` with ``client_order_id=None`` that the engine never
+    issued. Today the engine falls to the unexpected-cancel branch, quarantines
+    (``Bot-owned order cancelled unexpectedly ... coid=None ... intent='P\\x00L'``)
+    and drops the exit — the position is left naked. The two asserts below
+    encode the FIX; both fail today, so xfail-strict marks this xfailed. When a
+    #124 guard classifies this venue cancel as expected (re-arm, no quarantine),
+    both pass and xfail-strict turns the XPASS into a failure, forcing the flip.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    deal_id = engine.order_mapping["P\0L"][0]
+
+    engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
+
+    # (1) the run must keep trading — no quarantine on a venue cancel of a
+    #     protective exit.
+    assert engine.quarantined is False, (
+        "#124: the venue cancel of a still-armed protective exit must not "
+        "quarantine the run."
+    )
+    # (2) the open position must stay protected — a live protective exit intent
+    #     for the still-open long must remain (re-armed), never silently naked.
+    assert pos.size == 1.0, "the long is still open after the exit's venue cancel"
+    assert any(
+        isinstance(intent, ExitIntent) and intent.from_entry == "L"
+        for intent in engine.active_intents.values()
+    ), (
+        "#124: the open long is left NAKED — no live protective exit intent "
+        "remains after the venue cancelled it."
+    )
+
+
+def __test_124_recognized_own_cancel_of_protective_exit_does_not_quarantine__():
+    """Discriminating control (passes today): the SAME coid=None CANCELLED for
+    the SAME armed protective exit, but now a RECOGNISED own cancel — the intent
+    key is parked in ``_forced_cancel_pending`` (an own cancel the engine issued
+    that the venue could not confirm synchronously). The venue's push is that
+    own cancel LANDING, so the engine resolves it cleanly and does NOT
+    quarantine.
+
+    This isolates #124 to the CLASSIFICATION: same event, same coid=None, same
+    exit, same teardown — only the recognition differs. The unrecognised case
+    (the xfail above) quarantines; the recognised case here does not. So the
+    quarantine in the xfail test is caused by the missing venue-cancel guard,
+    not by the coid=None shape or the protective-exit setup.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    key = "P\0L"
+    deal_id = engine.order_mapping[key][0]
+
+    # Arm the engine's OWN parked cancel for this intent (the #83 forced-cancel
+    # park: an own cancel the venue did not confirm synchronously).
+    engine._forced_cancel_pending[key] = engine.active_intents[key]
+
+    engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
+
+    assert engine.quarantined is False, (
+        "a recognised own parked cancel landing must not quarantine"
+    )
+    assert engine.halted is False
+    # Resolved as our own cancel: the park is cleared and the mapping torn down
+    # cleanly (own-cancel teardown WITHOUT the unexpected-cancel policy).
+    assert key not in engine._forced_cancel_pending, "the parked cancel was consumed"
+    assert key not in engine.order_mapping, "the landed cancel tore down the mapping"
+
