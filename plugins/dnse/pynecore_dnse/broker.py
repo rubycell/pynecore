@@ -37,6 +37,7 @@ from pynecore.core.plugin.broker import BrokerPlugin
 from pynecore.core.broker.models import (
     CancelDispositionOutcome, CapabilityLevel, ExchangeCapabilities,
     CANCEL_REASON_VENUE_EXPIRED,
+    CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL,
     ExchangeOrder, ExchangePosition, LegType, OrderEvent, OrderStatus,
     OrderType,
 )
@@ -1867,11 +1868,12 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                     "no identity — journal closed, no event emitted",
                     order_id)
                 return None
-            await self._observe_oco_cancel(order_id)   # #124 observation only
+            oco_reason = await self._observe_oco_cancel(order_id)   # #124
             return OrderEvent(
                 order=order, event_type="cancelled", fill_price=None,
                 fill_qty=None, timestamp=int(time.time()),
-                pine_id=pine_id, from_entry=from_entry, leg_type=leg_type)
+                pine_id=pine_id, from_entry=from_entry, leg_type=leg_type,
+                cancel_reason=oco_reason)
         return None
 
     async def _residue_step(self, residue_tracker, present_ids,
@@ -2664,39 +2666,86 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                 outcomes[category] = None
         return rows, outcomes
 
-    async def _observe_oco_cancel(self, order_id: str) -> None:
-        """#124 instrumentation: one structured line per CANCELLED on an
-        OCO-origin order — OBSERVATION ONLY, no classification change.
+    async def _observe_oco_cancel(self, order_id: str) -> "str | None":
+        """#124: observe a CANCELLED on an OCO-origin order and, on POSITIVE
+        umbrella evidence, return the venue-driven ``cancel_reason`` to stamp.
 
         A bracket is two venue records (the OCO umbrella and its NORMAL-book
-        child), and the cancel event names only the child, so the panel has no
-        way to tell which record the venue ended, nor whether the position
-        moved with it. Read both, log them, and emit the event unchanged:
-        every failure mode (read error, missing umbrella, odd body) degrades
-        to a ``read-failed`` line — the event path is never blocked.
+        child), and the cancel event names only the child — so without reading
+        the umbrella BY ID at the cancel moment, a venue-ended bracket and an
+        operator's manual cancel are the same event. One structured line is
+        logged either way (the #124-OBS observation), then:
+
+        - umbrella TERMINAL (Canceled / Rejected / Expired) -> the child died
+          WITH its umbrella: return
+          :data:`CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL`, which the engine's
+          venue-driven guard recognises (trim the dead leg, re-arm, no
+          quarantine).
+        - anything else -> ``None`` (NO tag), and the engine classifies the
+          event exactly as before. FAIL-CLOSED by construction: a read error,
+          a timeout, an unknown/missing status, a FILLED umbrella (ambiguous —
+          that is a fill, not a cancel) and a still-live ``Activated`` umbrella
+          (the #41 from-birth phantom) all leave the event untagged. This is
+          what preserves the operator-app-cancel stop: nothing is reclassified
+          without venue evidence.
+
+        A still-live umbrella carrying an ``externalOrderId`` that is NOT the
+        cancelled child is a candidate venue RESPAWN — logged loudly as
+        ``respawn-candidate``; ADOPTING it is deliberately out of scope
+        (deferred until measured live), so the event still flows untagged.
+
+        Timeboxed to :attr:`_executions_read_deadline_s` (~2.5 s): the event
+        path is never blocked on a hung venue read.
         """
         umbrella_id = self._oco_umbrella_ids.get(str(order_id))
         if umbrella_id is None and self._placed_category.get(str(order_id)) == "OCO":
             umbrella_id = str(order_id)   # the umbrella IS the tracked order
         if umbrella_id is None:
-            return
+            return None
         try:
-            _status, detail = await asyncio.to_thread(
-                lambda: self.client.get_order_detail(
-                    self.account_id, umbrella_id, self.market_type,
-                    order_category="OCO"))
-            detail = detail if isinstance(detail, dict) else {}
-            position = await self.get_position(self.symbol or "")
+            detail, position = await asyncio.wait_for(
+                self._read_oco_umbrella(umbrella_id),
+                timeout=self._executions_read_deadline_s)
         except Exception as exc:                                # noqa: BLE001
             log.broker_warning("#124-OBS read-failed (%s: %s)",
                                type(exc).__name__, exc)
-            return
+            return None
         net = 0.0 if position is None else (
             position.size if position.side == "long" else -position.size)
+        raw_status = str(detail.get("orderStatus") or "")
+        external_id = detail.get("externalOrderId")
         log.broker_info(
             "#124-OBS umbrella=%s umbrella_status=%s externalOrderId=%s "
-            "position=%s", umbrella_id, detail.get("orderStatus"),
-            detail.get("externalOrderId"), net)
+            "position=%s", umbrella_id, raw_status or None, external_id, net)
+        status = _STATUS_MAP.get(
+            raw_status.upper().replace("_", "").replace("-", ""))
+        if status in (OrderStatus.CANCELLED, OrderStatus.REJECTED,
+                      OrderStatus.EXPIRED):
+            log.broker_info(
+                "#124 umbrella %s is TERMINAL (%s) — the child's cancel is "
+                "venue-driven, tagging %s", umbrella_id, raw_status,
+                CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL)
+            return CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL
+        if (external_id is not None
+                and str(external_id) != str(order_id)):
+            log.broker_warning(
+                "#124-OBS respawn-candidate: umbrella %s still %s but its "
+                "externalOrderId=%s differs from the cancelled child %s — "
+                "protection may have MOVED to a new child (adoption "
+                "deliberately not implemented; event emitted untagged)",
+                umbrella_id, raw_status or None, external_id, order_id)
+        return None
+
+    async def _read_oco_umbrella(self, umbrella_id: str
+                                 ) -> "tuple[dict, ExchangePosition | None]":
+        """#124: the by-id umbrella detail + the account position, as one
+        awaitable so :meth:`_observe_oco_cancel` can timebox both together."""
+        _status, detail = await asyncio.to_thread(
+            lambda: self.client.get_order_detail(
+                self.account_id, umbrella_id, self.market_type,
+                order_category="OCO"))
+        position = await self.get_position(self.symbol or "")
+        return (detail if isinstance(detail, dict) else {}), position
 
     async def _scan_row(self, raw: dict) -> "list[OrderEvent]":
         """Process ONE polled row; return its OrderEvents (usually 0 or 1 —
@@ -2819,7 +2868,12 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         cancel_reason = (CANCEL_REASON_VENUE_EXPIRED
                          if order.status is OrderStatus.EXPIRED else None)
         if event_type == "cancelled":
-            await self._observe_oco_cancel(order_id)   # #124 observation only
+            # #124: positive umbrella evidence (the OCO the child was born
+            # from read back TERMINAL) tags the event venue-driven so the
+            # engine trims + re-arms instead of quarantining a live position.
+            # No evidence -> no tag -> classified exactly as before.
+            oco_reason = await self._observe_oco_cancel(order_id)
+            cancel_reason = cancel_reason or oco_reason
         if delta > 0 and slice_events:
             events = []
             for index, (slice_qty, slice_price) in enumerate(slice_events):

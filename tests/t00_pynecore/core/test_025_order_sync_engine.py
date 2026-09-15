@@ -45,6 +45,7 @@ from pynecore.core.broker.sync_engine import (
 from pynecore.core.plugin import ProviderError, TransientProviderError
 from pynecore.core.broker.models import (
     CANCEL_REASON_VENUE_REDUCE_ONLY,
+    CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL,
     BrokerEvent,
     CapabilityLevel,
     CloseIntent,
@@ -10755,13 +10756,20 @@ def __test_oca_cancel_behind_a_routed_partial_sibling_fill_is_expected__():
     assert pos.size != 0.0
 
 
-def __test_oca_cancel_without_queued_sibling_fill_still_quarantines__():
+def __test_oca_cancel_without_queued_sibling_fill_is_not_oca_classified__():
     """The lookahead only suppresses the quarantine when the sibling's fill
-    is actually queued — a lone cancel drained by itself stays external.
+    is actually queued — a lone cancel drained by itself stays EXTERNAL.
 
     An operator cancelling one reduce-only leg produces no sibling fill, so
-    the same drain-batch machinery must still route the cancel through the
-    ``on_unexpected_cancel`` quarantine path.
+    the same drain-batch machinery must still route the cancel down the
+    unexpected-cancel path rather than the OCA classifier.
+
+    Amended for #124: the unexpected path no longer quarantines on the FIRST
+    such cancel while the protected position is still open (that left the
+    position naked — Live-L3-F09); it re-arms, BOUNDED. The discrimination the
+    test exists for is unchanged and now reads off the counter: the OCA
+    classifier never touches ``_exit_rearm_counts``, the external path does —
+    and the bound still quarantines, just on the 3rd occurrence.
     """
     b = MockBroker()
     engine, pos, tp_id, sl_id = _mk_two_leg_bracket_without_close(b)
@@ -10769,7 +10777,13 @@ def __test_oca_cancel_without_queued_sibling_fill_still_quarantines__():
     engine.on_order_event(_reduce_only_cancel_event(tp_id))
     engine._drain_events()
 
-    assert engine._quarantined
+    assert not engine._quarantined, "#124: the 1st external cancel re-arms"
+    assert engine._exit_rearm_counts.get("TP\0L") == 1, (
+        "the lone cancel was classified EXTERNAL (bounded re-arm), not OCA"
+    )
+    assert tp_id not in engine.order_mapping.get("TP\0L", []), (
+        "the dead leg is retired so the next diff re-arms it"
+    )
 
 
 def _mk_multi_bracket_with_cross_entry_close(b: MockBroker):
@@ -15174,34 +15188,28 @@ def _coid_none_venue_cancel_of_exit(deal_id: str) -> OrderEvent:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#124: a venue-initiated CANCELLED of a still-armed protective exit "
-           "(coid=None, unclassified) is misclassified as an external "
-           "'unexpected cancel' and QUARANTINES, tearing down the exit and "
-           "leaving the open position naked. The desired behaviour is to keep "
-           "the position protected and NOT quarantine. Flip this xfail when the "
-           "classification guard lands (mirrors the #121/#123 flip idiom).",
-)
 def __test_124_venue_cancel_of_protective_exit_coid_none_quarantines_and_bares_position__():
-    """DESIRED behaviour (fails today -> xfails): the venue cancelling a
-    still-armed protective exit out from under the bot must NOT quarantine and
-    must NOT leave the open position unprotected.
+    """ACCEPTANCE GATE (was xfail-strict until the #124 fix landed): the venue
+    cancelling a still-armed protective exit out from under the bot must NOT
+    quarantine and must NOT leave the open position unprotected.
 
     Reproduces F9 offline with a MockBroker: long L is open (qty 1) and its
     protective exit ``P`` is armed and venue-mapped; the venue then pushes a
     CANCELLED for ``P`` with ``client_order_id=None`` that the engine never
-    issued. Today the engine falls to the unexpected-cancel branch, quarantines
-    (``Bot-owned order cancelled unexpectedly ... coid=None ... intent='P\\x00L'``)
-    and drops the exit — the position is left naked. The two asserts below
-    encode the FIX; both fail today, so xfail-strict marks this xfailed. When a
-    #124 guard classifies this venue cancel as expected (re-arm, no quarantine),
-    both pass and xfail-strict turns the XPASS into a failure, forcing the flip.
+    issued. Before the fix the engine fell to the unexpected-cancel branch,
+    quarantined (``Bot-owned order cancelled unexpectedly ... coid=None ...
+    intent='P\\x00L'``) and dropped the exit — the position was left naked.
+
+    The protection returns through the engine's RETIRE-THEN-RE-DIFF idiom (the
+    same one the venue-driven-cancel guard uses), so the assertion is made
+    after a :meth:`sync` — the dead leg is retired inside ``_route_event`` and
+    the next diff re-dispatches the exit Pine still declares.
     """
     b, engine, pos = _arm_protective_exit_engine()
     deal_id = engine.order_mapping["P\0L"][0]
 
     engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
+    engine.sync(BAR_TS + 1)
 
     # (1) the run must keep trading — no quarantine on a venue cancel of a
     #     protective exit.
@@ -15209,9 +15217,15 @@ def __test_124_venue_cancel_of_protective_exit_coid_none_quarantines_and_bares_p
         "#124: the venue cancel of a still-armed protective exit must not "
         "quarantine the run."
     )
-    # (2) the open position must stay protected — a live protective exit intent
-    #     for the still-open long must remain (re-armed), never silently naked.
+    assert engine.halted is False
+    # (2) the open position must stay protected — the exit is RE-DISPATCHED to
+    #     the venue and tracked again, never silently naked.
     assert pos.size == 1.0, "the long is still open after the exit's venue cancel"
+    assert len(b.exit_calls) == 2, (
+        "#124: the retired protective exit must be re-dispatched by the next "
+        f"sync — the venue holds no protection otherwise (exit_calls="
+        f"{len(b.exit_calls)})"
+    )
     assert any(
         isinstance(intent, ExitIntent) and intent.from_entry == "L"
         for intent in engine.active_intents.values()
@@ -15219,6 +15233,7 @@ def __test_124_venue_cancel_of_protective_exit_coid_none_quarantines_and_bares_p
         "#124: the open long is left NAKED — no live protective exit intent "
         "remains after the venue cancelled it."
     )
+    assert engine.order_mapping.get("P\0L"), "the re-armed exit is venue-mapped"
 
 
 def __test_124_recognized_own_cancel_of_protective_exit_does_not_quarantine__():
@@ -15254,6 +15269,145 @@ def __test_124_recognized_own_cancel_of_protective_exit_does_not_quarantine__():
     assert key not in engine._forced_cancel_pending, "the parked cancel was consumed"
     assert key not in engine.order_mapping, "the landed cancel tore down the mapping"
 
+
+def _rearm_cycle(engine: OrderSyncEngine, *, bar_ts: int) -> None:
+    """One #124 episode step: the venue kills the currently mapped protective
+    exit leg (unclassified, coid=None) and the next sync re-arms it."""
+    deal_id = engine.order_mapping["P\0L"][0]
+    engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
+    engine.sync(bar_ts)
+
+
+def __test_124_venue_tagged_cancel_of_protective_exit_is_classified_venue_driven__():
+    """#124 discriminating: the SAME cancel, now carrying a venue-driven
+    ``cancel_reason`` (the DNSE plugin read the OCO umbrella back TERMINAL and
+    tagged it), classifies through the VENUE-DRIVEN guard — not through the
+    bounded re-arm.
+
+    Two things separate the two paths and both are asserted: no quarantine
+    (shared) and NO re-arm counter (venue-driven is a deterministic venue
+    lifecycle end, so it must not consume the episode's bounded budget — three
+    ordinary bracket teardowns would otherwise quarantine a healthy run).
+
+    Discriminating against the pre-#124 gate: that gate additionally required
+    ``event.order.reduce_only`` on the WIRE order, which is ``False`` here (the
+    live DNSE shape) — so it could never fire and this event would fall to the
+    unexpected branch.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    deal_id = engine.order_mapping["P\0L"][0]
+
+    engine._route_event(replace(
+        _coid_none_venue_cancel_of_exit(deal_id),
+        cancel_reason=CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL,
+    ))
+    engine.sync(BAR_TS + 1)
+
+    assert engine.quarantined is False
+    assert engine._exit_rearm_counts == {}, (
+        "#124: a venue-CLASSIFIED cancel must not consume the bounded re-arm "
+        "budget — that budget exists for UNCLASSIFIED external cancels only"
+    )
+    assert pos.size == 1.0
+    assert len(b.exit_calls) == 2, "the venue-driven teardown re-armed the exit"
+
+
+def __test_124_third_unclassified_cancel_of_the_rearmed_exit_quarantines_loudly__(caplog):
+    """#124 bound: the re-arm is per-EPISODE bounded — INFO, WARN, then a LOUD
+    quarantine carrying the counter, after which entry dispatch is blocked.
+
+    Without the bound the engine would re-place the protection against an
+    operator (or a venue) that keeps killing it — the re-place duel the
+    ``on_unexpected_cancel`` policy exists to stop. With it, the run stops
+    dispatching new exposure but keeps the position's state observable.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+
+    with caplog.at_level(logging.INFO, logger="pyne_core_logger"):
+        _rearm_cycle(engine, bar_ts=BAR_TS + 1)
+        assert engine.quarantined is False
+        assert engine._exit_rearm_counts["P\0L"] == 1
+        _rearm_cycle(engine, bar_ts=BAR_TS + 2)
+        assert engine.quarantined is False, "the 2nd cancel warns, does not stop"
+        assert engine._exit_rearm_counts["P\0L"] == 2
+        _rearm_cycle(engine, bar_ts=BAR_TS + 3)
+
+    assert engine.quarantined is True, (
+        "#124: the 3rd external cancel in ONE episode exhausts the re-arm "
+        "bound and must quarantine"
+    )
+    levels = [
+        rec.levelno for rec in caplog.records
+        if "protective exit P|L" in rec.getMessage()
+    ]
+    assert levels == [logging.INFO, logging.WARNING, logging.ERROR], (
+        f"#124 ladder must be INFO -> WARN -> ERROR, got {levels}"
+    )
+    loud = [
+        rec.getMessage() for rec in caplog.records
+        if rec.levelno == logging.ERROR and "re-arm bound exhausted" in rec.getMessage()
+    ]
+    assert loud and "3 times" in loud[0], (
+        f"the quarantine must name the counter, got {loud}"
+    )
+    # Entry dispatch is blocked from here on (the quarantine's contract).
+    before = len(b.entry_calls)
+    pos.entry_orders["L2"] = _entry_order("L2", 1.0, stop=51_000.0)
+    engine.sync(BAR_TS + 4)
+    assert len(b.entry_calls) == before, "quarantine blocks new entry dispatch"
+
+
+def __test_124_rearm_counter_resets_when_the_episode_ends__():
+    """#124: the bound counts per EPISODE (one protected trade), not per
+    process — the exit filling / the book going flat starts a fresh budget.
+
+    Without the reset a long-running strategy would accumulate one-off external
+    cancels across unrelated trades and quarantine on the third one, hours
+    apart, for no live reason.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+
+    _rearm_cycle(engine, bar_ts=BAR_TS + 1)
+    assert engine._exit_rearm_counts["P\0L"] == 1
+
+    # The re-armed exit FILLS: the protected position is gone — episode over.
+    engine._route_event(replace(
+        _fill_event("sell", 1.0, 50_100.0, pine_id="P",
+                    leg=LegType.TAKE_PROFIT,
+                    xchg_id=engine.order_mapping["P\0L"][0],
+                    fill_id="exit-fill-1"),
+        from_entry="L",
+    ))
+    assert pos.size == 0.0, "the protective exit closed the long"
+    assert engine._exit_rearm_counts == {}, (
+        "#124: the episode ended (exit filled / book flat) — the bounded "
+        "re-arm budget must reset for the next trade"
+    )
+
+
+def __test_124_unexpected_cancel_of_an_entry_still_quarantines_immediately__():
+    """#124 scope guard: only a still-armed PROTECTIVE EXIT over an open
+    position gets the bounded re-arm. An unexpected cancel of an ENTRY keeps
+    today's immediate ``on_unexpected_cancel`` quarantine — there is no naked
+    position to protect there, and re-placing a cancelled entry IS the
+    re-place duel.
+    """
+    b = MockBroker()  # on_unexpected_cancel == "stop"
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 1.0, stop=50_000.0)
+    engine.sync(BAR_TS)
+    entry_id = engine.order_mapping["L"][0]
+
+    engine._route_event(replace(
+        _coid_none_venue_cancel_of_exit(entry_id),
+        pine_id="L", from_entry=None, leg_type=LegType.ENTRY,
+    ))
+
+    assert engine.quarantined is True, (
+        "an unexpected cancel of a resting ENTRY must still quarantine"
+    )
+    assert engine._exit_rearm_counts == {}, "no exit episode was involved"
+    assert "L" not in engine.order_mapping, "the entry's mapping was torn down"
 
 
 # === #126: a HARD reject of the #123 extend must DEGRADE, not kill the drain ===

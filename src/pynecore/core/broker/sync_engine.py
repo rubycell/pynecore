@@ -421,6 +421,20 @@ resets on a changed intent, a vanished key, or a dispatch that succeeds.
 """
 
 
+_PROTECTIVE_EXIT_REARM_LIMIT = 3
+"""#124: how many times ONE episode may re-arm a protective exit an
+UNCLASSIFIED external cancel killed over a still-open position
+(:meth:`OrderSyncEngine._handle_unexpected_protective_exit_cancel`).
+
+Quarantining on the first such cancel leaves the live position NAKED
+(measured live, Live-L3-F09) — strictly worse than the re-place duel the
+``on_unexpected_cancel`` policy guards against. Re-arming without a bound
+would be that duel, though, so the episode gets 1 INFO, 1 WARN and then the
+loud quarantine on this many occurrences. Reset per episode (the exit's own
+fill, or a flat book).
+"""
+
+
 _TERMINAL_PLUGIN_SKIP_REASONS = frozenset({"below_min_size", "above_max_size"})
 """Plugin preflight skip reasons that are a pure function of the entry intent
 (quantity vs the instrument grid / per-order minimum / maximum), independent
@@ -1241,6 +1255,16 @@ class OrderSyncEngine:
         # dies with the envelope: the landed cancel's teardown reaches
         # ``record_complete`` through :meth:`_drop_envelope`.
         self._forced_cancel_pending: dict[str, Intent] = {}
+        #: #124: per-EPISODE re-arm counter for a protective exit an
+        #: UNCLASSIFIED external cancel killed while its parent position was
+        #: still open. Keyed by ``ExitIntent.intent_key``. Quarantining there
+        #: leaves the live position NAKED (measured live, Live-L3-F09), so the
+        #: engine retires the dead leg and lets the next sync re-arm — but
+        #: BOUNDED: 1st INFO, 2nd WARN, 3rd quarantines loudly (an unbounded
+        #: re-arm would be a re-place duel with an operator's manual cancel).
+        #: Reset on the exit's own fill or when the book goes flat — a new
+        #: trade is a new episode.
+        self._exit_rearm_counts: dict[str, int] = {}
         self._order_mapping: dict[str, list[str]] = {}
         self._envelopes: dict[str, DispatchEnvelope] = {}
         self._pending_verification: dict[str, DispatchEnvelope] = {}
@@ -6219,6 +6243,9 @@ class OrderSyncEngine:
             # cleanup would let it wipe the fresh registration (engine
             # loses the live venue order it just opened).
             self._maybe_open_after_reversal_close()
+            # #124: a fill of the protected exit (or a book that settled flat)
+            # ends the re-arm episode — the next trade starts from zero.
+            self._reset_exit_rearm_episode(event)
         elif t == 'cancelled':
             # Terminal failure for an in-flight defensive close: the
             # synthetic flatten was cancelled by the broker (or an
@@ -6318,8 +6345,7 @@ class OrderSyncEngine:
                 return
             if (key is not None
                     and event.cancel_reason in VENUE_DRIVEN_CANCEL_REASONS
-                    and event.order.reduce_only
-                    and isinstance(self._active_intents.get(key), ExitIntent)):
+                    and self._is_reduce_only_exit_intent(key)):
                 # The venue says so itself: it terminated this reduce-only
                 # leg as fallout of the position it protects — a reduce-only
                 # cap squeeze after ANOTHER bracket's leg shrank the shared
@@ -6452,6 +6478,11 @@ class OrderSyncEngine:
                             ),
                             intent_key=key,
                         )
+                    return
+                if self._handle_unexpected_protective_exit_cancel(event, key):
+                    # #124: an UNCLASSIFIED external cancel of a still-armed
+                    # protective exit over a STILL-OPEN position — re-armed
+                    # (bounded) instead of quarantining a naked position.
                     return
                 _blog_error(
                     "unexpected cancel for intent %s (%s)",
@@ -6590,6 +6621,131 @@ class OrderSyncEngine:
                 _blog_warning(
                     "order rejected (%s)", event,
                 )
+
+    def _is_reduce_only_exit_intent(self, key: str) -> bool:
+        """#124: the intent under ``key`` is a live reduce-only protective exit.
+
+        The venue-driven-cancel guard used to read
+        ``ExchangeOrder.reduce_only`` off the WIRE object, which defaults
+        ``False`` (models.py) and is never populated by a venue whose read
+        funnel does not carry the flag (DNSE) — the guard was mechanically
+        dead there. The property the guard needs is the MAPPED INTENT's:
+        :attr:`ExitIntent.reduce_only` is ``True`` by construction.
+        """
+        intent = self._active_intents.get(key)
+        return isinstance(intent, ExitIntent) and bool(intent.reduce_only)
+
+    def _position_open_for_exit(self, intent: ExitIntent) -> bool:
+        """``True`` when a position the exit would REDUCE is still open."""
+        signed_size = float(self._position.size)
+        if intent.side == 'sell':
+            return signed_size > 0.0
+        return signed_size < 0.0
+
+    def _handle_unexpected_protective_exit_cancel(
+            self, event: OrderEvent, key: str,
+    ) -> bool:
+        """#124: bounded RE-ARM instead of quarantine-with-a-naked-position.
+
+        Measured live (Live-L3-F09): the venue cancelled a still-armed
+        protective exit out from under the bot with no ``cancel_reason``, so
+        the guard above could not classify it and the unexpected-cancel path
+        quarantined the run — tearing the exit down and leaving a REAL open
+        position unprotected, which is strictly worse than the re-place duel
+        the policy exists to stop.
+
+        Narrow: applies ONLY to a still-armed reduce-only :class:`ExitIntent`
+        whose parent position is still open in the direction the exit reduces
+        and whose order executed nothing (``filled_qty <= 0``). Entries, filled
+        orders and cancels over a flat book keep today's behaviour exactly.
+
+        The teardown is the venue-driven path's (:meth:`_trim_cancelled_bracket_leg`)
+        — retire the dead leg so the next :meth:`sync` re-diffs the exit and
+        re-dispatches it (retire-then-re-diff). BOUNDED per episode: 1st INFO,
+        2nd WARN, 3rd latches :meth:`record_quarantine` loudly with the counter,
+        so a venue/operator that keeps killing the protection cannot loop
+        forever. The counter resets when the exit fills or the book goes flat
+        (:meth:`_reset_exit_rearm_episode`) — a new trade is a new episode.
+
+        :return: ``True`` when this branch consumed the event.
+        """
+        intent = self._active_intents.get(key)
+        if not isinstance(intent, ExitIntent) or not intent.reduce_only:
+            return False
+        order = event.order
+        if order is None or (order.filled_qty or 0.0) > 0.0:
+            return False
+        if not self._position_open_for_exit(intent):
+            return False
+        count = self._exit_rearm_counts.get(key, 0) + 1
+        self._exit_rearm_counts[key] = count
+        coid = order.client_order_id
+        context = {
+            'client_order_id': coid,
+            'exchange_order_id': order.id,
+            'symbol': order.symbol or self._symbol,
+            'intent_key': key,
+            'from_entry': intent.from_entry,
+            'position_size': float(self._position.size),
+            'rearm_count': count,
+            'rearm_limit': _PROTECTIVE_EXIT_REARM_LIMIT,
+        }
+        self._trim_cancelled_bracket_leg(event, key)
+        if count < _PROTECTIVE_EXIT_REARM_LIMIT:
+            log = _blog_info if count == 1 else _blog_warning
+            log(
+                "#124: protective exit %s cancelled externally while the "
+                "position is still open (size=%s, coid=%r, ref=%r) — "
+                "re-arming (%d/%d), no quarantine",
+                format_intent_key(key), self._position.size, coid, order.id,
+                count, _PROTECTIVE_EXIT_REARM_LIMIT,
+            )
+            if self._store_ctx is not None:
+                self._store_ctx.log_event(
+                    'protective_exit_rearm',
+                    client_order_id=coid,
+                    intent_key=key,
+                    payload=dict(context),
+                )
+            return True
+        reason = (
+            f"Protective exit cancelled externally {count} times in one "
+            f"episode (limit {_PROTECTIVE_EXIT_REARM_LIMIT}) — re-arm bound "
+            f"exhausted: coid={coid!r} ref={order.id!r} intent={key!r} "
+            f"from_entry={intent.from_entry!r} position_size="
+            f"{self._position.size}"
+        )
+        _blog_error(
+            "#124: protective exit %s cancelled externally %d times in one "
+            "episode — re-arm bound exhausted, quarantining (context=%r)",
+            format_intent_key(key), count, context,
+        )
+        if self._store_ctx is not None:
+            self._store_ctx.log_event(
+                'protective_exit_rearm_exhausted',
+                client_order_id=coid,
+                intent_key=key,
+                payload=dict(context),
+            )
+        self.record_quarantine(reason, context, intent_key=key)
+        return True
+
+    def _reset_exit_rearm_episode(self, event: OrderEvent) -> None:
+        """#124: end the re-arm episode on a fill / on a flat book.
+
+        The bound is PER EPISODE (one protected trade), not per process: the
+        exit filling, or the book settling flat, means the position the
+        counter guarded is gone, so the next trade starts from zero again.
+        """
+        if not self._exit_rearm_counts:
+            return
+        if float(self._position.size) == 0.0:
+            self._exit_rearm_counts.clear()
+            return
+        if event.pine_id and event.from_entry:
+            self._exit_rearm_counts.pop(
+                f"{event.pine_id}\x00{event.from_entry}", None,
+            )
 
     def _apply_unexpected_cancel_policy(
             self, event: OrderEvent, key: str,
