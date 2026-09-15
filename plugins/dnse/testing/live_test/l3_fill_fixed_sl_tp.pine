@@ -33,6 +33,10 @@
 //       `strategy.opentrades==0` / `position_size==0`: those are STATE tests that become true
 //       again after every close, which turned l2b into a continuous re-enterer (measured
 //       2026-09-11: 78 round-trips, ~223 conditional re-placements -> the #18 HTTP-500 loop).
+//       (The #18 amend-loop is STALE since #85 made conditional re-placement a clean
+//       cancel+replace, not an amend — measured live 2026-09-15: 4 clean cancel+replace,
+//       0 HTTP-500, 0 quarantine. The enter-once latch still bounds re-entries; the loop
+//       is no longer the hazard.)
 //   * `barstate.isrealtime` gate          -> the entry NEVER fires on historical warmup. A plain
 //       `dnse:` backtest of this file (oracleMode off) therefore places ZERO trades — that quiet
 //       backtest IS the warmup-safety proof, and it is CHECKED, not assumed.

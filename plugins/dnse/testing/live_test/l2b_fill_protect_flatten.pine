@@ -2,16 +2,19 @@
 // LIVE TEST LEVEL 2b — venue-protected fill with a TP/SL bracket. SUPERVISED ONLY.
 //
 // 2a proved fill -> flatten but left an UNPROTECTED window: if the process died between
-// the fill and the flatten, the position sat naked. 2b SHRINKS that window with a native
-// venue-side OCO bracket — but does NOT eliminate it, and this header used to overclaim
-// that it did. MEASURED (l2b live 2026-09-11, #107): the bracket arms on the FIRST BAR
-// AFTER the fill, not "the instant the entry is placed". DNSE has no order/position attach
-// primitive (#33), so the OCO is a STANDALONE order the engine can only place once a
-// position exists (#82b), and the engine applies async fills at the bar-close drain — so
-// the position is held ~1 bar (up to ~15 min at 15m) with NO venue-side protection. This
-// is INHERENT to a no-attach, closed-bar REST venue and is ACCEPTED, not fixed (operator
-// decision 2026-09-11; the WS-driven arm-on-fill alternative is parked on #107). Once
-// placed, the native OCO does run server-side. 2b still exercises the two things 2a cannot:
+// the fill and the flatten, the position sat naked. 2b closes that window with a native
+// venue-side OCO bracket PRE-PLACED on the entry bar (withheld by #82b until the fill, so
+// it is already in the exit book when the fill lands). MEASURED (l2b live 2026-09-15,
+// #121): the SL/TP arms on the SAME BAR and SAME timestamp as the fill — #121's arm-on-fill
+// wake dispatches + creates the bracket at the fill bar (entry id=214806 @1952.9 bar 502
+// 14:17:00 -> dispatching EXIT tp=1956.8 sl=1948.8 -> 215286, same bar 502). No naked
+// window. This SUPERSEDES the earlier "#107 ~1-bar window, ACCEPTED not fixed" verdict —
+// but ONLY for a PRE-PLACED bracket. A REACTIVELY-placed exit (gated on position_size>0,
+// as in l2b_entry_update) is NOT in the book at fill time, so the wake has nothing to arm
+// and it lands a bar late (measured the same morning: fill bar 502 -> exit bar 503). So
+// same-bar protection is a STRATEGY-AUTHORING requirement (pre-place the exit), NOT an
+// engine guarantee. Once placed, the native OCO runs server-side. 2b still exercises the
+// two things 2a cannot:
 //
 //   * exit-order PLACEMENT alongside a live position, and
 //   * its CANCELLATION when we flatten — no orphan left resting.
@@ -41,12 +44,10 @@
 //
 // Other guards: 1 lot, pyramiding=0, `barstate.isrealtime` gate (warmup NEVER trades; a
 // plain `dnse:` backtest places ZERO trades — that is the proof, and it is CHECKED, not
-// assumed), and a `var bool traded` enter-once latch so exactly ONE real entry happens per
-// run. Both are load-bearing and neither substitutes for the other. A `strategy.opentrades
-// == 0` gate was tried in place of the latch on 2026-09-11 and is NOT equivalent: it is a
-// STATE test that becomes true again after every close, which turned this file into a
-// continuously re-entering strategy (measured: 78 round-trips and ~223 re-placements of
-// the resting conditional over 275 bars — the DNSE HTTP-500 amend loop, #18).
+// assumed). ENTRY GATE = `strategy.opentrades == 0`: the entry (and its pre-placed bracket)
+// RE-ISSUES each bar while flat so the resting conditional tracks the moving breakout and
+// can fill; after a close it re-enters (repeated round-trips — supervised test, watch and
+// stop after the observation you need).
 //
 // NOTE ON TIMING: the flatten lands on the NEXT bar, not intrabar. The DNSE v2 plugin's
 // `watch_ohlcv` skips the still-forming bar and yields CLOSED bars only, so there are no
@@ -60,32 +61,32 @@ strategy("LIVE2b fill+bracket+flatten", overlay=true, pyramiding=0, initial_capi
      slippage=1,
      calc_on_every_tick=false, process_orders_on_close=false)
 
-var bool  traded  = false   // enter-once latch — EXACTLY one real entry per run
-var float tpLevel = na      // +0.2%, frozen at entry (never amended)
-var float slLevel = na      // -0.2%, frozen at entry (never amended)
+var float tpLevel = na      // +0.2% off the trigger; recomputed each flat bar (chases)
+var float slLevel = na      // -0.2% off the trigger; recomputed each flat bar (chases)
 
 higherHigh2 = high > high[1] ? high : high[1]
 
-// (1) the single real entry + its native venue-side OCO bracket — LIVE bar only
-// TWO independent conditions, and both are load-bearing:
-//   barstate.isrealtime -> warmup never trades, which keeps the "backtest places ZERO
-//                          trades" proof meaningful (that proof is how warmup-safety is
-//                          verified BEFORE money is at risk).
-//   not traded          -> fires EXACTLY once. `strategy.opentrades == 0` cannot do this
-//                          job: it is a STATE test that becomes true again after every
-//                          close, so the script re-entered indefinitely (measured
-//                          2026-09-11: 78 round-trips and ~223 re-placements of the
-//                          resting conditional over 275 bars -> the #18 HTTP-500 loop).
-if barstate.isrealtime and not traded
+// (1) the CHASING entry + its pre-placed native OCO bracket — LIVE bars only:
+//   barstate.isrealtime      -> warmup never trades (a plain backtest places ZERO = proof).
+//   strategy.opentrades == 0 -> RE-ISSUES each flat bar so the entry tracks the moving
+//                               breakout and fills; the pre-placed exit "X" lets #121 arm
+//                               it on the fill bar. Re-enters after a close (supervised).
+if barstate.isrealtime and strategy.opentrades == 0
     tpLevel := higherHigh2 * 1.002
     slLevel := higherHigh2 * 0.998
     strategy.entry("E", strategy.long, stop=higherHigh2, comment="STOP 1-lot")
+
+    // Instant protection — pre-placed on the entry bar so #121 arms it on the fill
+    strategy.exit("X", from_entry="E", limit=tpLevel, stop=slLevel, oca_name="brk",
+                  comment_profit="TP@" + str.tostring(tpLevel, format.mintick),
+                  comment_loss="SL@" + str.tostring(slLevel, format.mintick))
+
+if strategy.opentrades > 0
     // NOTE: no oca_type — Pine's strategy.exit has no such parameter (TradingView
     // rejects it with CE10120), and its legs always form a reduce group anyway.
     strategy.exit("X", from_entry="E", limit=tpLevel, stop=slLevel, oca_name="brk",
                   comment_profit="TP@" + str.tostring(tpLevel, format.mintick),
                   comment_loss="SL@" + str.tostring(slLevel, format.mintick))
-    traded := true
 
 // (2) DOUBLE-CHECK — outermost backstop, wider than the 0.2% bracket so it only fires if
 //     the bracket did not. Cancel first: a resting leg left working could otherwise

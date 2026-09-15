@@ -249,6 +249,24 @@ The one real gap is coverage — T10 is NO-FILL (order-level); a FILL-level DNSE
 engines, one sandbox account, both fill, each `_durable_owned_signed_size` reflects only its own
 fills) is #115, and is where the sandbox harness (#114) lands.
 
+## Protective-exit arm timing + #124 re-arm (measured live 2026-09-15)
+
+- **PRE-PLACE the protective exit on the ENTRY bar for same-bar protection.** A `strategy.exit`
+  placed on the entry bar (withheld by #82b until the fill, so it is already in the exit book when
+  the fill lands) arms on the **SAME bar and SAME timestamp as the fill** — #121's arm-on-fill wake
+  dispatches + creates the SL/TP at the fill bar, no naked window (l2b, entry `id=214806` bar 502
+  14:17:00 -> exit same bar 502 -> `215286`). This SUPERSEDES the "#107 ~1-bar window, ACCEPTED not
+  fixed" verdict **only for a pre-placed bracket**. A **REACTIVELY-placed** exit (gated on
+  `strategy.position_size > 0`, as in l2b_entry_update) is NOT in the book at fill time, so the wake
+  has nothing to arm and it still lands **a bar late** (fill bar 502 -> exit bar 503, same morning).
+  Same-bar protection is a STRATEGY-AUTHORING requirement, NOT an engine guarantee.
+- **#124 (venue-cancel of a protective exit) now RE-ARMS instead of quarantining** (fixed live
+  2026-09-15, first prod confirmation): when the venue cancels our conditional bracket while the
+  position is still open, the fix logs `#124: ... re-arming (N/3), no quarantine` and places a fresh
+  exit rather than leaving a naked position. The fix makes the cancel SAFE; the venue-cancel ROOT
+  CAUSE (why DNSE cancels our conditionals; timing seen at 18s/49s/~200s) is STILL OPEN, and the
+  #124-OBS `get_position` read can LAG (read 0 while the position was 1) — a racy read worth tightening.
+
 ## DNSE WebSocket testing rules — how the "silent WS" false verdict happened (CRITICAL)
 
 Two venue facts were wrongly recorded as "WS is silent" for ~2 weeks because
