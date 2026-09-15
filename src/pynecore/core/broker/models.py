@@ -36,6 +36,7 @@ __all__ = [
     'CANCEL_REASON_VENUE_OCA',
     'CANCEL_REASON_VENUE_POSITION_CLEARED',
     'CANCEL_REASON_VENUE_EXPIRED',
+    'CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL',
     'VENUE_DRIVEN_CANCEL_REASONS',
     'ExchangePosition',
     'PositionLeg',
@@ -254,11 +255,20 @@ CANCEL_REASON_VENUE_EXPIRED = 'venue_expired'
 venue expired it — an ordinary lifecycle end, never an actor's cancel (#94:
 routing an expiry as a bare cancel fired the unexpected-cancel policy and
 quarantined the run at the 14:45 session close)."""
+CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL = 'venue_oco_umbrella_terminal'
+"""The venue-linked OCO UMBRELLA that owns this working child read back
+TERMINAL (Canceled / Rejected / Expired) at the moment the child's cancel was
+observed — the child died WITH its umbrella, not by an actor's hand (#124,
+DNSE: a bracket is two venue records and only the child's id is ever pushed,
+so without the by-id umbrella read the cancel is indistinguishable from an
+operator's). Stamped ONLY on POSITIVE umbrella evidence; an unreadable,
+ambiguous or still-live (``Activated``) umbrella carries no reason at all."""
 VENUE_DRIVEN_CANCEL_REASONS = frozenset({
     CANCEL_REASON_VENUE_REDUCE_ONLY,
     CANCEL_REASON_VENUE_OCA,
     CANCEL_REASON_VENUE_POSITION_CLEARED,
     CANCEL_REASON_VENUE_EXPIRED,
+    CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL,
 })
 
 
