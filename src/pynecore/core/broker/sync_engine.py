@@ -6809,17 +6809,62 @@ class OrderSyncEngine:
                 type(exc).__name__, exc,
             )
             return None, None
-        if venue_position is None:
-            return False, None
-        venue_size = float(venue_position.size)
-        venue_side = (venue_position.side or '').lower()
-        if venue_size <= 0.0 or venue_side == 'flat':
-            return False, venue_position
-        matches = (
-            (intent.side == 'sell' and venue_side == 'long')
-            or (intent.side == 'buy' and venue_side == 'short')
-        )
-        return matches, venue_position
+        flat = self._snapshot_reads_flat(venue_position)
+        if not flat:
+            venue_side = (venue_position.side or '').lower()
+            matches = (
+                (intent.side == 'sell' and venue_side == 'long')
+                or (intent.side == 'buy' and venue_side == 'short')
+            )
+            # POSITIVE evidence needs no second opinion: it KEEPS protection,
+            # which is the safe direction to be wrong in.
+            return matches, venue_position
+        # A FLAT snapshot is the dangerous one — it is the only verdict that
+        # RETIRES protection (drops the Pine slot, clears position state). One
+        # read is not enough to justify that: this venue is measured to serve
+        # stale/non-monotonic snapshots (CLAUDE.md, 08-17), and on 2026-09-16 a
+        # single stale read in `tools/flatten.py` reported `long 1.0` for an
+        # account that was really SHORT 1 and sold into it. Require a SECOND
+        # agreeing read before believing flat.
+        try:
+            confirm = self._run_async_read(asyncio.wait_for(
+                self._broker.get_position(self._symbol),
+                timeout=_PROTECTIVE_EXIT_POSITION_READ_TIMEOUT_S,
+            ))
+        except Exception as exc:  # noqa: BLE001
+            _blog_warning(
+                "#122: flat snapshot could NOT be confirmed (%s: %s) — "
+                "treating the venue as UNREADABLE, not flat; protection is "
+                "not retired on one unconfirmed read",
+                type(exc).__name__, exc,
+            )
+            return None, None
+        if not self._snapshot_reads_flat(confirm):
+            # The two reads disagree, so we cannot prove flat. We also cannot
+            # prove open: there is no evidence which snapshot is the stale one,
+            # so we do NOT prefer the newer. Unreadable is the honest verdict,
+            # and it routes to the policy point — which keeps protection.
+            _blog_warning(
+                "#122: position reads DISAGREE across the protective-exit "
+                "cancel (flat, then %r) — refusing to retire protection on an "
+                "unproven flat; treating as UNREADABLE",
+                confirm,
+            )
+            return None, None
+        return False, venue_position
+
+    @staticmethod
+    def _snapshot_reads_flat(position: ExchangePosition | None) -> bool:
+        """``True`` when a READABLE snapshot shows no position.
+
+        ``None`` here means the broker reported no position — a readable flat —
+        which is distinct from a read that FAILED (the caller returns ``None``
+        for that, never this).
+        """
+        if position is None:
+            return True
+        return (float(position.size) <= 0.0
+                or (position.side or '').lower() == 'flat')
 
     def _retire_cancelled_protective_exit(
             self, event: OrderEvent, key: str, intent: ExitIntent,
