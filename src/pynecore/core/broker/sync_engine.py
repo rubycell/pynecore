@@ -437,6 +437,40 @@ fill, or a flat book).
 """
 
 
+_PROTECTIVE_EXIT_REARM_ON_UNREADABLE_POSITION = True
+"""#122 adjudication point for a failed protective-cancel position read.
+
+ADJUDICATED 2026-09-16 to ``True`` (re-arm when the venue cannot be read), on
+three grounds: an UNREADABLE read is not evidence of flat (the repo's
+exit-2-is-never-no rule); NAKEDNESS is the unrecoverable failure while a phantom
+is recoverable; and with the re-arm bound now gating DISPATCH (below), the
+phantom side is bounded at ``_PROTECTIVE_EXIT_REARM_LIMIT - 1``, loud, exits
+non-zero, and is swept by reconcile once the venue is readable again.
+
+``False`` retires the exit instead and applies the configured unexpected-cancel
+policy.
+
+!! FLIPPING THIS TO ``False`` REOPENS A HAZARD THAT NO CODE GUARDS !!
+``_retire_cancelled_protective_exit`` drops the Pine declaration slot
+unconditionally.  At ``True`` that path is reached ONLY on a CONFIRMED-FLAT
+venue, where dropping it is correct and the whole exit is swept.  At ``False``
+it is also reached on an UNREADABLE read — so a multi-leg bracket (the #123
+add-a-leg shape, reachable on DNSE) would lose its Pine slot while a SIBLING
+leg is still resting and a REAL position may still be open: permanently naked,
+with an orphaned leg, and nothing re-emits the protection.  It is this
+constant's value — not any guard in the code — that closes that hazard.
+"""
+
+
+_PROTECTIVE_EXIT_POSITION_READ_TIMEOUT_S = 2.5
+"""Maximum #122 venue-position read time inside the cancel-event drain.
+
+Matches the DNSE #124-OBS umbrella-read budget: classification must not hold
+the synchronous order-event path for the general dispatch timeout while a
+protective exit is absent.
+"""
+
+
 #: #120: canonical, greppable marker of the naked-protection condition. ONE
 #: string so an operator alert rule, a log grep and the tests all key on the
 #: same token instead of a log LEVEL (a level matches any unrelated warning).
@@ -4875,54 +4909,7 @@ class OrderSyncEngine:
                         < EXTERNAL_FLATTEN_CONFIRM_GRACE_S):
                     return
             self._flat_observed_with_intents_since = 0.0
-            spot_port = getattr(self._broker, 'spot_inventory_port', None)
-            dust_threshold = getattr(
-                spot_port, 'position_dust_threshold', Decimal(0),
-            )
-            is_nontradable_spot_dust = (
-                isinstance(dust_threshold, Decimal)
-                and dust_threshold > 0
-                and Decimal(str(abs(self._position.size))) < dust_threshold
-            )
-            # External flatten detected — wipe ALL trade state so a re-entry
-            # on the next bar starts from a clean slate. Leaving stale
-            # ``open_trades`` would corrupt P&L bookkeeping the moment the
-            # next ``record_fill`` runs (FIFO close against trades that no
-            # longer exist on the broker).
-            if not is_nontradable_spot_dust:
-                _blog_warning(
-                    "exchange shows flat, internal=%s — external close detected, "
-                    "clearing position state",
-                    self._position.size,
-                )
-            # Retire the flattened entries' tracking BEFORE the clear:
-            # leaving the slots would make the diff call Pine's next
-            # re-emission of the same entry "unchanged" (signal swallowed)
-            # and keep amending its orphaned exit against a position the
-            # venue no longer holds. Remember the ids so a late-arriving
-            # close fill for them (a reconnect backfill attributing the
-            # venue-side close after the grace) is dropped instead of
-            # walking the now-empty FIFO into a phantom opposite position.
-            cleared_entry_ids: set[str] = set()
-            for trade in self._position.open_trades:
-                if trade.entry_id:
-                    cleared_entry_ids.add(trade.entry_id)
-            self._position.size = 0.0
-            self._position.sign = 0.0
-            self._position.avg_price = na_float
-            self._position.open_trades.clear()
-            self._position.openprofit = 0.0
-            self._position.open_commission = 0.0
-            for entry_id in cleared_entry_ids:
-                self._external_flatten_cleared_entry_ids.add(entry_id)
-                self._cleanup_position_tracking(entry_id)
-            # #120/#124/#126: the exposure every protective-exit episode was
-            # counting against is GONE. This is the reset the fill-event hook
-            # (:meth:`_reset_exit_rearm_episode`) cannot reach: an operator
-            # flattening in their app produces no OrderEvent for our ids, so
-            # without this an episode — and any refusal backoff or quarantine
-            # it latched — would outlive the position that justified it.
-            self._clear_protective_exit_episodes()
+            self._accept_confirmed_external_flatten()
         else:
             # Venue and book agree on FLAT-ness — but a partial divergence used
             # to land here silently too (#48): only shrink-to-zero has a branch
@@ -4968,6 +4955,45 @@ class OrderSyncEngine:
                                 venue_signed, self._position.size, drift_delta,
                                 self._position_drift_streak)
                             self._position_drift_warned_delta = drift_delta
+
+    def _accept_confirmed_external_flatten(self) -> None:
+        """Clear engine position state after positive venue-flat evidence.
+
+        Shared by periodic reconcile (after its race-confirmation grace) and
+        #122's cancel-path read.  The latter already has causal evidence: the
+        protective order was cancelled and the same event path read the venue
+        flat, so retaining the stale local position would let the next Pine
+        emission recreate the phantom exit on a later bar.
+        """
+        spot_port = getattr(self._broker, 'spot_inventory_port', None)
+        dust_threshold = getattr(
+            spot_port, 'position_dust_threshold', Decimal(0),
+        )
+        is_nontradable_spot_dust = (
+            isinstance(dust_threshold, Decimal)
+            and dust_threshold > 0
+            and Decimal(str(abs(self._position.size))) < dust_threshold
+        )
+        if not is_nontradable_spot_dust:
+            _blog_warning(
+                "exchange shows flat, internal=%s — external close detected, "
+                "clearing position state",
+                self._position.size,
+            )
+        cleared_entry_ids = {
+            trade.entry_id for trade in self._position.open_trades
+            if trade.entry_id
+        }
+        self._position.size = 0.0
+        self._position.sign = 0.0
+        self._position.avg_price = na_float
+        self._position.open_trades.clear()
+        self._position.openprofit = 0.0
+        self._position.open_commission = 0.0
+        for entry_id in cleared_entry_ids:
+            self._external_flatten_cleared_entry_ids.add(entry_id)
+            self._cleanup_position_tracking(entry_id)
+        self._clear_protective_exit_episodes()
 
     def _adopt_size_with_replayed_close(
             self,
@@ -6759,6 +6785,49 @@ class OrderSyncEngine:
             return signed_size > 0.0
         return signed_size < 0.0
 
+    def _venue_position_open_for_exit(
+            self, intent: ExitIntent,
+    ) -> tuple[bool | None, ExchangePosition | None]:
+        """Read whether the venue positively confirms the protected side.
+
+        The first tuple item is tri-state: ``True`` is positive matching
+        evidence, ``False`` is a readable flat/opposite snapshot, and ``None``
+        means the venue could not be read.  The distinction is safety-critical:
+        an unreadable position is never treated as proof that the account is
+        flat.  The second item preserves a readable snapshot so a confirmed
+        flat can be reconciled into the engine book immediately.
+        """
+        try:
+            venue_position = self._run_async_read(asyncio.wait_for(
+                self._broker.get_position(self._symbol),
+                timeout=_PROTECTIVE_EXIT_POSITION_READ_TIMEOUT_S,
+            ))
+        except Exception as exc:  # noqa: BLE001 — policy point owns the verdict
+            _blog_warning(
+                "#122: protective-exit cancel position read failed "
+                "(%s: %s) — venue state is unreadable, not flat",
+                type(exc).__name__, exc,
+            )
+            return None, None
+        if venue_position is None:
+            return False, None
+        venue_size = float(venue_position.size)
+        venue_side = (venue_position.side or '').lower()
+        if venue_size <= 0.0 or venue_side == 'flat':
+            return False, venue_position
+        matches = (
+            (intent.side == 'sell' and venue_side == 'long')
+            or (intent.side == 'buy' and venue_side == 'short')
+        )
+        return matches, venue_position
+
+    def _retire_cancelled_protective_exit(
+            self, event: OrderEvent, key: str, intent: ExitIntent,
+    ) -> None:
+        """Retire a dead protective exit without allowing a fresh diff."""
+        self._trim_cancelled_bracket_leg(event, key)
+        self._remove_pine_order_for_intent(intent)
+
     def _handle_unexpected_protective_exit_cancel(
             self, event: OrderEvent, key: str,
     ) -> bool:
@@ -6794,6 +6863,29 @@ class OrderSyncEngine:
             return False
         if not self._position_open_for_exit(intent):
             return False
+        venue_open, venue_position = self._venue_position_open_for_exit(intent)
+        if venue_open is None:
+            if _PROTECTIVE_EXIT_REARM_ON_UNREADABLE_POSITION:
+                venue_open = True
+            else:
+                self._retire_cancelled_protective_exit(event, key, intent)
+                self._apply_unexpected_cancel_policy(event, key)
+                return True
+        if not venue_open:
+            self._retire_cancelled_protective_exit(event, key, intent)
+            venue_is_flat = venue_position is None or (
+                float(venue_position.size) <= 0.0
+                or (venue_position.side or '').lower() == 'flat'
+            )
+            if venue_is_flat:
+                self._accept_confirmed_external_flatten()
+            _blog_info(
+                "#122: protective exit %s cancelled while the venue has no "
+                "position in the protected direction — retired without "
+                "re-arm or quarantine",
+                format_intent_key(key),
+            )
+            return True
         count = self._exit_rearm_counts.get(key, 0) + 1
         self._exit_rearm_counts[key] = count
         coid = order.client_order_id
@@ -6806,9 +6898,50 @@ class OrderSyncEngine:
             'position_size': float(self._position.size),
             'rearm_count': count,
             'rearm_limit': _PROTECTIVE_EXIT_REARM_LIMIT,
+            # #122/D3 — this is what makes an exhausted budget EXIT NON-ZERO.
+            # `run.py` raises Exit(1) only via `unprotected_position_quarantine`
+            # (:2390), which requires this key. Without it a run that burned its
+            # entire protection budget reported SUCCESS to a supervisor.
+            'unprotected_position': True,
         }
-        self._trim_cancelled_bracket_leg(event, key)
         if count < _PROTECTIVE_EXIT_REARM_LIMIT:
+            # #122/D3 — the trim lives HERE, not before the branch. It pops
+            # `_active_intents`/`_order_mapping`, which is what lets the next
+            # sync re-diff the exit as new and RE-PLACE it. Running it
+            # unconditionally made `_PROTECTIVE_EXIT_REARM_LIMIT` bound only the
+            # LOG SEVERITY: measured over 8 cycles the counter rose 1..8 and
+            # placements rose 2..9 while `quarantined` was already True from
+            # cycle 3 — the quarantine gates `EntryIntent` only (:15995), so it
+            # never withheld an exit. The docstring promise that "a venue or
+            # operator that keeps killing the protection cannot loop forever"
+            # was therefore false, and no test pinned it.
+            self._trim_cancelled_bracket_leg(event, key)
+            if key in self._active_intents:
+                # #122 — MULTI-LEG: the trim early-returns while sibling legs
+                # remain mapped, so `_active_intents[key]` survives, the next
+                # `build_intents` rebuilds an EQUAL intent and `_diff_and_
+                # dispatch` no-ops. NOTHING IS RE-ARMED. Claiming "re-arming
+                # (N/3)" here would burn a life of a bound that protects a
+                # position now holding only a HALF-BRACKET, and the log would
+                # read healthy while protection is partly gone.
+                # The COUNTER STILL ADVANCES and the cancel STILL SPENDS a life
+                # of the bound: it records external protective cancels in this
+                # episode, which is exactly the pathology the bound guards, and
+                # other paths discriminate the external route BY this counter
+                # (the OCA classifier never touches it — see
+                # __test_oca_cancel_without_queued_sibling_fill_is_not_oca_
+                # classified__, which reads it as a ROUTING signal). Only the
+                # false CLAIM is corrected: this did not re-arm anything.
+                _blog_warning(
+                    "#122: protective exit %s lost leg ref=%r while sibling "
+                    "leg(s) %r remain — the bracket is now PARTIAL and nothing "
+                    "was re-armed. The cancel IS counted against the bound "
+                    "(%d/%d); the position keeps only the surviving leg(s)",
+                    format_intent_key(key), order.id,
+                    self._order_mapping.get(key),
+                    count, _PROTECTIVE_EXIT_REARM_LIMIT,
+                )
+                return True
             log = _blog_info if count == 1 else _blog_warning
             log(
                 "#124: protective exit %s cancelled externally while the "
