@@ -9656,11 +9656,18 @@ class OrderSyncEngine:
                         format_intent_key(key),
                     )
                     continue
-            elif not self._oca_cancel_native:
-                self._dispatch_cancel(intent)
-                # Provably gone: release the park. The journal row itself is
-                # purged by `_drop_envelope`'s `record_complete` below.
+                # Provably gone (strict returned True): release the park taken
+                # above. The durable row is purged by `_drop_envelope`'s
+                # `record_complete` below. Safe ONLY here — this is the only
+                # branch where the cancel has been PROVEN to land.
                 self._forced_cancel_pending.pop(key, None)
+            elif not self._oca_cancel_native:
+                # NO park release here. `_dispatch_cancel` parks the obligation
+                # ITSELF on an unknown disposition; popping it would release a
+                # durable obligation for an order that may still be LIVE — the
+                # exact orphan this sequence exists to prevent. The invariant
+                # below sees the park and keeps the tracking.
+                self._dispatch_cancel(intent)
             # Belt and braces: the invariant also covers a refused cancel and
             # any disposition parked by the non-strict path above.
             blocked = self._tracking_is_still_needed(key)

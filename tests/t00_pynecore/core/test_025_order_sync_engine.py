@@ -16467,3 +16467,14 @@ def __test_122_parked_external_flatten_cancel_actually_re_drives__():
         "re-drives leaves the protective order live at the broker just as "
         "surely as no park at all"
     )
+
+
+# NOTE (#122 / #139): the fix for "cleanup released a park it never proved"
+# — an unconditional `_forced_cancel_pending.pop` that sat in the plain
+# `_dispatch_cancel` branch — is NOT pinned here, deliberately. A pin for that
+# branch would have to assert the park SURVIVES an ambiguous cancel, and it
+# cannot: for a whole-row ExitIntent `_dispatch_cancel`'s unknown-disposition
+# handler eagerly retires, popping `_forced_cancel_pending`, `_order_mapping`
+# and the envelope itself. That is #139 (pre-existing, carded, out of scope
+# here), so the branch is unpinnable until #139 lands. The release is now
+# confined to the strict/proven-landed path, which IS pinned above.
