@@ -9621,8 +9621,19 @@ class OrderSyncEngine:
                 # does NOT diff orders (its docstring disclaims order-level
                 # reconciliation), so for an EXTERNAL flatten that net does not
                 # exist and the order is simply stranded.
+                # DURABILITY: strict does NOT pre-park the cancel obligation
+                # (only `_dispatch_cancel` does, at its unknown-disposition
+                # handler). Without a park, "keep the tracking" is in-memory
+                # only: if the process dies the map is gone, the script may
+                # never re-emit the intent, and nothing re-detects the order
+                # (reconcile does not diff orders and `_active_intents` is empty
+                # after a restart). Park FIRST, so an unresolved cancel survives
+                # a restart as a journal row that can re-drive it.
+                parked = False
                 try:
                     if not self._dispatch_cancel_strict(intent):
+                        self._park_forced_cancel(key, intent)
+                        parked = True
                         # Documented "did not land, still pending": the broker
                         # order may still rest, and strict deliberately KEEPS
                         # the engine-side tracking for exactly that reason.
@@ -9634,6 +9645,8 @@ class OrderSyncEngine:
                         )
                         continue
                 except OrderDispositionUnknownError:
+                    if not parked:
+                        self._park_forced_cancel(key, intent)
                     _blog_warning(
                         "external-flatten cleanup: cancel of %s returned an "
                         "UNKNOWN disposition — the order may still rest live. "
