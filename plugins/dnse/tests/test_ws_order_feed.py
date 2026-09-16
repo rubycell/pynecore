@@ -340,3 +340,57 @@ def __test_ws_drop_leaves_poll_to_detect_the_fill__(fake_client, collect):
     fills = [e for e in events if e.event_type == "filled"]
     assert len(fills) == 1, "the poll floor must still detect the fill when WS is down"
     assert fills[0].fill_qty == 10.0
+
+
+# === _resolve_investor_id: the /accounts BODY parsing (#129) =================
+# Measured live 2026-09-16: the resolver read ``accounts[0]["investorId"]``, but
+# ``investorId`` is a TOP-LEVEL field of the /accounts body — docs
+# dnse-get-accounts.md schema lists it as "» investorId" while the accounts[]
+# members carry only "»» id / dealAccount / derivativeAccount / derivative".
+# It therefore returned None on every real body, and because None is also the
+# legitimate "degrade to poll-only" answer, EVERY live run silently ran
+# poll-only and the broker channel was never once subscribed. Nothing tested
+# this parsing (the sibling account-ID parsing IS covered in
+# test_broker_lifecycle.py); these are that missing coverage.
+
+def _accounts_body(investor_id="1000005917"):
+    """The REAL /accounts shape, as documented AND as served live 2026-09-16:
+    ``investorId`` at the top level, never inside an accounts[] member."""
+    body = {"name": "N", "custodyCode": "C", "accounts": [
+        {"id": "0001179019", "dealAccount": True, "derivativeAccount": True,
+         "derivative": {"status": "ACTIVE"}}]}
+    if investor_id is not None:
+        body["investorId"] = investor_id
+    return body
+
+
+def __test_investor_id_is_read_from_the_body_top_level__(fake_client):
+    """THE red-first anchor for #129: a real body resolves. Against the pre-fix
+    resolver this returns None (it indexed accounts[0]), which is exactly the
+    silent poll-only degrade measured live."""
+    b = _broker(fake_client, get_accounts=(200, _accounts_body("1000005917")))
+
+    assert b._resolve_investor_id() == "1000005917", \
+        "investorId is a TOP-LEVEL field of the /accounts body, not accounts[0]'s"
+
+
+def __test_investor_id_is_cached_after_the_first_read__(fake_client):
+    b = _broker(fake_client, get_accounts=(200, _accounts_body("1000005917")))
+
+    first, second = b._resolve_investor_id(), b._resolve_investor_id()
+
+    assert first == second == "1000005917"
+    assert b._client.count("get_accounts") == 1, "second call must come from the cache"
+
+
+@pytest.mark.parametrize("status, body", [
+    (200, _accounts_body(investor_id=None)),   # 200, but the field is absent
+    (200, "not-a-dict"),
+    (500, {"code": "REMOTE_SERVER_ERROR"}),
+])
+def __test_investor_id_returns_none_when_it_cannot_be_read__(fake_client, status, body):
+    """The degrade path stays intact: None on any unreadable body, so the caller
+    still falls back to poll-only instead of raising into the live order path."""
+    b = _broker(fake_client, get_accounts=(status, body))
+
+    assert b._resolve_investor_id() is None

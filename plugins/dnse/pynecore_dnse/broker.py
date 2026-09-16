@@ -592,10 +592,16 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             log.broker_warning("WS order feed: /accounts read failed (%s) — poll-only",
                                type(exc).__name__)
             return None
-        accounts = (body.get("accounts") or []) if isinstance(body, dict) else []
-        if status != 200 or not accounts:
+        if status != 200 or not isinstance(body, dict):
             return None
-        investor_id = accounts[0].get("investorId")
+        # ``investorId`` is a TOP-LEVEL field of the /accounts body (docs
+        # dnse-get-accounts.md schema: "» investorId", while the accounts[]
+        # members carry only "»» id / dealAccount / derivativeAccount /
+        # derivative"). Reading it off accounts[0] returned None for every real
+        # body — and because None is ALSO the legitimate "degrade to poll-only"
+        # answer, the broker channel was never once subscribed on a live run
+        # (#129, measured 2026-09-16 against the live /accounts response).
+        investor_id = body.get("investorId")
         if investor_id:
             self._investor_id = str(investor_id)
             log.broker_info("[BROKER] resolved investorId=%s for the WS order feed",

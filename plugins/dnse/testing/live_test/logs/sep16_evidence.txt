@@ -1,0 +1,38 @@
+=== 2026-09-16 DNSE live session — stripped evidence ===
+tree at run time: 50950cd0 (frozen); account FLAT before and after every step
+
+--- STEP 6 (#128 thread 2): bare STOP entry, GTD, 420s watch ---
+  duration         : GTD until 2026-09-17T00:00:00Z (#118-clamped)
+[128B] 11:03:30 PLACED STOP tracked_id=dal1a4ivfqkc7397kh10 trigger=2034.5 lo=2034.8 duration=GTD filled=0.0
+[128B] 11:03:30 tracking tracked conditional STOP entry id=dal1a4ivfqkc7397kh10
+[128B] 11:03:30 TRANSITION 11:03:30 id=dal1a4ivfqkc7397kh10 (first read) -> NEW | status=New price=2034.8 stop=2034.5 qty=1 duration=GTD filled=None child=-
+[128B] 11:10:30 cancel dal1a4ivfqkc7397kh10: cancel_confirmed
+[128B] 11:10:33 final record dal1a4ivfqkc7397kh10: status=Canceled price=2034.8 stop=2034.5 qty=1 duration=GTD filled=None child=-
+[128B] 11:10:33 cleanup clean — every placed order is terminal
+VERDICT: RESTED-UNTOUCHED
+  No cancel was observed for the FULL watch of 420 s (7.0 min).
+
+--- STEP 5 run 1 (11:59 window): payload = L0, CONDITIONAL-book only ---
+WARNING: no investor id -> the BROKER channel is UNTESTED this run (absence of frames there proves nothing)
+[ws] control: {"action": "subscribed", "channel": "order.DERIVATIVE.json", "status": "active"}
+[ws] control: {"action": "subscribed", "channel": "order.STOCK.json", "status": "active"}
+[ws] control: {"action": "subscribed", "channel": "position.DERIVATIVE.json", "status": "active"}
+[ws] ZERO data frames — silent WITH correct auth (methodology sound; for order./position. channels this is EXPECTED unless account events occurred during capture)
+[ws] rc=0  frames=0
+  (L0 placed+cancelled 8 conditional orders 10:59:38-10:59:44, INSIDE the window)
+
+--- STEP 5 run 2 (11:22): BOTH-book payload, self-attributing frame keys ---
+[t18-normal] 11:22:43 phase=continuous PLACED id=99256 cat=NORMAL price=1840.7 stop=None filled=0.0
+[t18-stop] 11:22:47 phase=continuous PLACED id=dal1j5qvfqkc7397kheg cat=STOP price=2034.5 stop=2034.5 filled=0.0
+VERDICT t18: PASS — immediate cancel accepted on both books, no minimum-rest rule
+[short] control: {"action": "subscribed", "channel": "order.DERIVATIVE.json", "status": "active"}
+[broker] control: {"action": "error", "code": "SUBSCRIBE_FAILED", "message": "internal error"}
+[short] control: {"action": "subscribed", "channel": "order.STOCK.json", "status": "active"}
+[short] control: {"action": "subscribed", "channel": "position.DERIVATIVE.json", "status": "active"}
+[short]     4  T=do order book=NORMAL marketType=DERIVATIVE id=99256
+[short] sample [T=do order book=NORMAL marketType=DERIVATIVE id=99256]: {"T": "do", "action": "order_update", "event": "pendingnew", "order": {"accountNo": "<masked>", "averagePrice": 0, "canceledQuantity": 0, "createdDate": "2026-09-16T04:22:43.958Z", "fillQuantity": 0, "id": "99256", "investorId": "<masked>", "leaveQuantity": 1, "loanPackageId": 1306, "marketType": "DERIVATIVE", "modifiedDate": "2026-09-16T04:22:43.958Z", "orderStatus": "PendingNew", "orderType": "LO", "price": 1840.7, "priceSecure": 1840.7, "quantity": 1, "side": "NB", "symbol": "41I1G9000", "transDate": "2026-09-16T00:00:00Z"}, "sequence": 97, "timestamp": 1789532563966}
+[short] rc=0  frames=4
+[short]       4  T=do order book=NORMAL marketType=DERIVATIVE id=99256
+[short]   sample [T=do order book=NORMAL marketType=DERIVATIVE id=99256]: {"T": "do", "action": "order_update", "event": "pendingnew", "order": {"accountNo": "<masked>", "averagePrice": 0, "canceledQuantity": 0, "createdDate": "2026-09-16T04:22:43.958Z", "fillQuantity": 0, "id": "99256", "investorId": "<masked>", "leaveQuantity": 1, "loanPackageId": 1306, "marketType": "DERIVATIVE", "modifiedDate": "2026-09-16T04:22:43.958Z", "orderStatus": "PendingNew", "orderType": "LO", "price": 1840.7, "priceSecure": 1840.7, "quantity": 1, "side": "NB", "symbol": "41I1G9000", "transDate": "2026-09-16T00:00:00Z"}, "sequence": 97, "timestamp": 1789532563966}
+[broker] rc=0  frames=0
+verdict: frames arrived on: short

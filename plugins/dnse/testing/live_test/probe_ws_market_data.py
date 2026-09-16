@@ -127,19 +127,46 @@ def channel_names(channels, investor_id: "str | None") -> str:
     return ",".join(names)
 
 
-def resolve_investor_id(cfg) -> "str | None":
+def resolve_investor_id(cfg, override: "str | None" = None) -> "str | None":
     """The account's ``investorId`` — the BROKER channel key.
 
-    Uses the PLUGIN's own resolver (``DNSEBroker._resolve_investor_id``, which
-    reads it off ``/accounts``) rather than a hand-rolled REST call, so the
-    probe subscribes exactly the channel the live plugin subscribes. Returns
-    None on any failure — the caller then reports the broker channel as
+    PARSES THE BODY HERE, ON PURPOSE (changed 2026-09-16, #129). This used to
+    call the PLUGIN's ``DNSEBroker._resolve_investor_id`` so the probe would
+    subscribe exactly what the live plugin subscribes — but that resolver reads
+    ``accounts[0]["investorId"]`` while ``investorId`` is a TOP-LEVEL field of
+    the /accounts body (docs dnse-get-accounts.md schema "» investorId"), so it
+    returns None for every real body. Measured live 2026-09-16: the broker
+    channel went UNTESTED and the plugin has silently run poll-only on every
+    live run.
+
+    So the probe now uses the plugin's TRANSPORT (``broker.client``, the same
+    authenticated REST call) but its OWN parse. State the divergence when
+    reading results: until the plugin fix lands, this probe subscribes a channel
+    the live plugin currently CANNOT — which is the point, since the question is
+    whether the VENUE delivers on it at all.
+
+    ``override`` (``--investor-id``) short-circuits the read entirely.
+    Returns None on any failure — the caller then reports the broker channel as
     UNTESTED rather than silently capturing only the short one.
     """
+    if override:
+        print(f"investor id supplied on the command line: {mask(override)}")
+        return str(override)
     try:
         from pynecore_dnse.broker import DNSEBroker
         broker = DNSEBroker(symbol="VN30F1M", timeframe="1", config=cfg)
-        return broker._resolve_investor_id()
+        status, body = broker.client.get_accounts()
+        if status != 200 or not isinstance(body, dict):
+            print(f"investor-id read FAILED (http={status}) — the BROKER "
+                  f"channel cannot be subscribed")
+            return None
+        investor_id = body.get("investorId")
+        if not investor_id:
+            print("investor-id ABSENT from the /accounts body top level — the "
+                  "BROKER channel cannot be subscribed (this is NOT the #129 "
+                  "parsing bug; the venue did not serve the field)")
+            return None
+        return str(investor_id)
     except Exception as exc:                                        # noqa: BLE001
         print(f"investor-id read FAILED ({type(exc).__name__}: {exc}) — the "
               f"BROKER channel cannot be subscribed")
@@ -158,7 +185,18 @@ def frame_key(frame: dict) -> str:
     msg_type = str(frame.get("T") or "")
     if msg_type in ("do", "eo"):
         order = frame.get("order") if isinstance(frame.get("order"), dict) else {}
-        return f"T={msg_type} order marketType={order.get('marketType') or '?'}"
+        # The ORDER ID SHAPE is the book discriminator: the NORMAL book uses
+        # integer ids, the conditional book long string ids (repo CLAUDE.md).
+        # Keying on it makes a capture self-attributing — "which book streams"
+        # is then read off the accounting table instead of inferred from which
+        # orders happened to be placed. Added 2026-09-16 after a capture whose
+        # single per-key sample could not tell whether all 4 frames belonged to
+        # the NORMAL leg or were split across both legs of a both-book payload.
+        order_id = str(order.get("id") or "?")
+        book = ("NORMAL" if order_id.isdigit()
+                else "?" if order_id == "?" else "CONDITIONAL")
+        return (f"T={msg_type} order book={book} "
+                f"marketType={order.get('marketType') or '?'} id={order_id}")
     if msg_type in ("dp", "ep"):
         position = (frame.get("position")
                     if isinstance(frame.get("position"), dict) else {})
@@ -232,10 +270,20 @@ async def _capture(cfg, channels, seconds: int, label: str,
                 key = frame_key(frame)
                 counts[key] += 1
                 text = json.dumps(frame)
-                for field in ("accountNo", "custodyCode", "investorId"):
-                    value = frame.get(field)
-                    if value:
-                        text = text.replace(str(value), "<masked>")
+                # Identifier fields live INSIDE the nested payload
+                # (``frame["order"]`` / ``frame["position"]``), not at the top
+                # level — a top-level-only lookup silently masked NOTHING and
+                # printed a real account number into an evidence file on
+                # 2026-09-16 (caught by the scrub gate, not by this code).
+                # investorId only LOOKED masked because it was also passed in
+                # ``secret_ids`` and got replaced by value.
+                for scope in (frame, frame.get("order"), frame.get("position")):
+                    if not isinstance(scope, dict):
+                        continue
+                    for field in ("accountNo", "custodyCode", "investorId"):
+                        value = scope.get(field)
+                        if value:
+                            text = text.replace(str(value), "<masked>")
                 for secret in secret_ids:
                     if secret:
                         text = text.replace(str(secret), "<masked>")
@@ -316,6 +364,9 @@ async def main() -> int:
                          "the server refuses two concurrent sessions (#92); "
                          "the counts are then AMBIGUOUS — a frame cannot be "
                          "attributed to a channel on a shared socket")
+    ap.add_argument("--investor-id", default=None,
+                    help="use THIS investor id for the broker channel instead "
+                         "of reading /accounts (escape hatch if the read fails)")
     ap.add_argument("--dual", action="store_true",
                     help="#92 single-session measurement: run TWO "
                          "authenticated sessions on the same channels, "
@@ -330,7 +381,7 @@ async def main() -> int:
     investor_id: "str | None" = None
     broker_group: list = []
     if args.trading and not args.no_broker_channel:
-        investor_id = resolve_investor_id(cfg)
+        investor_id = resolve_investor_id(cfg, args.investor_id)
         if investor_id:
             broker_group = broker_channels(investor_id)
             print(f"broker channels for investor {mask(investor_id)}: "
