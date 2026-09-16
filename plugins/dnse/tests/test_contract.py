@@ -8,7 +8,7 @@ from pynecore_dnse.broker import DNSEBroker, DNSEBrokerConfig
 
 
 def _broker() -> DNSEBroker:
-    cfg = DNSEBrokerConfig(api_key="k", api_secret="s", account_no="0001672126")
+    cfg = DNSEBrokerConfig(api_key="k", api_secret="s", account_no="0001234567")
     return DNSEBroker(symbol="VN30F1M", timeframe="5", config=cfg)
 
 

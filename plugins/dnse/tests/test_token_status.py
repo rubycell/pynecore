@@ -21,7 +21,7 @@ def __test_read_state_missing_valid_and_malformed__(tmp_path):
 
 def __test_resolve_account__(fake_client):
     assert ts.resolve_account(
-        fake_client(get_accounts=(200, {"accounts": [{"id": "0001672126"}]}))) == "0001672126"
+        fake_client(get_accounts=(200, {"accounts": [{"id": "0001234567"}]}))) == "0001234567"
     assert ts.resolve_account(fake_client(get_accounts=(200, {"accounts": []}))) is None
     assert ts.resolve_account(fake_client(get_accounts=(500, {}))) is None
 

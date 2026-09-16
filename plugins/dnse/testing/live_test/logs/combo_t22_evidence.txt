@@ -8,7 +8,7 @@
 [BROKER] recovery: venue order dafqv8op4g19a630llcg is owned by ANOTHER run label on this account (stranded by a different-label relaunch, #60).        
 [BROKER] recovery: venue order dafqvn8p4g19a630llf0 is owned by ANOTHER run label on this account (stranded by a different-label relaunch, #60).        
 [BROKER] WS connected and subscribed: DNSEBroker VN30F1M@1
-[BROKER] authenticated: plugin=DNSEBroker account=0001672126
+[BROKER] authenticated: plugin=DNSEBroker account=******2126
 [BROKER] warmup phase started — replaying historical bars
 [BROKER] warmup phase complete — 501 bar(s) processed
 [BROKER] live trading active

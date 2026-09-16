@@ -1,7 +1,7 @@
 [BROKER] WS connect starting (warmup blocks until subscribed)
 [BROKER] journal restore: re-owned 1 venue id(s) from the run's journal rows (#36) — foreign book rows untouched
 [BROKER] WS connected and subscribed: DNSEBroker VN30F1M@1
-[BROKER] authenticated: plugin=DNSEBroker account=0001672126
+[BROKER] authenticated: plugin=DNSEBroker account=******2126
 [BROKER] warmup phase started — replaying historical bars
 [BROKER] warmup phase complete — 501 bar(s) processed
 [BROKER] live trading active
