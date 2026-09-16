@@ -90,8 +90,21 @@ class WSOrderSource:
     ``broker.watch_orders`` alongside the REST poll (#121)."""
 
     def __init__(self, api_key: str, api_secret: str, investor_id: str,
-                 market_type: str, queue_max: int = 10_000) -> None:
-        self._client = TradingClient(api_key, api_secret, auto_reconnect=True)
+                 market_type: str, queue_max: int = 10_000,
+                 ws_url: "str | None" = None) -> None:
+        # #135/2 — HONOUR THE CONFIGURED ENDPOINT. This used to call
+        # ``TradingClient(api_key, api_secret, auto_reconnect=True)``, letting the
+        # vendored default ``base_url="wss://ws-openapi.dnse.com.vn"`` win, so the
+        # WS ORDER feed always dialled PROD even when the plugin was pointed at the
+        # sandbox. With sandbox keys against the prod host it fails auth ("invalid
+        # API key") and degrades to poll-only — which is why the sandbox had NEVER
+        # exercised the WS order path (measured 2026-09-16, during the watermark
+        # double-count investigation). ``base_url`` is passed ONLY when configured,
+        # so the vendored constant stays the single definition of the prod host.
+        client_kwargs = {"auto_reconnect": True}
+        if ws_url:
+            client_kwargs["base_url"] = ws_url
+        self._client = TradingClient(api_key, api_secret, **client_kwargs)
         self._investor_id = investor_id
         self._market_type = market_type
         #: normalised raw-row dicts awaiting _scan_row (order frames only).
