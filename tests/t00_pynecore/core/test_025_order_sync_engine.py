@@ -16574,3 +16574,46 @@ def __test_122_connection_error_during_cleanup_does_not_abort_the_sweep__(caplog
         "the exit whose cancel hit the connection error must stay PARKED for "
         "the retry"
     )
+
+
+def __test_122_flat_book_orphan_retire_cancels_on_a_native_oca_venue__():
+    """The SECOND caller with external-flatten semantics must cancel too.
+
+    `_retire_orphan_exits_on_flat_book` runs when the book is flat and there is
+    NO open trade under the parent — so nothing of OURS filled. A native-OCA
+    venue cancels the sibling of a leg that EXECUTED; here it has no trigger, so
+    without external-flatten semantics the cleanup skips its own cancel AND
+    drops the mapping, orphaning a live protective order.
+
+    Found by asking which OTHER callers share the semantics that made the flag
+    necessary — not by a report about this one. The reported caller
+    (`_accept_confirmed_external_flatten`) was fixed first; this one had the
+    identical defect and no finding pointed at it.
+    """
+    b = MockBroker(
+        capabilities=ExchangeCapabilities(oca_cancel=CapabilityLevel.NATIVE),
+    )
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 1.0, stop=50_000.0)
+    pos.exit_orders[("P", "L")] = _exit_order(
+        "L", -1.0, "P", limit=50_100.0, stop=49_900.0,
+    )
+    engine.sync(BAR_TS)
+    engine._route_event(_fill_event('buy', 1.0, 50_000.0, pine_id="L"))
+    assert engine.order_mapping.get("P\0L"), "the protective exit is mapped"
+
+    # the book goes flat with the exit still tracked, and no open trade left
+    pos.open_trades.clear()
+    pos.size = 0.0
+    pos.entry_orders.pop("L", None)
+    engine._active_intents.pop("L", None)
+    cancels_before = len(b.cancel_calls)
+
+    engine._retire_orphan_exits_on_flat_book()
+
+    assert len(b.cancel_calls) > cancels_before, (
+        "the orphan protective exit was retired WITHOUT a cancel on a "
+        "native-OCA venue — nothing of ours filled, so the venue had no OCA "
+        "trigger, and the mapping was dropped in the same step: a live order "
+        "nothing will ever cancel"
+    )
