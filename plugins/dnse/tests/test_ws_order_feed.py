@@ -394,3 +394,66 @@ def __test_investor_id_returns_none_when_it_cannot_be_read__(fake_client, status
     b = _broker(fake_client, get_accounts=(status, body))
 
     assert b._resolve_investor_id() is None
+
+
+# === #134: a subscribe ACK is not evidence a channel is live ================
+# Measured 2026-09-16 (#131): the venue accepts a broker-channel subscription
+# and then refuses it asynchronously with an ERROR CONTROL FRAME
+# ({"action":"error","code":"SUBSCRIBE_FAILED"}) AFTER the subscribe coroutine
+# has already returned cleanly. ``start()``'s ``_try`` only catches EXCEPTIONS,
+# so it recorded that channel as subscribed. The log then claimed a live
+# transport that would never deliver — the #50 trap again, one level up.
+# Positive evidence is a FRAME ARRIVING; everything else is a request.
+
+def _fake_order(order_id="O9", status="Filled", fill=1.0):
+    return SimpleNamespace(id=order_id, orderStatus=status, fillQuantity=fill,
+                           quantity=1.0, averagePrice=100.0, symbol="C1",
+                           side="NB", accountNo="ACC1")
+
+
+def __test_subscribe_log_does_not_claim_the_channel_is_live__(monkeypatch, caplog):
+    """RED-FIRST for #134: the subscribe-time line must describe a REQUEST.
+
+    Pre-fix it read 'WS order feed subscribed: ...', which is exactly the claim
+    #131 proved can be false."""
+    src = _started_source(monkeypatch)
+    with caplog.at_level("INFO"):
+        asyncio.run(src.start())
+
+    text = " ".join(r.message for r in caplog.records)
+    assert "subscribe requested" in text.lower(), \
+        "the subscribe-time line must say REQUESTED — a venue ACK is not confirmation (#134)"
+    assert "feed subscribed:" not in text.lower(), \
+        "the old wording asserted a live channel on an ACK alone (#131 showed that is false)"
+
+
+def __test_first_frame_emits_the_live_milestone_exactly_once__(monkeypatch, caplog):
+    """The milestone records something that HAPPENED (a frame arrived), and it
+    must not re-fire on every subsequent frame."""
+    src = _started_source(monkeypatch)
+    asyncio.run(src.start())
+    with caplog.at_level("INFO"):
+        src._on_order(_fake_order("O1"))
+        src._on_order(_fake_order("O2"))
+
+    milestones = [r.message for r in caplog.records
+                  if "WS ORDER SOURCE FIRST LIVE FRAME" in r.message]
+    assert len(milestones) == 1, \
+        f"exactly one first-frame milestone expected, got {len(milestones)}"
+
+
+def __test_server_error_frame_warns_and_never_emits_the_milestone__(monkeypatch,
+                                                                    caplog):
+    """The discriminating control: the #131 sequence (clean subscribe, THEN a
+    server error frame, and NO frame ever delivered) must never look live."""
+    src = _started_source(monkeypatch)
+    asyncio.run(src.start())
+    with caplog.at_level("INFO"):
+        for handler in src._client.handlers.get("error", []):
+            handler(Exception("internal error"))
+
+    text = " ".join(r.message for r in caplog.records)
+    assert "WS ORDER SOURCE FIRST LIVE FRAME" not in text, \
+        "an error frame must NEVER be mistaken for delivery"
+    assert "server error" in text.lower() or "refused" in text.lower(), \
+        "a server-side subscription error must be reported, not swallowed"
