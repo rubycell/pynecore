@@ -16861,3 +16861,42 @@ def __test_122_parent_flat_snapshot_cascade_declares_unconfirmed_evidence__(
     assert "L-X\0L" not in engine._envelopes
     assert "L" not in pos.entry_orders
     assert ("L-X", "L") not in pos.exit_orders
+
+
+def __test_122_reconcile_retires_pending_flat_parent_after_confirmation__():
+    """A preserved flat parent must reach reconcile's confirmed-flat sweep.
+
+    The preserving path records the parent after its trade has already left
+    ``open_trades``, so the local book is flat.  Flat/flat agreement must still
+    enter the existing multi-read confirmation branch when cleanup is pending;
+    otherwise the agreement branch resets the clock forever and the preserved
+    protection never retires.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    pos.size = 0.0
+    pos.sign = 0.0
+    pos.open_trades.clear()
+    engine._cascade_cleanup_on_parent_flat_snapshot(["L"])
+    assert engine._unconfirmed_flat_pending == {"L"}
+    assert "P\0L" in engine.active_intents
+
+    b.position = None
+    engine.reconcile()
+
+    assert engine._unconfirmed_flat_pending == {"L"}, (
+        "one flat read must preserve pending cleanup"
+    )
+    assert "P\0L" in engine.active_intents
+
+    engine._flat_observed_with_intents_since = (  # type: ignore[attr-defined]
+        time.monotonic() - EXTERNAL_FLATTEN_CONFIRM_GRACE_S - 1.0
+    )
+    engine.reconcile()
+
+    assert engine._unconfirmed_flat_pending == set(), (
+        "sustained flatness never reached the pending-parent sweep"
+    )
+    assert "L" not in engine.active_intents
+    assert "P\0L" not in engine.active_intents
+    assert "L" not in pos.entry_orders
+    assert ("P", "L") not in pos.exit_orders
