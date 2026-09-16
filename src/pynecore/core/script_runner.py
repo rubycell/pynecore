@@ -1297,6 +1297,21 @@ class ScriptRunner:
             return None
         return cast('OrderSyncEngine', self._order_sync_engine).exchange_position
 
+    @property
+    def broker_unprotected_position_quarantine(self) -> bool:
+        """#120: the run ended with a position the broker refused to protect.
+
+        The CLI turns this into a NON-ZERO exit code. Before #120 a refused
+        protective exit crashed the process, which at least told a supervisor
+        something was wrong; the controlled degrade that replaced it must not
+        be quieter than the bug.
+        """
+        if self._order_sync_engine is None:
+            return False
+        return cast(
+            'OrderSyncEngine', self._order_sync_engine,
+        ).unprotected_position_quarantine
+
     # noinspection PyProtectedMember
     def run_iter(self, on_progress: Callable[[datetime], None] | None = None,
                  on_tick: Callable[[OHLCV], None] | None = None) \

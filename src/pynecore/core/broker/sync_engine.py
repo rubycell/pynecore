@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, overload
 from pynecore import lib
 from pynecore.core.broker.disappearance import resolve_unexpected_cancel_policy
 from pynecore.core.broker.exceptions import (
+    AuthenticationError,
     BracketAttachAfterFillRejectedError,
     BrokerManualInterventionError,
     ClientOrderIdSpentError,
@@ -108,6 +109,7 @@ from pynecore.core.broker.models import (
     PartialBracketCancelTentativeResolvedEvent,
     PartialBracketCancelTentativeStartedEvent,
     PendingDefensiveClose,
+    ProtectionDegradedEvent,
     QuarantineEnteredEvent,
     format_intent_key,
 )
@@ -433,6 +435,77 @@ would be that duel, though, so the episode gets 1 INFO, 1 WARN and then the
 loud quarantine on this many occurrences. Reset per episode (the exit's own
 fill, or a flat book).
 """
+
+
+#: #120: canonical, greppable marker of the naked-protection condition. ONE
+#: string so an operator alert rule, a log grep and the tests all key on the
+#: same token instead of a log LEVEL (a level matches any unrelated warning).
+PROTECTION_UNPROTECTED_MARKER = "#120 POSITION UNPROTECTED"
+
+#: #120: skip reason carried by the converted protective-exit refusal.
+PROTECTIVE_EXIT_REFUSED_REASON = "broker_rejected_protective_exit"
+
+#: #120: skip reason carried while the refusal episode's wall-clock backoff
+#: suppresses the re-POST (the dispatch never reaches the venue).
+PROTECTIVE_EXIT_BACKOFF_REASON = "protective_exit_refusal_backoff"
+
+
+_PROTECTIVE_EXIT_REFUSAL_BACKOFF_S: tuple[float, ...] = (30.0, 120.0, 300.0)
+"""#120: WALL-CLOCK delays between retries of a REFUSED protective-exit PLACE
+(:meth:`OrderSyncEngine._degrade_refused_protective_exit`).
+
+A consecutive-ATTEMPT cap cannot bound this: the venue conditions that refuse a
+protective exit are time-boxed (a DNSE ATO/ATC window is ~15 min, lunch ~90
+min), and the same attempt count spans 15 minutes on a 15m chart and 15 seconds
+under ``calc_on_every_tick``. So the bound is the CLOCK: after a refusal the
+next attempt for that episode is withheld until the tier elapses — 30 s, then
+2 min, then 5 min, then 5 min forever. Worst case ~14 POSTs/hour against the
+~16,300/hour an unbounded per-tick re-dispatch would produce.
+"""
+
+
+_PROTECTIVE_EXIT_REFUSAL_BUDGET_S = 1800.0
+"""#120: wall-clock budget one refusal episode may burn before the engine
+escalates to :meth:`OrderSyncEngine.record_quarantine`.
+
+Measured from the FIRST refusal of the episode, so it is a statement about how
+long a real position may stay unprotected — not about how many times we asked.
+30 minutes rides out the session windows that clear on their own (ATO/ATC ~15
+min) and escalates on the ones that do not (an expired/refused trading token,
+an unsettled-inventory refusal, a permanently invalid level). The escalation is
+:meth:`record_quarantine`, never ``_record_halt``: quarantine blocks new
+entries while ingestion, exits, cancels and closes keep running, which is
+exactly the state a naked position needs — a halt would stop the drain and
+blind the engine to fills on the position it failed to protect.
+
+This is the knob: shorten it for an account that must never sit unprotected,
+lengthen it past ~90 min for a venue whose lunch break legitimately refuses
+protective writes.
+"""
+
+
+@dataclasses.dataclass(slots=True)
+class _ProtectiveExitRefusalEpisode:
+    """#120: one naked-protection episode for a single protective exit.
+
+    Keyed by :attr:`ExitIntent.intent_key` — NEVER by the intent VALUE. A
+    trailing / ATR stop re-emits a different level every bar, so a value key
+    (the entry side's :attr:`OrderSyncEngine._rejected_entry_intents` idiom)
+    would reset the bound every bar and leave the storm unbounded for exactly
+    the strategies that most need a stop.
+    """
+
+    #: ``monotonic()`` of the FIRST refusal — the budget's origin.
+    first_refused_monotonic: float
+    #: ``monotonic()`` of the most recent refusal.
+    last_refused_monotonic: float
+    #: How many refusals this episode has seen (drives the backoff tier).
+    refusal_count: int
+    #: ``monotonic()`` before which a re-dispatch is withheld locally.
+    next_retry_monotonic: float
+    #: ``True`` once the budget exhausted and the quarantine latched, so the
+    #: terminal escalation runs exactly once per episode.
+    escalated: bool = False
 
 
 _TERMINAL_PLUGIN_SKIP_REASONS = frozenset({"below_min_size", "above_max_size"})
@@ -1265,6 +1338,26 @@ class OrderSyncEngine:
         #: Reset on the exit's own fill or when the book goes flat — a new
         #: trade is a new episode.
         self._exit_rearm_counts: dict[str, int] = {}
+        #: #120: per-EPISODE refusal record for a protective exit whose PLACE
+        #: the venue REFUSED over real exposure. Keyed by
+        #: ``ExitIntent.intent_key`` (never the intent value — a trailing stop
+        #: re-emits a new level every bar). Drives the wall-clock backoff
+        #: ladder between re-POSTs and the budget escalation to
+        #: :meth:`record_quarantine`. Shares #124's episode boundary
+        #: (:meth:`_reset_exit_rearm_episode`) plus the reconcile-observed
+        #: external flatten, so "episode" keeps ONE meaning in this engine.
+        self._exit_refusal_episodes: dict[str, _ProtectiveExitRefusalEpisode] = {}
+        #: #126 log throttle: ``intent_key -> (already_armed, target)`` of the
+        #: extend-grow reject already warned for this episode. Declared here
+        #: (it used to be conjured by ``getattr`` at the one use site, was
+        #: never reset, and therefore silenced a LATER trade that reproduced
+        #: the same lot shape). Cleared with the rest of the per-episode
+        #: protective-exit state.
+        self._extend_reject_warned_episode: dict[str, tuple[float, float]] = {}
+        #: #120: monotonic clock for the refusal backoff / budget. An instance
+        #: attribute purely so a test can drive the wall-clock tiers without
+        #: sleeping — production never replaces it.
+        self._monotonic: Callable[[], float] = time.monotonic
         self._order_mapping: dict[str, list[str]] = {}
         self._envelopes: dict[str, DispatchEnvelope] = {}
         self._pending_verification: dict[str, DispatchEnvelope] = {}
@@ -2280,6 +2373,23 @@ class OrderSyncEngine:
     def quarantined(self) -> bool:
         """``True`` once :meth:`record_quarantine` has latched the quarantine."""
         return self._quarantined
+
+    @property
+    def unprotected_position_quarantine(self) -> bool:
+        """#120: the quarantine latched because a position could not be PROTECTED.
+
+        The terminal state of the refusal escalation
+        (:meth:`_degrade_refused_protective_exit`): the venue refused the same
+        protective exit for the whole wall-clock budget while the position
+        stayed open. The CLI reads this at the end of a run so a supervised /
+        cron'd bot that ended in that state exits NON-ZERO — the pre-#120
+        crash at least did that much, and a controlled degrade that reported
+        success would be quieter than the bug it replaced.
+        """
+        return bool(
+            self._quarantined
+            and self._quarantine_context.get('unprotected_position')
+        )
 
     def record_quarantine(
             self,
@@ -4806,6 +4916,13 @@ class OrderSyncEngine:
             for entry_id in cleared_entry_ids:
                 self._external_flatten_cleared_entry_ids.add(entry_id)
                 self._cleanup_position_tracking(entry_id)
+            # #120/#124/#126: the exposure every protective-exit episode was
+            # counting against is GONE. This is the reset the fill-event hook
+            # (:meth:`_reset_exit_rearm_episode`) cannot reach: an operator
+            # flattening in their app produces no OrderEvent for our ids, so
+            # without this an episode — and any refusal backoff or quarantine
+            # it latched — would outlive the position that justified it.
+            self._clear_protective_exit_episodes()
         else:
             # Venue and book agree on FLAT-ness — but a partial divergence used
             # to land here silently too (#48): only shrink-to-zero has a branch
@@ -6736,16 +6853,206 @@ class OrderSyncEngine:
         The bound is PER EPISODE (one protected trade), not per process: the
         exit filling, or the book settling flat, means the position the
         counter guarded is gone, so the next trade starts from zero again.
+
+        #120/#126 share this boundary: the refusal backoff episodes and the
+        extend-reject warn latch end where the re-arm count ends, so the
+        engine has ONE definition of "episode" instead of three.
         """
-        if not self._exit_rearm_counts:
-            return
         if float(self._position.size) == 0.0:
-            self._exit_rearm_counts.clear()
+            self._clear_protective_exit_episodes()
             return
         if event.pine_id and event.from_entry:
-            self._exit_rearm_counts.pop(
-                f"{event.pine_id}\x00{event.from_entry}", None,
+            key = f"{event.pine_id}\x00{event.from_entry}"
+            self._exit_rearm_counts.pop(key, None)
+            self._exit_refusal_episodes.pop(key, None)
+            self._extend_reject_warned_episode.pop(key, None)
+
+    def _clear_protective_exit_episodes(self) -> None:
+        """Drop ALL per-episode protective-exit state (the book went flat).
+
+        Flat means every position those episodes guarded is gone — the next
+        trade is a new episode and must warn / count / escalate from zero.
+        Called from :meth:`_reset_exit_rearm_episode` on a flat book and from
+        the reconcile-observed EXTERNAL flatten, which never produces an
+        ``OrderEvent`` for our ids (the operator closed in their app) and so
+        would otherwise freeze an episode — and any quarantine it latched —
+        past the exposure that justified it.
+        """
+        self._exit_rearm_counts.clear()
+        self._exit_refusal_episodes.clear()
+        self._extend_reject_warned_episode.clear()
+
+    def _exit_exposure_not_provably_flat(self, intent: ExitIntent) -> bool:
+        """#120 exposure gate, evaluated in the FAIL-SAFE direction.
+
+        The origin conversion below degrades a refused protective-exit PLACE
+        instead of killing the process — but ONLY when there is exposure to
+        protect. The predicate is deliberately "not provably flat", not
+        "provably open", and it is derived from the PARENT's open trade rather
+        than the global ``position.size``:
+
+        * a trade under ``from_entry`` is open -> real exposure -> degrade;
+        * trades exist but none under ``from_entry`` -> under pyramiding this
+          is a MOOT exit for an already-closed parent (the shape
+          :meth:`_dispatch_modify` retires at its own reject clause) -> keep
+          the fatal contract rather than re-POST a dead intent forever;
+        * no trades at all but the book is non-flat -> attribution is missing
+          (a startup-adopted position, a restart replay) -> NOT provably
+          flat -> degrade, because a missing trade record is not evidence of
+          a missing position;
+        * no trades and a flat book -> provably flat -> nothing is exposed,
+          so the refusal keeps surfacing as it always has (this is what
+          ``__test_exit_exchange_reject_still_halts__`` pins).
+        """
+        open_trades = self._position.open_trades
+        if any(trade.entry_id == intent.from_entry for trade in open_trades):
+            return True
+        if open_trades:
+            return False
+        return float(self._position.size) != 0.0
+
+    def _protective_exit_refusal_backoff_remaining(self, intent: Intent) -> float:
+        """Seconds the #120 backoff still withholds this exit's re-POST.
+
+        ``0.0`` when there is no open refusal episode for the intent's key, or
+        the tier already elapsed — i.e. dispatch freely.
+        """
+        if not isinstance(intent, ExitIntent) or not intent.reduce_only:
+            return 0.0
+        episode = self._exit_refusal_episodes.get(intent.intent_key)
+        if episode is None:
+            return 0.0
+        return max(0.0, episode.next_retry_monotonic - self._monotonic())
+
+    def _protective_exit_refusal_context(
+            self, intent: ExitIntent, episode: '_ProtectiveExitRefusalEpisode',
+            exc: Exception, unprotected_for: float,
+    ) -> dict:
+        """Operator-actionable payload shared by the log line, the event and
+        the quarantine record."""
+        return {
+            'symbol': intent.symbol,
+            'pine_id': intent.pine_id,
+            'from_entry': intent.from_entry,
+            'intent_key': intent.intent_key,
+            'position_size': float(self._position.size),
+            'refusal_type': type(exc).__name__,
+            'refusal_message': str(exc),
+            'refusal_count': episode.refusal_count,
+            'unprotected_for_s': round(unprotected_for, 3),
+            'unprotected_position': True,
+        }
+
+    def _degrade_refused_protective_exit(
+            self, intent: ExitIntent, exc: Exception,
+    ) -> OrderSkippedByPlugin:
+        """#120: convert a REFUSED protective-exit PLACE into a bounded retry.
+
+        The fatal contract this replaces was right about the requirement ("a
+        protective order the exchange refuses is a real exposure that must
+        surface") and wrong about the mechanism: "surface" was spelled as an
+        uncaught throw through a bar loop that catches only
+        :class:`ExchangeConnectionError`, so the only process that could still
+        act on the exposure was the thing it destroyed. Measured on three
+        paths (arm-on-fill, bar-close sync, #124's re-arm): the run died
+        holding the open, unprotected position.
+
+        What happens instead, per refusal:
+
+        1. the episode advances and the next re-POST is withheld until the
+           wall-clock tier elapses (:data:`_PROTECTIVE_EXIT_REFUSAL_BACKOFF_S`)
+           — a refusal that clears on its own (a session window) is retried
+           without a venue reject storm;
+        2. ONE canonical ERROR line carrying
+           :data:`PROTECTION_UNPROTECTED_MARKER` names the naked position, for
+           how long it has been naked, and what refused it;
+        3. a :class:`ProtectionDegradedEvent` carries the same facts
+           structurally (``policy_action='degraded'``, or ``'terminal'`` once
+           the budget is spent). NOTE: no runner installs a
+           ``broker_event_sink`` today, so the event is not yet an alert
+           channel on its own — the ERROR line is the operative one;
+        4. once :data:`_PROTECTIVE_EXIT_REFUSAL_BUDGET_S` of wall clock has
+           been burned on the SAME episode, :meth:`record_quarantine` latches
+           with the naked-position reason: new entries stop, ingestion /
+           exits / cancels / closes keep running, and the CLI exits non-zero
+           when the run ends in that state.
+
+        The intent stays OUT of ``_active_intents`` (the skip vehicle the
+        dispatch sites already handle), so the engine never believes an
+        unplaced exit is armed. The envelope is re-anchored for the same
+        reason the entry branch re-anchors: the refused order DID reach the
+        broker, so its client order id is spent and a same-bar retry must
+        mint a fresh one.
+
+        :return: the skip to raise; the caller owns the ``raise``.
+        """
+        key = intent.intent_key
+        now = self._monotonic()
+        episode = self._exit_refusal_episodes.get(key)
+        if episode is None:
+            episode = _ProtectiveExitRefusalEpisode(
+                first_refused_monotonic=now,
+                last_refused_monotonic=now,
+                refusal_count=0,
+                next_retry_monotonic=now,
             )
+            self._exit_refusal_episodes[key] = episode
+        episode.refusal_count += 1
+        episode.last_refused_monotonic = now
+        tier = _PROTECTIVE_EXIT_REFUSAL_BACKOFF_S[
+            min(episode.refusal_count, len(_PROTECTIVE_EXIT_REFUSAL_BACKOFF_S)) - 1
+        ]
+        episode.next_retry_monotonic = now + tier
+        unprotected_for = now - episode.first_refused_monotonic
+        context = self._protective_exit_refusal_context(
+            intent, episode, exc, unprotected_for,
+        )
+        budget_spent = unprotected_for >= _PROTECTIVE_EXIT_REFUSAL_BUDGET_S
+        # Throttled by construction: a second ERROR line can only follow after
+        # the backoff tier elapsed, so this is at most ~14 lines/hour even
+        # under ``calc_on_every_tick`` — never one per sync.
+        _blog_error(
+            "%s: the venue REFUSED the protective exit %s (%s: %s) — the "
+            "position is OPEN and UNPROTECTED (size=%s, from_entry=%r) and "
+            "has been for %.0fs over %d refusal(s); retrying in %.0fs. "
+            "Operator: check `venue.py status` and flatten manually if the "
+            "refusal does not clear.",
+            PROTECTION_UNPROTECTED_MARKER, format_intent_key(key),
+            type(exc).__name__, exc, self._position.size, intent.from_entry,
+            unprotected_for, episode.refusal_count, tier,
+        )
+        self._emit_broker_event(ProtectionDegradedEvent(
+            pine_id=intent.pine_id,
+            from_entry=intent.from_entry,
+            reason=(
+                f"{PROTECTION_UNPROTECTED_MARKER}: protective exit PLACE "
+                f"refused ({type(exc).__name__}: {exc})"
+            ),
+            policy_action='terminal' if budget_spent else 'degraded',
+        ))
+        if budget_spent and not episode.escalated:
+            episode.escalated = True
+            self.record_quarantine(
+                f"{PROTECTION_UNPROTECTED_MARKER}: the venue refused the "
+                f"protective exit {key!r} {episode.refusal_count} times over "
+                f"{unprotected_for:.0f}s — the wall-clock budget "
+                f"({_PROTECTIVE_EXIT_REFUSAL_BUDGET_S:.0f}s) is spent and the "
+                f"position (size={self._position.size}, "
+                f"from_entry={intent.from_entry!r}) is STILL UNPROTECTED. "
+                f"Entries are blocked; the engine keeps retrying the exit and "
+                f"keeps ingesting fills. Operator intervention required.",
+                context,
+                intent_key=key,
+            )
+        self._reanchor_envelope_after_reject(key)
+        return OrderSkippedByPlugin(
+            f"Protective exit {format_intent_key(key)} REFUSED by the "
+            f"exchange ({type(exc).__name__}: {exc}); the open position is "
+            f"UNPROTECTED and the place is retried in {tier:.0f}s.",
+            intent_key=key,
+            reason=PROTECTIVE_EXIT_REFUSED_REASON,
+            context=context,
+        )
 
     def _apply_unexpected_cancel_policy(
             self, event: OrderEvent, key: str,
@@ -9482,9 +9789,14 @@ class OrderSyncEngine:
                 # drain while the venue keeps refusing, so warn once per
                 # (key, armed -> target) episode — a changed episode (a further
                 # slice filled, or the grow finally landed) warns again.
-                warned = getattr(self, '_extend_reject_warned_episode', None)
-                if warned is None:
-                    warned = self._extend_reject_warned_episode = {}
+                # #120 sidecar: the latch is a DECLARED dict now (``__init__``)
+                # and is cleared with the rest of the per-episode protective
+                # state. It used to be conjured here by ``getattr`` and never
+                # reset, so once a ``(key, armed -> target)`` pair had warned
+                # it stayed silent for the life of the process — including on
+                # a LATER, unrelated trade that reproduced the same lot shape,
+                # whose unprotected slice then warned nothing at all.
+                warned = self._extend_reject_warned_episode
                 episode = (already_armed, target)
                 if warned.get(intent_key) != episode:
                     warned[intent_key] = episode
@@ -13729,7 +14041,15 @@ class OrderSyncEngine:
                         # stop-limit can rest for many bars) — warn once per
                         # episode, DEBUG thereafter; every other skip reason
                         # keeps today's per-occurrence warning.
-                        if e.reason == "no_position_to_protect":
+                        # #120 joins the throttle for the same reason #82b did:
+                        # the backoff skip re-fires on EVERY sync while the
+                        # tier runs, and 200 identical lines is not loudness —
+                        # the eye filters repetition. The canonical
+                        # ``#120 POSITION UNPROTECTED`` ERROR at the origin is
+                        # the operator's channel; this one warns once per
+                        # episode and goes to DEBUG after.
+                        if e.reason in ("no_position_to_protect",
+                                        PROTECTIVE_EXIT_BACKOFF_REASON):
                             if key in self._skip_warned_keys:
                                 _blog_debug("%s", e)
                             else:
@@ -15692,6 +16012,34 @@ class OrderSyncEngine:
                     'quarantine_reason': self._quarantine_reason,
                 },
             )
+        # #120 refusal backoff gate: a protective exit the venue already
+        # REFUSED for this episode is withheld locally until its wall-clock
+        # tier elapses. Without it the degrade below would be a reject STORM:
+        # an ``OrderSkippedByPlugin`` leaves the key out of
+        # ``_active_intents``, so the next sync re-diffs the exit as new and
+        # re-POSTs it — under ``calc_on_every_tick`` that is every tick, at a
+        # venue that is refusing us. This is the exit-side analogue of the
+        # entry path's ``_ENTRY_REJECT_RETRY_CAP``, bounded on the CLOCK
+        # instead of on attempts (see the constant's docstring for why).
+        # Runs BEFORE the envelope is built, like the quarantine gate above,
+        # so there is nothing to clean up.
+        backoff_remaining = self._protective_exit_refusal_backoff_remaining(intent)
+        if backoff_remaining > 0.0:
+            raise OrderSkippedByPlugin(
+                f"Protective exit {format_intent_key(intent.intent_key)} "
+                f"re-place withheld for {backoff_remaining:.0f}s more: the "
+                f"venue refused it and the position is UNPROTECTED "
+                f"({PROTECTION_UNPROTECTED_MARKER}); the #120 backoff bounds "
+                f"the re-POST rate.",
+                intent_key=intent.intent_key,
+                reason=PROTECTIVE_EXIT_BACKOFF_REASON,
+                context={
+                    'symbol': intent.symbol,
+                    'pine_id': intent.pine_id,
+                    'retry_in_s': round(backoff_remaining, 3),
+                    'unprotected_position': True,
+                },
+            )
         # MARKET stop-and-reverse (TV parity): TV sizes a reversing market
         # entry at first order processing as ``qty + |opposite position|``
         # and executes it as one combined order. Live, the engine reaches
@@ -16316,7 +16664,22 @@ class OrderSyncEngine:
             )
             self._reanchor_envelope_after_reject(intent.intent_key)
             self._dispatch_new(intent, _coid_spent_retry=_coid_spent_retry + 1)
-        except ExchangeOrderRejectedError as e:
+        except (ExchangeOrderRejectedError, AuthenticationError,
+                ExchangeRateLimitError) as e:
+            # #120: the catch is WIDER than the reject class on purpose. The
+            # documented, twice-measured DNSE refusal of a protective write is
+            # ``INVALID_TRADING_TOKEN``, which the plugin raises as
+            # :class:`AuthenticationError` — a SIBLING of
+            # :class:`ExchangeOrderRejectedError`, not a subclass — and a
+            # storm-induced ``429`` arrives as :class:`ExchangeRateLimitError`.
+            # Both used to fall through to the generic ``except Exception``
+            # below and kill the process holding the naked position, i.e. the
+            # exact failure this card is about, on the venue path most likely
+            # to produce it. ENTRY handling is unchanged by the widening: the
+            # entry conversion below is still gated on
+            # :class:`ExchangeOrderRejectedError`, so an auth / rate-limit
+            # failure on an entry takes the same log-and-raise it always took.
+            #
             # The exchange rejected the order outright — no parent fill (the
             # ``BracketAttachAfterFillRejectedError`` branch above owns the
             # fill-then-reject case). For an ENTRY this is non-terminal:
@@ -16341,7 +16704,29 @@ class OrderSyncEngine:
             # the fatal contract: a protective order the exchange refuses
             # is a real exposure that must surface, not be silently
             # dropped.
-            if not isinstance(intent, EntryIntent):
+            #
+            # #120 NARROWS that fatal contract — it does not delete it. The
+            # requirement ("must surface") was right; spelling it as an
+            # uncaught throw was not, because the caller
+            # (``ScriptRunner._broker_sync``) catches only
+            # :class:`ExchangeConnectionError`, so the exception surfaced the
+            # exposure to nobody and destroyed the only process that could
+            # still act on it. Exactly one shape degrades instead: a
+            # reduce-only protective :class:`ExitIntent` whose exposure is NOT
+            # provably flat. The test is POSITIVE (an explicit ``isinstance``
+            # on the type we mean) and the ``else`` falls through to today's
+            # raise, so :class:`CloseIntent`, :class:`CancelIntent` and any
+            # intent type added later keep the fatal contract by SHAPE rather
+            # than by anyone remembering to re-audit this branch. That matters
+            # concretely: a ``CloseIntent`` reject is handled by three live
+            # call-site clauses, and converting it here would mislabel their
+            # audit trail and reroute a refused FLATTEN into a 60-second
+            # retry gate.
+            if (isinstance(intent, ExitIntent) and intent.reduce_only
+                    and self._exit_exposure_not_provably_flat(intent)):
+                raise self._degrade_refused_protective_exit(intent, e) from e
+            if (not isinstance(intent, EntryIntent)
+                    or not isinstance(e, ExchangeOrderRejectedError)):
                 _blog_error(
                     "dispatch failed for %s: %s: %s",
                     intent, type(e).__name__, e,
