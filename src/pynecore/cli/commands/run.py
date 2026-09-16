@@ -36,7 +36,7 @@ from pynecore.lib.log import logger as pyne_logger
 from pynecore.lib.timeframe import in_seconds
 
 from pynecore.core.broker.exceptions import BrokerManualInterventionError
-from pynecore.lib.log import broker_info, broker_warning
+from pynecore.lib.log import broker_error, broker_info, broker_warning
 from pynecore.core.syminfo import SymInfo, mintick_decimals
 from pynecore.core.script_runner import ScriptRunner, DataRequirements, SecurityRequirement
 from pynecore.pynesys.compiler import PyneComp
@@ -2204,3 +2204,21 @@ def run(
                         "leaving it open to avoid a close-while-running crash.",
                         shutdown_timeout,
                     )
+
+        # #120: a run that ends while the engine is quarantined over a position
+        # it could NOT protect must not report success. The pre-#120 behaviour
+        # was a crash — ugly, but it exited non-zero, so a supervisor / cron
+        # wrapper noticed. The controlled degrade that replaced it keeps the
+        # process alive and reaches this point normally, and the halt path here
+        # already exits 0, so without this a bot could end a session holding an
+        # unprotected position and report success. Raised AFTER the teardown
+        # ``finally`` above, so storage is closed and the event loop is stopped
+        # exactly as on the happy path — only the exit status differs.
+        if broker_plugin is not None and runner.broker_unprotected_position_quarantine:
+            broker_error(
+                "run ended QUARANTINED with an UNPROTECTED position — the "
+                "broker refused the protective exit for the whole wall-clock "
+                "budget. Check the venue and flatten manually before "
+                "restarting; exiting non-zero."
+            )
+            raise Exit(1)

@@ -21,6 +21,7 @@ import pytest
 
 from pynecore import lib
 from pynecore.core.broker.exceptions import (
+    AuthenticationError,
     BracketAttachAfterFillRejectedError,
     BrokerManualInterventionError,
     ClientOrderIdSpentError,
@@ -35,6 +36,7 @@ from pynecore.core.broker.exceptions import (
 from pynecore.core.broker.position import BrokerPosition
 from pynecore.core.broker.sync_engine import (
     EXTERNAL_FLATTEN_CONFIRM_GRACE_S,
+    PROTECTION_UNPROTECTED_MARKER,
     OrderSyncEngine,
     READ_OUTAGE_WARN_INTERVAL_S,
     READ_STUCK_GRACE_S,
@@ -59,6 +61,7 @@ from pynecore.core.broker.models import (
     LegRepairFailedEvent,
     OcaPartialFillPolicy,
     OrderEvent,
+    ProtectionDegradedEvent,
     OrderStatus,
     OrderType,
     LegType,
@@ -15601,28 +15604,66 @@ def _standalone_exit_engine_with_open_long() -> tuple[
     return b, engine, pos
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "#120 (path B): the venue refuses the protective exit's PLACE at the "
-    "bar-close sync and ``_dispatch_new`` (sync_engine.py:16344) re-raises "
-    "ExchangeOrderRejectedError for every non-EntryIntent. The only guard at "
-    "the dispatch site (:13719) is ``except OrderSkippedByPlugin``, so the "
-    "reject escapes ``sync()``; ScriptRunner._broker_sync "
-    "(script_runner.py:1181) catches only ExchangeConnectionError, so the "
-    "process dies holding the OPEN long. Flips green when a refused "
-    "protective-exit PLACE is handled inside the engine instead of "
-    "propagating — by ANY of the #120 remedies (defensive close, controlled "
-    "halt, or bounded retry)."
-))
-def __test_120_bar_close_sync_protective_exit_place_reject_must_not_escape__():
-    """#120 CORE GATE (path B, remedy-agnostic): a refused protective-exit PLACE
-    must not propagate an unhandled exception out of :meth:`OrderSyncEngine.sync`
-    while a real position is open.
+class _FakeMonotonic:
+    """Injectable ``monotonic()`` for the #120 wall-clock ladder.
 
-    Deliberately asserts ONLY what every candidate remedy satisfies — the
-    engine, not the caller's bar loop, owns the refusal — so the #120 panel can
-    pick between a defensive close, a controlled halt and a bounded retry
-    without this gate mis-firing. The remedy-shaped expectations live in
-    ``__test_120_refused_protective_exit_keeps_the_run_alive_and_retries__``.
+    The bound #120 adds is measured in WALL CLOCK, not in attempts (a session
+    refusal lasts 15-90 minutes, which is one attempt on a 15m chart and
+    thousands under ``calc_on_every_tick``). Testing the tiers and a 30-minute
+    budget against the real clock would mean sleeping for half an hour, so the
+    engine takes its monotonic source from an instance attribute and the tests
+    drive it.
+    """
+
+    def __init__(self, start: float = 1_000.0) -> None:
+        self.now = float(start)
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += float(seconds)
+
+
+def _unprotected_errors(caplog) -> list[str]:
+    """The canonical #120 operator lines captured so far.
+
+    Matches the STABLE MARKER, never the log LEVEL: the harness emits
+    unrelated warnings (the #82b pre-fill exit skip is one, on the very first
+    sync), so a level-only assertion is satisfied by a silent-swallow
+    implementation and pins nothing. Measured: with the origin's ERROR line
+    downgraded to DEBUG, a level-only pin keeps both loudness tests GREEN and
+    this one reds them.
+    """
+    return [
+        rec.getMessage() for rec in caplog.records
+        if rec.levelno >= logging.ERROR
+        and PROTECTION_UNPROTECTED_MARKER in rec.getMessage()
+    ]
+
+
+def _refusal_episode(engine: OrderSyncEngine, key: str):
+    """The engine's open #120 refusal episode for ``key`` (``None`` if none)."""
+    return engine._exit_refusal_episodes.get(key)  # type: ignore[attr-defined]
+
+
+def __test_120_bar_close_sync_protective_exit_place_reject_must_not_escape__():
+    """#120 CORE GATE (path B): a refused protective-exit PLACE must not
+    propagate an unhandled exception out of :meth:`OrderSyncEngine.sync` while
+    a real position is open.
+
+    The engine, not the caller's bar loop, owns the refusal. Two extra pins
+    beyond survival, both remedy-agnostic and each aimed at a specific wrong
+    implementation:
+
+    * ``key not in active_intents`` kills the SWALLOW-AND-MARK-ARMED mutant —
+      a "fix" that catches the reject and registers the exit as live survives
+      the sync, reports a healthy run, and abandons the protection
+      permanently. That is the worst outcome on the board and nothing else
+      here catches it.
+    * an open refusal EPISODE proves the work is parked and scheduled, not
+      dropped: the skip vehicle is quiet by design, so "did not crash" alone
+      is also satisfied by a bare ``except: pass``.
     """
     b, engine, pos = _standalone_exit_engine_with_open_long()
 
@@ -15634,49 +15675,61 @@ def __test_120_bar_close_sync_protective_exit_place_reject_must_not_escape__():
         "#120: the open long is still real — the engine must keep tracking the "
         "position it failed to protect, not lose it to an escaping exception"
     )
+    assert "P\0L" not in engine.active_intents, (
+        "#120: the exit was REFUSED — the engine must not believe an unplaced "
+        "protective order is armed"
+    )
+    episode = _refusal_episode(engine, "P\0L")
+    assert episode is not None and episode.refusal_count == 1, (
+        "#120: the refusal opens a bounded retry episode — the degrade PARKS "
+        "the protection work, it does not drop it"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "#120 (path A): the ARM-ON-FILL first arm at "
-    "``_arm_protective_exits_after_fill`` (sync_engine.py:9425) is guarded by "
-    "``except OrderSkippedByPlugin`` only — the #126 clause at :9471 covers "
-    "the ``_dispatch_modify`` GROW branch, not this PLACE. A refused arm "
-    "therefore escapes ``_drain_events`` (:5207, unguarded call) and "
-    "``apply_async_events``, killing the run on the very wake that #121 added "
-    "to CLOSE the unprotected window. Flips green when the first arm degrades "
-    "the way #126 made the extend degrade."
-))
-def __test_120_arm_on_fill_initial_protective_exit_place_reject_must_not_escape__():
+def __test_120_arm_on_fill_initial_protective_exit_place_reject_must_not_escape__(
+        caplog,
+):
     """#120 (path A): the arm-on-fill wake drain must survive a venue refusal of
     the FIRST protective-exit arm.
 
     Same broker seam and same exception #126 already degrades on the GROW
     branch — only the branch differs, which is what makes this a coverage hole
     rather than a new failure mode.
+
+    This path also owns the LOUDNESS pin. Its only call-site guard is a bare
+    ``except OrderSkippedByPlugin: continue`` with no log statement at all, so
+    a remedy that delegates the operator message to the call sites makes an
+    arm-on-fill refusal completely SILENT while a just-filled position sits
+    naked — the one outcome this card calls strictly worse than the crash it
+    replaces. Asserting the canonical marker here proves the line lives at the
+    ORIGIN, which every PLACE path passes through.
     """
     b, engine, pos = _partial_arm_engine()
 
     b.raise_on_next_exit = _refused_protective_exit()
-    engine.on_order_event(_fill_event(
-        "buy", qty=2.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
-        xchg_id="xchg-1", event_type='filled', filled_qty=2.0, remaining_qty=0.0,
-    ))
-    _wake_drain(engine)                   # must NOT raise out of the engine
+    with caplog.at_level(logging.DEBUG, logger="pyne_core_logger"):
+        engine.on_order_event(_fill_event(
+            "buy", qty=2.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+            xchg_id="xchg-1", event_type='filled', filled_qty=2.0,
+            remaining_qty=0.0,
+        ))
+        _wake_drain(engine)               # must NOT raise out of the engine
 
     assert len(b.exit_calls) == 1, "the refused arm did reach the venue seam"
     assert pos.size == 2.0, (
         "#120: the filled entry is a real 2-lot position — the engine must "
         "keep tracking it after the arm was refused"
     )
+    assert "X\0E" not in engine.active_intents, (
+        "#120: a refused arm must not be registered as live protection"
+    )
+    assert _unprotected_errors(caplog), (
+        "#120: path A's call-site guard logs NOTHING, so the canonical "
+        f"{PROTECTION_UNPROTECTED_MARKER!r} line must come from the origin — "
+        "a silent naked position is worse than the crash this replaces"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "#120 (path C): #124's bounded re-arm is retire-then-re-diff — the actual "
-    "re-place happens at the next sync through ``_diff_and_dispatch`` "
-    "(sync_engine.py:13714), i.e. path B. A venue that refuses the re-arm "
-    "therefore hands the naked position straight from the #124 fix to the "
-    "#120 crash. Flips green together with the core gate."
-))
 def __test_120_rearm_after_venue_cancel_protective_exit_place_reject_must_not_escape__():
     """#120 (path C): the #124 re-arm's re-PLACE is refused.
 
@@ -15696,29 +15749,46 @@ def __test_120_rearm_after_venue_cancel_protective_exit_place_reject_must_not_es
     assert pos.size == 1.0, (
         "#120: the long the #124 re-arm was protecting is still open"
     )
+    assert "P\0L" not in engine.active_intents, (
+        "#120: the refused replacement must not be marked armed"
+    )
+    assert engine.quarantined is False, (
+        "#124's re-arm bound is not consumed by a #120 refusal: the two "
+        "counters coexist on one episode without either spending the other"
+    )
+    assert engine._exit_rearm_counts.get("P\0L") == 1, (
+        "the #124 re-arm count is still at its own 1/3 — the refusal advanced "
+        "the #120 episode, not #124's"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "#120 REMEDY-SHAPED gate (candidate (c), bounded retry): today the reject "
-    "escapes before any of this can be observed. Kept SEPARATE from the core "
-    "gate on purpose — if the panel picks remedy (b) (a controlled "
-    "``_record_halt`` with a POSITION UNPROTECTED banner) the "
-    "``halted is False`` assertion below is the one to re-shape, and the core "
-    "gate still holds."
-))
 def __test_120_refused_protective_exit_keeps_the_run_alive_and_retries__(caplog):
-    """#120 remedy-shaped gate: mirrors what the #126 sibling asserts — the run
+    """#120 FIRST-REFUSAL gate: mirrors what the #126 sibling asserts — the run
     keeps going, nothing is latched, the refusal is LOUD, and a later sync that
     the venue accepts still gets the protection on.
 
-    The loudness assertion is the card's hard requirement ("whatever is chosen
-    must make 'the position is unprotected' impossible to miss in the output");
-    it is deliberately matched on level, not wording.
+    Two things changed from this gate's pre-implementation shape, both forced
+    by the adjudicated remedy and neither weakening it:
+
+    * the loudness assertion matches the canonical
+      :data:`PROTECTION_UNPROTECTED_MARKER` instead of "any record at WARNING
+      or above". The old form was satisfied by an unrelated #82b skip warning
+      this very harness emits on the first sync, so it did not discriminate
+      against a silent swallow at all (measured: downgrading the origin's
+      ERROR to DEBUG left the old assertion green).
+    * the retry sync advances the INJECTED clock past the first backoff tier.
+      The bound is wall-clock by design, so "the next sync retries" is only
+      true once the tier elapses — a retry that ignored the ladder would be
+      the unbounded reject storm the bound exists to prevent, and
+      ``__test_120_refusal_backoff_withholds_the_repost_until_the_tier_elapses__``
+      pins that side.
     """
     b, engine, pos = _standalone_exit_engine_with_open_long()
+    clock = _FakeMonotonic()
+    engine._monotonic = clock
 
     b.raise_on_next_exit = _refused_protective_exit()
-    with caplog.at_level(logging.WARNING, logger="pyne_core_logger"):
+    with caplog.at_level(logging.DEBUG, logger="pyne_core_logger"):
         engine.sync(BAR_TS + 60_000)      # must NOT raise
 
     assert engine.halted is False, (
@@ -15726,22 +15796,34 @@ def __test_120_refused_protective_exit_keeps_the_run_alive_and_retries__(caplog)
         "intervention halt"
     )
     assert engine.quarantined is False, (
-        "quarantine blocks new entries but does nothing about the position "
-        "already open and now unprotected"
+        "one refusal is not the end-state: quarantine blocks new entries but "
+        "does nothing about the position already open and now unprotected"
     )
-    assert [rec for rec in caplog.records if rec.levelno >= logging.WARNING], (
-        "#120: the refusal must be LOUD — a silently swallowed reject would "
-        "be strictly worse than the crash it replaces"
+    assert _unprotected_errors(caplog), (
+        "#120: the refusal must be LOUD and GREPPABLE — a silently swallowed "
+        "reject would be strictly worse than the crash it replaces"
     )
 
-    # The exposure is parked, not dropped: a later sync the venue accepts still
-    # arms the protection.
+    # The exposure is parked, not dropped: once the backoff tier elapses, a
+    # sync the venue accepts still arms the protection.
+    clock.advance(31.0)
     engine.sync(BAR_TS + 120_000)
     assert len(b.exit_calls) == 2, (
         "#120: after the refusal cleared, a later sync must re-attempt the "
         "protective exit — the degrade parks the work, it does not drop it"
     )
     assert engine.order_mapping.get("P\0L"), "the retried exit is venue-mapped"
+    assert isinstance(engine.active_intents.get("P\0L"), ExitIntent), (
+        "#120: the accepted re-place IS the protection — now it may be "
+        "registered as live"
+    )
+    # The episode deliberately SURVIVES a successful place: it ends on the
+    # episode boundary (the exit's own fill, a flat book, a reconcile-observed
+    # flatten), not on one accepted POST. Resetting it here is the obvious
+    # design and the wrong one — a flip-flopping venue (refuse, accept, cancel,
+    # refuse, accept) would zero the budget every cycle and the wall-clock
+    # bound would be inert for exactly the pathology it exists to terminate.
+    assert _refusal_episode(engine, "P\0L") is not None
 
 
 def __test_120_entry_place_reject_keeps_its_skip_contract__():
@@ -15769,6 +15851,316 @@ def __test_120_entry_place_reject_keeps_its_skip_contract__():
     assert pos.size == 0.0, "nothing opened — no exposure to protect"
     assert engine.halted is False and engine.quarantined is False, (
         "an entry reject is non-terminal: the next bar re-evaluates the signal"
+    )
+
+
+def __test_120_refused_close_intent_still_raises__():
+    """#120 CONTROL: a refused :class:`CloseIntent` keeps the FATAL contract.
+
+    The narrowing at ``_dispatch_new`` is a POSITIVE type test on a reduce-only
+    :class:`ExitIntent`, and this is the test that stops anyone "simplifying"
+    it back into the negation it replaced (``if not isinstance(intent,
+    EntryIntent)``). That spelling looks equivalent and is not:
+    :class:`CloseIntent` is reduce-only BY CONSTRUCTION (its ``__post_init__``
+    rejects ``reduce_only=False``), so a negation-shaped fix converts every
+    refused close too — three live call-site clauses that branch on the reject
+    (the partial-bracket trigger close, the marketable close, the reversal
+    close) silently become dead code, their leg audit trail is mislabelled
+    ``plugin_skipped:``, and a refused FLATTEN gets rerouted into a 60-second
+    retry gate.
+
+    Discriminating by construction: the position is OPEN (so the exposure gate
+    would pass) and the exception is the SAME one the sibling exit degrades.
+    Only the intent's TYPE differs. Measured: with the negation restored, this
+    is the test that reds.
+    """
+    b, engine, pos = _standalone_exit_engine_with_open_long()
+    close = CloseIntent(pine_id="CL", symbol=SYMBOL, side="sell", qty=1.0)
+
+    b.raise_on_next_close = _refused_protective_exit("SESSION_CLOSED")
+    with pytest.raises(ExchangeOrderRejectedError):
+        engine._dispatch_new(close)       # type: ignore[attr-defined]
+
+    assert _refusal_episode(engine, close.intent_key) is None, (
+        "#120: a close is not a protective exit — no refusal episode, no "
+        "backoff, no quarantine budget"
+    )
+    assert close.intent_key not in engine._close_skip_bar_gate, (
+        "#120: the reject must NOT be laundered into the close-decline skip "
+        "gate, which would defer a refused flatten by up to a minute"
+    )
+
+
+def __test_120_refused_protective_exit_for_a_closed_parent_still_raises__():
+    """#120 CONTROL (the exposure gate's negative half): the gate is derived
+    from the PARENT's open trade, NOT from the global ``position.size``.
+
+    Under pyramiding a MOOT exit — one whose parent entry is already closed
+    while a sibling entry keeps the book non-flat — must stay fatal, because
+    ``position.size != 0`` is true for the SIBLING's exposure, not for anything
+    this exit could reduce. Converting it would re-POST a dead intent on every
+    backoff tier forever and bypass the moot-parent cleanup the modify path
+    performs for exactly this shape.
+
+    Discriminating: identical to the path-B gate except for ``from_entry``. A
+    gate written as ``self._position.size != 0`` — or as the existing
+    ``_position_open_for_exit``, which reads the same field — passes this
+    refusal into the degrade and this test reds. Measured.
+    """
+    b, engine, pos = _standalone_exit_engine_with_open_long()
+    assert pos.size == 1.0 and any(t.entry_id == "L" for t in pos.open_trades)
+
+    orphan = ExitIntent(
+        pine_id="Q", from_entry="RETIRED", symbol=SYMBOL, side="sell",
+        qty=1.0, sl_price=49_900.0,
+    )
+    b.raise_on_next_exit = _refused_protective_exit()
+    with pytest.raises(ExchangeOrderRejectedError):
+        engine._dispatch_new(orphan)      # type: ignore[attr-defined]
+
+    assert _refusal_episode(engine, orphan.intent_key) is None, (
+        "#120: no open trade under 'RETIRED' — nothing this exit can protect, "
+        "so no episode and no bounded retry of a dead intent"
+    )
+
+
+def __test_120_authentication_error_on_a_protective_exit_degrades__(caplog):
+    """#120: the DNSE-documented refusal shape must degrade, not kill.
+
+    ``INVALID_TRADING_TOKEN`` on a conditional-book write is this repo's
+    twice-measured (#46/#51) protective-write refusal, and the plugin raises it
+    as :class:`AuthenticationError` — a SIBLING of
+    :class:`ExchangeOrderRejectedError`, not a subclass. A remedy keyed only on
+    the reject class therefore ships, closes the card, and still dies naked on
+    the venue path most likely to produce the bug.
+
+    Discriminating: narrow the catch tuple back to
+    :class:`ExchangeOrderRejectedError` alone and this raises out of ``sync()``
+    again. Measured.
+    """
+    b, engine, pos = _standalone_exit_engine_with_open_long()
+
+    b.raise_on_next_exit = AuthenticationError("INVALID_TRADING_TOKEN")
+    with caplog.at_level(logging.DEBUG, logger="pyne_core_logger"):
+        engine.sync(BAR_TS + 60_000)      # must NOT raise
+
+    assert pos.size == 1.0, "the open long survives the auth refusal"
+    assert "P\0L" not in engine.active_intents
+    errors = _unprotected_errors(caplog)
+    assert errors and "AuthenticationError" in errors[0], (
+        "#120: the canonical line must name what refused, so the operator can "
+        "tell a token window from a session window"
+    )
+
+
+def __test_120_rate_limit_error_on_a_protective_exit_degrades__():
+    """#120: the retry's OWN failure mode must not be fatal either.
+
+    The bounded retry talks to a venue that is refusing us; a ``429`` comes
+    back as :class:`ExchangeRateLimitError`, another sibling of the reject
+    class. Left uncaught, the storm the bound exists to prevent would
+    manufacture exactly the crash this card is about.
+    """
+    b, engine, pos = _standalone_exit_engine_with_open_long()
+
+    b.raise_on_next_exit = ExchangeRateLimitError("OA-429", retry_after=1.0)
+    engine.sync(BAR_TS + 60_000)          # must NOT raise
+
+    assert pos.size == 1.0
+    assert _refusal_episode(engine, "P\0L") is not None
+
+
+def __test_120_refusal_backoff_withholds_the_repost_until_the_tier_elapses__():
+    """#120: the bound is WALL CLOCK — 30 s, then 2 min, then 5 min.
+
+    An attempt cap cannot express this: a DNSE ATC window is ~15 minutes,
+    which is one sync on a 15m chart and thousands under
+    ``calc_on_every_tick``. So the ladder gates on the clock, and between
+    tiers the re-POST never reaches the venue at all.
+
+    Discriminating against three wrong implementations, all measured:
+    * no gate (a bare origin conversion): ``exit_calls`` grows on EVERY sync;
+    * a value-keyed episode (the entry idiom at ``_rejected_entry_intents``):
+      the exit's level is RETUNED between refusals below — a trailing stop's
+      real shape — and a value key resets to tier 1 each time, re-POSTing
+      immediately;
+    * a per-sync / per-bar reset: same symptom, same asserts catch it.
+    """
+    b, engine, pos = _standalone_exit_engine_with_open_long()
+    clock = _FakeMonotonic()
+    engine._monotonic = clock
+
+    b.raise_on_next_exit = _refused_protective_exit()
+    engine.sync(BAR_TS + 60_000)
+    assert len(b.exit_calls) == 1
+
+    # Twenty syncs inside the first tier, each retuning the stop the way a
+    # trailing exit does: not one of them reaches the venue.
+    for i in range(20):
+        clock.advance(1.0)
+        pos.exit_orders[("P", "L")] = _exit_order(
+            "L", -1.0, "P", limit=50_100.0, stop=49_900.0 + i,
+        )
+        b.raise_on_next_exit = _refused_protective_exit()
+        engine.sync(BAR_TS + 120_000 + i)
+    assert len(b.exit_calls) == 1, (
+        "#120: the wall-clock tier withholds the re-POST — a retuned level "
+        "must not reset the episode (a trailing stop emits a new level every "
+        "bar, which is precisely why the episode is keyed by intent_key)"
+    )
+    episode = _refusal_episode(engine, "P\0L")
+    assert episode is not None and episode.refusal_count == 1, (
+        "the withheld dispatches never reached the venue, so they are not "
+        "refusals — the tier must not advance on them"
+    )
+
+    # Tier 1 (30 s) elapses -> exactly one retry, refused, which buys tier 2.
+    clock.advance(11.0)
+    b.raise_on_next_exit = _refused_protective_exit()
+    engine.sync(BAR_TS + 180_000)
+    assert len(b.exit_calls) == 2
+    clock.advance(31.0)
+    engine.sync(BAR_TS + 240_000)
+    assert len(b.exit_calls) == 2, "tier 2 is 2 minutes, not another 30 s"
+    clock.advance(90.0)
+    b.raise_on_next_exit = _refused_protective_exit()
+    engine.sync(BAR_TS + 300_000)
+    assert len(b.exit_calls) == 3
+    assert engine.quarantined is False, (
+        "three refusals inside three minutes are nowhere near the wall-clock "
+        "budget — the bound counts TIME, not attempts"
+    )
+
+
+def __test_120_exhausted_wall_clock_budget_quarantines_over_the_naked_position__(
+        caplog,
+):
+    """#120 END-STATE: a venue that refuses for the whole budget latches
+    :meth:`record_quarantine`, not ``_record_halt``.
+
+    Quarantine is the controlled latch: it blocks new entries while ingestion,
+    exits, cancels and closes keep running — the state a naked position needs.
+    A halt would re-raise on every later ``sync`` / ``apply_async_events``,
+    i.e. the original crash with a better log line AND a dead event drain, so
+    the engine would go blind to fills on the very position it failed to
+    protect. Measured: swapping the escalation to ``_record_halt`` reds this.
+
+    The terminal state also carries the flag the CLI turns into a NON-ZERO exit
+    code, and it is the first ever emitter of the exported-but-dead
+    :class:`ProtectionDegradedEvent`.
+    """
+    b, engine, pos = _standalone_exit_engine_with_open_long()
+    clock = _FakeMonotonic()
+    engine._monotonic = clock
+    events: list = []
+    engine._broker_event_sink = events.append   # type: ignore[attr-defined]
+
+    syncs = 0
+    with caplog.at_level(logging.DEBUG, logger="pyne_core_logger"):
+        for i in range(40):
+            syncs += 1
+            b.raise_on_next_exit = _refused_protective_exit()
+            engine.sync(BAR_TS + 60_000 + i * 60_000)
+            assert engine.halted is False, (
+                "#120 must never escalate to a halt: it stops the drain and "
+                "blinds the engine to fills on the unprotected position"
+            )
+            if engine.quarantined:
+                break
+            clock.advance(301.0)          # skip past whatever tier is current
+
+    assert engine.quarantined is True, (
+        "#120: a permanently refusing venue must reach an operator-visible "
+        "END-STATE, not retry until the session closes"
+    )
+    assert engine.unprotected_position_quarantine is True, (
+        "#120: the terminal state is flagged so the CLI can exit non-zero"
+    )
+    assert pos.size == 1.0, "the position the engine could not protect is real"
+    assert _unprotected_errors(caplog), "the canonical operator line is loud"
+
+    degraded = [e for e in events if isinstance(e, ProtectionDegradedEvent)]
+    assert len(degraded) == len(b.exit_calls) == syncs, (
+        "exactly one event per refusal that reached the venue"
+    )
+    assert [e.policy_action for e in degraded[:-1]] == ['degraded'] * (
+        len(degraded) - 1
+    )
+    assert degraded[-1].policy_action == 'terminal', (
+        "the refusal that spends the budget is the terminal one"
+    )
+    assert degraded[-1].pine_id == "P" and degraded[-1].from_entry == "L"
+    assert any(isinstance(e, QuarantineEnteredEvent) for e in events)
+
+
+def __test_120_refusal_episode_resets_on_a_reconcile_observed_flatten__():
+    """#120: the episode — and the budget clock it feeds — must not outlive the
+    exposure that justified it.
+
+    #124's episode reset hangs off an ``OrderEvent`` for our own ids. An
+    operator flattening in the venue's app produces no such event: the engine
+    learns about it from RECONCILE. Without a reset there, an episode (and any
+    quarantine budget accumulating toward the naked-position latch) would stay
+    frozen at its last value for the rest of the session and the NEXT trade
+    would inherit a partly-spent bound.
+    """
+    b, engine, pos = _standalone_exit_engine_with_open_long()
+    engine._monotonic = _FakeMonotonic()
+
+    b.raise_on_next_exit = _refused_protective_exit()
+    engine.sync(BAR_TS + 60_000)
+    assert _refusal_episode(engine, "P\0L") is not None
+
+    # The operator flattens out-of-process; reconcile observes a flat venue
+    # past the confirm grace. No OrderEvent for our ids is ever produced —
+    # which is exactly why the fill-event hook cannot end this episode.
+    b.position = None
+    aged = time.monotonic() - EXTERNAL_FLATTEN_CONFIRM_GRACE_S - 1.0
+    engine._flat_observed_with_intents_since = aged  # type: ignore[attr-defined]
+    engine._last_position_fill_monotonic = aged      # type: ignore[attr-defined]
+    engine.reconcile()
+
+    assert pos.size == 0.0, "reconcile cleared the externally closed position"
+    assert _refusal_episode(engine, "P\0L") is None, (
+        "#120: flat book -> the episode is over; the next trade starts from a "
+        "full budget and warns loudly from its first refusal again"
+    )
+
+
+def __test_126_extend_reject_warn_latch_resets_with_the_episode__():
+    """#126 sidecar (found by the #120 panel): the extend-reject warn latch was
+    process-lifetime, so a LATER trade's unprotected slice warned NOTHING.
+
+    ``_extend_reject_warned_episode`` was conjured by ``getattr`` at its single
+    use site, declared nowhere and cleared nowhere. Its key is
+    ``(already_armed, target)`` — a lot shape that repeats across trades — so
+    once a pair had warned, the identical failure on a brand-new position was
+    silent for the life of the process. #120's whole requirement is that a
+    naked window be impossible to miss, so the latch now lives in ``__init__``
+    and ends where every other protective-exit episode ends.
+
+    Discriminating: remove the reset and the latch survives the flat book, so
+    the final assertion reds. Measured.
+    """
+    b, engine, pos = _partial_arm_engine()
+    engine._extend_reject_warned_episode["X\0E"] = (1.0, 2.0)
+
+    # The book goes flat: every per-episode protective latch must clear.
+    engine._route_event(_fill_event(  # type: ignore[attr-defined]
+        "buy", 2.0, 50_000.0, pine_id="E", leg=LegType.ENTRY,
+    ))
+    pos.entry_orders.pop("E", None)
+    pos.exit_orders.pop(("X", "E"), None)
+    b.position = None
+    engine.sync(BAR_TS + 60_000)
+    engine._route_event(_fill_event(  # type: ignore[attr-defined]
+        "sell", 2.0, 50_050.0, pine_id="X", leg=LegType.TAKE_PROFIT,
+    ))
+
+    assert pos.size == 0.0
+    assert engine._extend_reject_warned_episode == {}, (
+        "#126: the warn latch must end with the episode — otherwise the next "
+        "trade with the same lot shape loses its protection silently"
     )
 
 
