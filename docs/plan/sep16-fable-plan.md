@@ -187,3 +187,39 @@ and ALWAYS `--repo rubycell/pynecore` on gh commands (fork default = upstream tr
 - `Activated` on an OCO umbrella is its from-birth state, NEVER "triggered" by itself.
 - INVALID_TRADING_TOKEN on conditional writes after the operator's first EntradeX app trade
   is the #51 session-binding, NOT a token problem — do not re-mint, reschedule.
+
+---
+
+## AFTERNOON ADDITIONS (operator-approved ~13:00) — parallel to step 3, offline only
+
+Fable-side (agents), none touching the running step-3 engine or the frozen tree's live code:
+- A1. **#120 red-first repro** — refused protective EXIT re-raises fatally -> process dies
+  holding a naked position. Repro test (test_025 style, xfail idiom) + panel; FIX lands
+  tomorrow (expiry day = fix day), not today.
+- A2. **#122 red-first repro** — flatten sweep-cancel on a FLAT account -> quarantine +
+  phantom re-place (explicitly NOT covered by the #124 open-position guard). Same shape:
+  repro + panel today, fix tomorrow.
+- A3. **Token-ops hardening diagnosis** — why the 08:00 refresh cron silently missed
+  (empty log), plus the gate nit (token_status exits 0 on NOT GOOD; runners echo without
+  gating). Diagnose + propose; crontab changes are operator-side.
+- A4. **docs/dnse-openapi-documentation/ update** — record the measured WS contract
+  (#130 NORMAL-book-only streaming, #131 broker-channel refusal, the auth/channel facts)
+  WITHOUT editing fetched mirror files (fetch_docs.py would overwrite): follow the dir's
+  convention for local annotations, or add a MEASURED_FACTS-style local notes file.
+- A5. Wrap-up card list grows: WS-vs-poll fill-latency A/B (enabled by #129),
+  differential-poll design review (conditional book is poll-only per #130 -> its cadence
+  is a protection parameter), engine-attached bare-stop discriminator (the next #128
+  thread-2 measurement); add the DNSE-support question (broker-channel role?) to #131 —
+  operator sends the ticket.
+
+## FRIDAY 2026-09-18 SESSION OUTLINE (the roll morning — measurements only it can host)
+1. **#113 roll measurement** (AT OPEN, before anything else): does resolve_contract's
+   per-instance cache serve the STALE dated code after the Fri-morning alias repoint?
+   Fresh process vs long-lived process A/B if possible.
+2. **WS-vs-poll fill-latency A/B** (first live run with the #129 fix applied): one fill,
+   measure fill-event arrival WS push vs 0.5s poll; quantifies the arm-on-fill gain.
+3. **Engine-attached bare-stop discriminator** (#128 thread 2): minimal strategy places
+   ONE far stop entry and idles, full instrumentation on (every-cancel log + #128-OBS);
+   cancelled like 09-15's 10:56 -> the logs now name the actor; rests -> the discriminator
+   moves to "something the 09-15 run DID" (its chasing replaces).
+Order matters: #113 first (it exists only at open), then the fill A/B, then the idle probe.

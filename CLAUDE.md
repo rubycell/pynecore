@@ -260,11 +260,13 @@ fills) is #115, and is where the sandbox harness (#114) lands.
   `strategy.position_size > 0`, as in l2b_entry_update) is NOT in the book at fill time, so the wake
   has nothing to arm and it still lands **a bar late** (fill bar 502 -> exit bar 503, same morning).
   Same-bar protection is a STRATEGY-AUTHORING requirement, NOT an engine guarantee.
-- **#124 (venue-cancel of a protective exit) now RE-ARMS instead of quarantining** (fixed live
-  2026-09-15, first prod confirmation): when the venue cancels our conditional bracket while the
+- **#124 (EXTERNAL cancel of a protective exit) now RE-ARMS instead of quarantining** (fixed live
+  2026-09-15, first prod confirmation): when our conditional bracket is cancelled out-of-band while the
   position is still open, the fix logs `#124: ... re-arming (N/3), no quarantine` and places a fresh
   exit rather than leaving a naked position. The fix makes the cancel SAFE; the venue-cancel ROOT
-  CAUSE (why DNSE cancels our conditionals; timing seen at 18s/49s/~200s) is STILL OPEN, and the
+  CAUSE is CLOSED 09-16: ALL 'venue cancel' events (09-14 F9/l3, 09-15 13:42) were the
+  OPERATOR'S manual app cancels (his confirmation; #128 closed) — no venue phenomenon exists.
+  The fix matters regardless of actor (a human cancelling mid-position is the documented case). The
   #124-OBS `get_position` read can LAG (read 0 while the position was 1) — a racy read worth tightening.
 
 ## DNSE WebSocket testing rules — how the "silent WS" false verdict happened (CRITICAL)

@@ -15495,3 +15495,519 @@ def __test_126_extend_hard_reject_degrades_and_a_later_sync_still_extends__(capl
     assert old_env.intent.qty == 1.0 and new_env.intent.qty == 2.0
     assert engine._armed_protective_venue_qty[key] == 2.0
     assert b.cancel_calls == [], "the extend never cancels the armed protection"
+
+
+# === #120: a REFUSED protective-exit PLACE must not kill the process ==========
+#
+# Sibling of #124 (venue CANCEL of an armed exit -> bounded re-arm, fixed) and
+# #126 (hard reject of the #123 protection EXTEND -> degrade, fixed). The hole
+# #120 names is the remaining one: the PLACE (``execute_exit``) of a protective
+# exit, refused by the venue with :class:`ExchangeOrderRejectedError`.
+#
+# Path map of every place a protective ``ExitIntent`` PLACE can raise, measured
+# at HEAD (50950cd0) — line numbers are ``src/pynecore/core/broker/sync_engine.py``
+# unless stated otherwise:
+#
+#   ORIGIN  ``_dispatch_new`` :16319 ``except ExchangeOrderRejectedError`` —
+#           :16344 ``if not isinstance(intent, EntryIntent): ... raise``. An
+#           ENTRY is re-raised as :class:`OrderSkippedByPlugin` (handled
+#           everywhere); a protective EXIT keeps the documented fatal contract
+#           (":16341-16343 a protective order the exchange refuses is a real
+#           exposure that must surface").
+#
+#   (A)     ARM-ON-FILL initial arm — ``_arm_protective_exits_after_fill``
+#           :9425 ``self._dispatch_new(intent)`` guarded by :9426
+#           ``except OrderSkippedByPlugin`` ONLY. The #126 clause at :9471
+#           sits on the ``_dispatch_modify`` GROW branch (:9455) and does not
+#           cover this first-arm PLACE. Escapes -> ``_drain_events`` :5207
+#           (unguarded call) -> ``apply_async_events`` -> caller.
+#
+#   (B)     BAR-CLOSE SYNC dispatch — ``_diff_and_dispatch`` :13714
+#           ``self._dispatch_new(intent)`` guarded by :13719
+#           ``except OrderSkippedByPlugin`` ONLY. This is the ordinary
+#           standalone-exit arming path (the accepted #82b / #107 one-bar
+#           window). Escapes out of :meth:`sync` -> ``ScriptRunner._broker_sync``
+#           (``src/pynecore/core/script_runner.py`` :1181) which catches ONLY
+#           :class:`ExchangeConnectionError` -> out of the bar loop.
+#
+#   (C)     #124 RE-ARM — ``_handle_unexpected_protective_exit_cancel`` :6645
+#           does not re-place anything itself: it retires the dead leg
+#           (``_trim_cancelled_bracket_leg`` :6695) so the NEXT
+#           :meth:`sync` re-diffs and re-dispatches. That re-dispatch is
+#           path (B), so a venue that refuses the re-arm is fatal too — the
+#           #124 fix hands the naked position straight to #120.
+#
+#   (D)     RESTART-REPLAY partial-bracket re-dispatches — :13378, :13444,
+#           :13551 — all guarded by ``except OrderSkippedByPlugin`` only.
+#
+#   (E)     CANCEL+RE-EXECUTE MODIFY of an exit — ``_dispatch_modify`` :19321
+#           ``self._dispatch_new(new)`` and the re-anchor re-place at :19417,
+#           both under :19418 ``except ExchangeOrderRejectedError``, which
+#           retires the tracking ONLY when the parent holds no open trade
+#           (:19420-19433) and otherwise :19438 ``raise``. So a LIVE parent
+#           losing its protection is fatal here as well.
+#
+#   NOT a handler for any of the above:
+#     * the bracket-attach cascade :16436 fires only on
+#       :class:`BracketAttachAfterFillRejectedError`;
+#     * ``_record_halt`` :11067 is for :class:`BrokerManualInterventionError`;
+#     * the bounded reject-retry (:409 / :7295 / :13380 docs) is ENTRY-only;
+#     * the defensive/trigger CLOSE paths (:11273, :12544, :15473) catch
+#       :class:`ExchangeOrderRejectedError` for ``CloseIntent``s, not for a
+#       protective ``ExitIntent`` PLACE.
+#
+# VERDICT: #120's premise CONFIRMED at HEAD on paths (A), (B) and (C) — each
+# reproduced below. The remedy (defensive close / controlled halt / bounded
+# retry) is the panel's call; the three gates below assert only the part that is
+# not in dispute — the exception must not escape the engine's public entry point
+# while a real position is open — so any of the three remedies can flip them
+# green. The remedy-shaped continuation is a fourth, separately labelled gate.
+
+
+def _refused_protective_exit(msg: str = "SESSION_CLOSED: protective exit refused"):
+    """The venue refusing a protective-exit PLACE.
+
+    Shape-faithful to the two live triggers named on #120: the #118 refused-GTD
+    stop and a session / margin refusal. Both surface from the plugin as
+    :class:`ExchangeOrderRejectedError` out of ``execute_exit``.
+    """
+    return ExchangeOrderRejectedError(msg)
+
+
+def _standalone_exit_engine_with_open_long() -> tuple[
+    MockBroker, OrderSyncEngine, BrokerPosition,
+]:
+    """A standalone-exit venue (DNSE shape) holding an OPEN long whose
+    protective exit has NOT been placed yet.
+
+    ``sync`` dispatches the entry and withholds the bracket (#82b: a naked
+    conditional would OPEN a position), the fill opens the long, and the exit
+    is due to be PLACED by the next bar-close ``sync`` — the accepted #107
+    one-bar window. That next dispatch is path (B) of the map above.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    engine._exit_orders_execute_standalone = True
+    pos.entry_orders["L"] = _entry_order("L", 1.0, stop=50_000.0)
+    pos.exit_orders[("P", "L")] = _exit_order(
+        "L", -1.0, "P", limit=50_100.0, stop=49_900.0,
+    )
+    engine.sync(BAR_TS)
+    assert len(b.entry_calls) == 1
+    assert b.exit_calls == [], "#82b: the bracket is withheld before the fill"
+    engine._route_event(_fill_event('buy', 1.0, 50_000.0, pine_id="L"))
+    assert pos.size == 1.0, "the entry fill opened the long"
+    assert b.exit_calls == [], "the exit PLACE is still owed to the next sync"
+    return b, engine, pos
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "#120 (path B): the venue refuses the protective exit's PLACE at the "
+    "bar-close sync and ``_dispatch_new`` (sync_engine.py:16344) re-raises "
+    "ExchangeOrderRejectedError for every non-EntryIntent. The only guard at "
+    "the dispatch site (:13719) is ``except OrderSkippedByPlugin``, so the "
+    "reject escapes ``sync()``; ScriptRunner._broker_sync "
+    "(script_runner.py:1181) catches only ExchangeConnectionError, so the "
+    "process dies holding the OPEN long. Flips green when a refused "
+    "protective-exit PLACE is handled inside the engine instead of "
+    "propagating — by ANY of the #120 remedies (defensive close, controlled "
+    "halt, or bounded retry)."
+))
+def __test_120_bar_close_sync_protective_exit_place_reject_must_not_escape__():
+    """#120 CORE GATE (path B, remedy-agnostic): a refused protective-exit PLACE
+    must not propagate an unhandled exception out of :meth:`OrderSyncEngine.sync`
+    while a real position is open.
+
+    Deliberately asserts ONLY what every candidate remedy satisfies — the
+    engine, not the caller's bar loop, owns the refusal — so the #120 panel can
+    pick between a defensive close, a controlled halt and a bounded retry
+    without this gate mis-firing. The remedy-shaped expectations live in
+    ``__test_120_refused_protective_exit_keeps_the_run_alive_and_retries__``.
+    """
+    b, engine, pos = _standalone_exit_engine_with_open_long()
+
+    b.raise_on_next_exit = _refused_protective_exit()
+    engine.sync(BAR_TS + 60_000)          # must NOT raise out of the engine
+
+    assert len(b.exit_calls) == 1, "the refused PLACE did reach the venue seam"
+    assert pos.size == 1.0, (
+        "#120: the open long is still real — the engine must keep tracking the "
+        "position it failed to protect, not lose it to an escaping exception"
+    )
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "#120 (path A): the ARM-ON-FILL first arm at "
+    "``_arm_protective_exits_after_fill`` (sync_engine.py:9425) is guarded by "
+    "``except OrderSkippedByPlugin`` only — the #126 clause at :9471 covers "
+    "the ``_dispatch_modify`` GROW branch, not this PLACE. A refused arm "
+    "therefore escapes ``_drain_events`` (:5207, unguarded call) and "
+    "``apply_async_events``, killing the run on the very wake that #121 added "
+    "to CLOSE the unprotected window. Flips green when the first arm degrades "
+    "the way #126 made the extend degrade."
+))
+def __test_120_arm_on_fill_initial_protective_exit_place_reject_must_not_escape__():
+    """#120 (path A): the arm-on-fill wake drain must survive a venue refusal of
+    the FIRST protective-exit arm.
+
+    Same broker seam and same exception #126 already degrades on the GROW
+    branch — only the branch differs, which is what makes this a coverage hole
+    rather than a new failure mode.
+    """
+    b, engine, pos = _partial_arm_engine()
+
+    b.raise_on_next_exit = _refused_protective_exit()
+    engine.on_order_event(_fill_event(
+        "buy", qty=2.0, price=50_000.0, pine_id="E", leg=LegType.ENTRY,
+        xchg_id="xchg-1", event_type='filled', filled_qty=2.0, remaining_qty=0.0,
+    ))
+    _wake_drain(engine)                   # must NOT raise out of the engine
+
+    assert len(b.exit_calls) == 1, "the refused arm did reach the venue seam"
+    assert pos.size == 2.0, (
+        "#120: the filled entry is a real 2-lot position — the engine must "
+        "keep tracking it after the arm was refused"
+    )
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "#120 (path C): #124's bounded re-arm is retire-then-re-diff — the actual "
+    "re-place happens at the next sync through ``_diff_and_dispatch`` "
+    "(sync_engine.py:13714), i.e. path B. A venue that refuses the re-arm "
+    "therefore hands the naked position straight from the #124 fix to the "
+    "#120 crash. Flips green together with the core gate."
+))
+def __test_120_rearm_after_venue_cancel_protective_exit_place_reject_must_not_escape__():
+    """#120 (path C): the #124 re-arm's re-PLACE is refused.
+
+    Composes the two cards: the venue cancels a still-armed protective exit
+    (#124's live F9 shape), the engine retires the dead leg and re-diffs, and
+    the venue then REFUSES the replacement. #124 made this stop quarantining;
+    #120 is why it can still kill the process.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    deal_id = engine.order_mapping["P\0L"][0]
+
+    engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
+    b.raise_on_next_exit = _refused_protective_exit()
+    engine.sync(BAR_TS + 1)               # must NOT raise out of the engine
+
+    assert len(b.exit_calls) == 2, "the refused re-arm did reach the venue seam"
+    assert pos.size == 1.0, (
+        "#120: the long the #124 re-arm was protecting is still open"
+    )
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "#120 REMEDY-SHAPED gate (candidate (c), bounded retry): today the reject "
+    "escapes before any of this can be observed. Kept SEPARATE from the core "
+    "gate on purpose — if the panel picks remedy (b) (a controlled "
+    "``_record_halt`` with a POSITION UNPROTECTED banner) the "
+    "``halted is False`` assertion below is the one to re-shape, and the core "
+    "gate still holds."
+))
+def __test_120_refused_protective_exit_keeps_the_run_alive_and_retries__(caplog):
+    """#120 remedy-shaped gate: mirrors what the #126 sibling asserts — the run
+    keeps going, nothing is latched, the refusal is LOUD, and a later sync that
+    the venue accepts still gets the protection on.
+
+    The loudness assertion is the card's hard requirement ("whatever is chosen
+    must make 'the position is unprotected' impossible to miss in the output");
+    it is deliberately matched on level, not wording.
+    """
+    b, engine, pos = _standalone_exit_engine_with_open_long()
+
+    b.raise_on_next_exit = _refused_protective_exit()
+    with caplog.at_level(logging.WARNING, logger="pyne_core_logger"):
+        engine.sync(BAR_TS + 60_000)      # must NOT raise
+
+    assert engine.halted is False, (
+        "a refused protective exit is a recoverable exposure, not a manual-"
+        "intervention halt"
+    )
+    assert engine.quarantined is False, (
+        "quarantine blocks new entries but does nothing about the position "
+        "already open and now unprotected"
+    )
+    assert [rec for rec in caplog.records if rec.levelno >= logging.WARNING], (
+        "#120: the refusal must be LOUD — a silently swallowed reject would "
+        "be strictly worse than the crash it replaces"
+    )
+
+    # The exposure is parked, not dropped: a later sync the venue accepts still
+    # arms the protection.
+    engine.sync(BAR_TS + 120_000)
+    assert len(b.exit_calls) == 2, (
+        "#120: after the refusal cleared, a later sync must re-attempt the "
+        "protective exit — the degrade parks the work, it does not drop it"
+    )
+    assert engine.order_mapping.get("P\0L"), "the retried exit is venue-mapped"
+
+
+def __test_120_entry_place_reject_keeps_its_skip_contract__():
+    """#120 DISCRIMINATING CONTROL (passes today, must keep passing): the SAME
+    :class:`ExchangeOrderRejectedError`, from the SAME broker seam, on an ENTRY
+    instead of a protective exit — handled, not fatal.
+
+    This isolates #120 to the ``isinstance(intent, EntryIntent)`` branch at
+    ``_dispatch_new`` (sync_engine.py:16344): an entry reject is re-raised as
+    :class:`OrderSkippedByPlugin` (:16352) which every dispatch site already
+    catches, so the bot keeps running with the signal dropped. Nothing about
+    the exception type, the mock seam or the sync harness makes a reject fatal
+    — only the intent's kind does. A #120 fix must NOT change this behaviour:
+    an entry that never opened is not exposure.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 1.0, limit=50_000.0)
+
+    b.raise_on_next_entry = _refused_protective_exit("INSUFFICIENT_FUNDS")
+    engine.sync(BAR_TS)                   # does not raise today
+
+    assert len(b.entry_calls) == 1, "the reject reached the same broker seam"
+    assert "L" not in engine.active_intents, "the rejected entry is not tracked"
+    assert pos.size == 0.0, "nothing opened — no exposure to protect"
+    assert engine.halted is False and engine.quarantined is False, (
+        "an entry reject is non-terminal: the next bar re-evaluates the signal"
+    )
+
+
+# === #122: the flatten sweep-cancel of the engine's OWN (coid=None) protection ===
+#
+# Live 2026-09-14 (fill-test safety flatten): ``flatten_api.py`` closed the
+# position AND sweep-cancelled the engine's protective exit out-of-process. The
+# engine read its own protection's cancel as EXTERNAL -> quarantine (policy
+# 'stop') AND re-placed protection against an already-flat account.
+#
+# Path map for a CANCELLED push naming an order the engine still maps to a
+# protective ``ExitIntent`` (``src/pynecore/core/broker/sync_engine.py``):
+#
+#   _route_event 'cancelled' branch :6249
+#     -> key = _find_key_for_order_id :6267
+#     -> every expected-cancel register is consulted first: native cancel-all
+#        :6268, cancel-tentative :6278, parked modify :6298, bracket-close
+#        :6337, venue-driven ``cancel_reason`` :6347, OCA sibling :6380,
+#        fully-filled echo :6406, forced-cancel park :6435. An OUT-OF-PROCESS
+#        sweep can declare none of them — the ids it cancels were never
+#        registered in this process, which is why the push falls through.
+#     -> _handle_unexpected_protective_exit_cancel :6645        (#124)
+#          gated by _position_open_for_exit :6638, which reads the ENGINE'S
+#          BELIEF (``self._position.size``) and NEVER the venue:
+#          * belief OPEN -> bounded re-arm, no quarantine, and the next
+#            :meth:`sync` re-dispatches the exit Pine still declares.
+#          * belief FLAT -> returns ``False`` -> falls through to
+#            _blog_error "unexpected cancel for intent ..." :6487 -> teardown
+#            -> _apply_unexpected_cancel_policy :6559 -> record_quarantine.
+#
+# The two halves of the card therefore live on different branches, and HEAD
+# answers them differently — hence one pin per half below.
+
+
+def _venue_holds_one_long() -> ExchangePosition:
+    """``get_position`` evidence that the venue really still holds the long."""
+    return ExchangePosition(
+        symbol=SYMBOL, side="long", size=1.0, entry_price=50_000.0,
+        unrealized_pnl=0.0, liquidation_price=None,
+        leverage=1.0, margin_mode="isolated",
+    )
+
+
+def __test_122_sweep_cancel_over_a_stale_open_belief_does_not_quarantine__():
+    """#122 half 1 (QUARANTINE) — CLOSED by the #124 guard, pinned here in
+    #122's own shape: the venue is FLAT while the engine's belief is still the
+    stale ``pos=1`` the card reports.
+
+    The sweep's CANCELLED arrives before any reconcile has caught up, so
+    ``_position_open_for_exit`` still reads ``size=1.0`` and the #124 bounded
+    re-arm consumes the event — no ``on_unexpected_cancel`` policy, no
+    quarantine, the run keeps trading.
+
+    Discriminating (measured by monkeypatching
+    ``_handle_unexpected_protective_exit_cancel`` to ``return False``, i.e. the
+    pre-#124 engine that produced the card's log): that engine quarantines here
+    with exactly the card's message, so this pin fails on it rather than
+    passing vacuously.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    b.position = None                      # the flatten already closed it
+    deal_id = engine.order_mapping["P\0L"][0]
+
+    engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
+    engine.sync(BAR_TS + 1)
+
+    assert engine.quarantined is False, (
+        "#122 half 1: the flatten sweep's cancel of our own protection must "
+        "not quarantine the run (closed by #124's bounded re-arm)"
+    )
+    assert engine.halted is False
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "#122 half 2 (PHANTOM RE-PLACE) is OPEN at HEAD: the #124 re-arm gate "
+    "``_position_open_for_exit`` (sync_engine.py:6638) reads the engine's own "
+    "``_position.size`` belief and never the venue, so a sweep cancel arriving "
+    "before reconcile has observed the flatten re-arms protection and the next "
+    "``sync`` dispatches a REAL order to an account holding nothing. Flips "
+    "green when the re-arm requires venue evidence that the protected position "
+    "still exists (and the belief is reconciled when it does not)."
+))
+def __test_122_sweep_cancel_must_not_rearm_protection_against_a_flat_venue__():
+    """#122 half 2 (the phantom half): after the flatten swept our protection,
+    the engine must NOT place a new protective order while the venue holds
+    nothing.
+
+    Exactly the live shape: the account is flat (``get_position -> None``), the
+    engine's belief is the stale ``pos=1``, and the sweep's CANCELLED for the
+    still-mapped protective exit lands (``coid=None``, ``filled_qty=0``,
+    ``cancel_reason=None`` — the out-of-process sweep registered nothing).
+
+    HEAD re-places: ``exit_calls`` goes 1 -> 2 and the new venue id is mapped
+    under ``P\\x00L`` — a live order against a flat account, which live had to
+    be hand-cleaned. The re-arm is measured to be venue-blind: with the venue
+    reporting a REAL open long instead (the control below) HEAD takes the
+    identical branch and produces the identical dispatch.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    b.position = None                      # venue truth: nothing is held
+    deal_id = engine.order_mapping["P\0L"][0]
+    armed_exits = len(b.exit_calls)
+
+    engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
+    engine.sync(BAR_TS + 1)
+
+    assert len(b.exit_calls) == armed_exits, (
+        "#122: protection was RE-PLACED against a flat venue — the engine "
+        f"dispatched {len(b.exit_calls) - armed_exits} new protective order(s) "
+        "while ``get_position`` reports the account holds nothing"
+    )
+
+
+def __test_122_control_rearm_is_required_while_the_venue_still_holds_the_position__():
+    """#122 discriminating control (passes today, must keep passing): the SAME
+    coid=None sweep cancel, but the venue still REALLY holds the long.
+
+    Here re-placing the protection is the correct, #124-mandated outcome: the
+    position is live and would otherwise be naked. This is what separates the
+    #122 fix ("consult venue evidence") from the lazy one ("stop re-placing
+    protection after an external cancel").
+
+    Measured discrimination, two wrong implementations:
+    * pre-#124 engine (``_handle_unexpected_protective_exit_cancel -> False``):
+      quarantines here -> this control FAILS.
+    * blanket suppression (consume the cancel and drop the exit declaration so
+      nothing is re-diffed): makes the #122 xfail above pass while leaving this
+      REAL long naked (``exit_calls`` stays 1) -> this control FAILS.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    b.position = _venue_holds_one_long()   # venue truth: the long is live
+    deal_id = engine.order_mapping["P\0L"][0]
+
+    engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
+    engine.sync(BAR_TS + 1)
+
+    assert engine.quarantined is False, "#124: a venue cancel must not quarantine"
+    assert len(b.exit_calls) == 2, (
+        "the still-open long must be re-protected — dropping the re-arm to "
+        "silence #122's phantom would leave a REAL position naked"
+    )
+    assert engine.order_mapping.get("P\0L"), "the re-armed exit is venue-mapped"
+
+
+def __test_122_flatten_seen_by_reconcile_first_makes_the_sweep_cancel_benign__():
+    """#122 ordering pin (passes today): when the engine learns of the flatten
+    BEFORE the sweep's cancel arrives, nothing in the card happens.
+
+    ``reconcile`` sees the venue flat past the confirm grace, clears the book
+    and runs ``_cleanup_position_tracking`` (sync_engine.py:8988), which
+    dispatches the engine's OWN cancel for the protective exit and drops its
+    mapping. The sweep's later CANCELLED then finds no key, matches
+    ``_strategy_cancel_expected_ids`` (:6560) and logs "strategy cancel
+    confirmed" — no quarantine, and no protective order is re-placed because
+    Pine's exit declaration was retired with the position.
+
+    So the card's hazard is ORDER-DEPENDENT, and this is the safe ordering.
+
+    Discriminating (measured by monkeypatching ``_cleanup_position_tracking``
+    to a no-op, i.e. a flatten that clears the book but leaves the exit
+    mapped): the sweep cancel then quarantines AND re-places — both assertions
+    below fail.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    b.position = None                      # the flatten closed the position
+    deal_id = engine.order_mapping["P\0L"][0]
+
+    # Past the external-flatten confirm grace: the venue really is flat.
+    aged = time.monotonic() - EXTERNAL_FLATTEN_CONFIRM_GRACE_S - 1.0
+    engine._flat_observed_with_intents_since = aged  # type: ignore[attr-defined]
+    engine._last_position_fill_monotonic = aged      # type: ignore[attr-defined]
+    engine.reconcile()
+
+    assert pos.size == 0.0, "reconcile adopted the external flatten"
+    assert len(b.cancel_calls) == 1, (
+        "learning of the flatten sweeps the engine's own protection — that is "
+        "what makes the venue's later CANCELLED our own, not an external one"
+    )
+    assert engine._find_key_for_order_id(deal_id) is None
+
+    engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
+    engine.sync(BAR_TS + 2)
+
+    assert engine.quarantined is False and engine.halted is False
+    assert len(b.exit_calls) == 1, (
+        "no protection may be re-placed once the engine knows the book is flat"
+    )
+    assert engine.order_mapping == {}
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "#122 half 1 in the FLAT-BELIEF ordering is OPEN at HEAD: with the book "
+    "already flat, ``_handle_unexpected_protective_exit_cancel`` "
+    "(sync_engine.py:6645) declines the event at its ``_position_open_for_exit`` "
+    "gate, so the sweep's cancel of the engine's OWN protection falls to "
+    "``_apply_unexpected_cancel_policy`` (:6559) and quarantines with the "
+    "card's verbatim message — and the same sync still re-diffs Pine's "
+    "surviving exit declaration into a new venue order. Flips green when a "
+    "benign post-flat sweep of our own protection is classified as such."
+))
+def __test_122_flat_book_with_a_still_mapped_protective_exit_quarantines__():
+    """#122 half 1, flat-belief ordering: a book that is already FLAT while the
+    protective exit is still mapped.
+
+    REACHABILITY IS NOT PROVEN HERE — the state is CONSTRUCTED (the book is
+    zeroed directly), because both flatten paths measured on HEAD retire the
+    exit's mapping in the same step that flattens the book
+    (``_cleanup_position_tracking`` from the close-fill path :6181/:6183 and from the
+    reconcile external-flatten clear :4808), which is exactly what the
+    preceding pin measures. The shape the panel should weigh for reachability
+    is the startup-adopted one: the reconcile clear only cleans parents taken
+    from ``open_trades``, and ``_retire_orphan_exits_on_flat_book`` (:8749) —
+    the complement written for adopted legs whose ``from_entry`` differs from
+    the consumed parent — runs ONLY in the fill branch (:6200), not in the
+    reconcile clear. That combination is UNVERIFIED in this test.
+
+    What IS measured: reaching that state at all reproduces the card verbatim —
+    ``unexpected cancel for intent P|L`` + ``sync engine quarantined: Bot-owned
+    order cancelled unexpectedly ... policy 'stop'`` — and the following sync
+    still dispatches a phantom protective order, because the diff rebuilds from
+    Pine's order book, which the flat book alone does not clear.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    b.position = None
+    deal_id = engine.order_mapping["P\0L"][0]
+
+    # The book is flat while the protective exit is still mapped and active.
+    pos.size = 0.0
+    pos.sign = 0.0
+    pos.open_trades.clear()
+    assert engine.order_mapping.get("P\0L") == [deal_id]
+
+    engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
+    engine.sync(BAR_TS + 1)
+
+    assert engine.quarantined is False, (
+        "#122: sweeping our own protection after the account went flat is "
+        "benign — it must not be classified as an external cancel"
+    )
+    assert len(b.exit_calls) == 1, (
+        "#122: no protection may be re-placed over a flat book"
+    )
