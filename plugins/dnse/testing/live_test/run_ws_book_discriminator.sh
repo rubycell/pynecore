@@ -19,6 +19,23 @@ LOGDIR=plugins/dnse/testing/live_test/logs; mkdir -p "$LOGDIR"
 TS=$(date +%H%M%S); WSLOG="$LOGDIR/ws_book_disc_$TS.log"
 SECONDS_CAP=${1:-120}
 
+# GATE (required at review, 2026-09-16): the payload places REAL orders, so this
+# refuses to fire unless the account is provably flat. venue.py flat exits
+# 0 = flat / 1 = not flat / 2 = COULD NOT DETERMINE — and 2 is never "no", so
+# anything non-zero aborts. L0 is not run here (t18 self-verifies each leg and
+# reports its own PASS/FAIL), but the flat check is non-negotiable.
+echo "=== [0/3] gate: account must be provably FLAT ==="
+$PY plugins/dnse/tools/venue.py flat >/dev/null 2>&1; FLAT=$?
+if [ "$FLAT" -ne 0 ]; then
+    case "$FLAT" in
+        1) echo "!!! NOT flat (exit 1) — ABORTING; the payload places real orders." ;;
+        *) echo "!!! COULD NOT DETERMINE flatness (exit $FLAT) — ABORTING. A failed read is NOT 'flat'." ;;
+    esac
+    $PY plugins/dnse/tools/venue.py status 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
+    exit "$FLAT"
+fi
+echo "  FLAT + clean."
+
 echo "=== [1/3] dual-channel WS watcher (background, ${SECONDS_CAP}s) ==="
 $PY plugins/dnse/testing/live_test/probe_ws_market_data.py --trading \
     --seconds "$SECONDS_CAP" > "$WSLOG" 2>&1 &
