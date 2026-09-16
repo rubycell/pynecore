@@ -11,7 +11,7 @@
 ✓ Loading PyneCore...
 [2026-08-13 13:46:11+0700] bar:      0 INFO     [BROKER] WS connect starting (warmup blocks until subscribed)
 [2026-08-13 13:46:11+0700] bar:      0 INFO     [BROKER] WS connected and subscribed: DNSEBroker VN30F1M@3
-[2026-08-13 13:46:11+0700] bar:      0 INFO     [BROKER] authenticated: plugin=DNSEBroker account=0001672126
+[2026-08-13 13:46:11+0700] bar:      0 INFO     [BROKER] authenticated: plugin=DNSEBroker account=******2126
 [2026-08-13 13:46:11+0700] bar:      0 INFO     [BROKER] warmup phase started — replaying historical bars
 [2026-08-13 13:42:00+0700] bar:    500 INFO     [BROKER] warmup phase complete — 501 bar(s) processed
 [2026-08-13 13:42:00+0700] bar:    500 INFO     [BROKER] live trading active

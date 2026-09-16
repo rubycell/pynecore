@@ -1,7 +1,7 @@
 [LIVE DNSE] rest=https://openapi.dnse.com.vn ws=wss://ws-openapi.dnse.com.vn
 === LEVEL 0 — DNSE order semantics @ 2026-08-12 12:18 ICT ===
 session: CLOSED (after hours / break)
-account: 0001672126   contract: 41I1G8000
+account: ******2126   contract: 41I1G8000
 reference (daily close): 1924.0   -> long trigger 2020.2 / short trigger 1827.8
 
 [1] MARKET long + short — after hours: must NOT fill, must be cancellable

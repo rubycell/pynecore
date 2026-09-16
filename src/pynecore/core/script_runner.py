@@ -1370,10 +1370,15 @@ class ScriptRunner:
             # A multi-asset account prints its complete equity mapping here,
             # which is noise for the operator and needlessly exposes the full
             # balance sheet; the detailed snapshot stays available at DEBUG.
+            # Account id MASKED to its last 4 (incident 2026-09-16: the unmasked
+            # banner leaked the real account number into every committed live
+            # evidence log of a PUBLIC repo — identifiers never go to durable
+            # logs in full).
+            _acct = str(self._broker_plugin.account_id or "")
             broker_info(
                 "authenticated: plugin=%s account=%s",
                 type(self._broker_plugin).__name__,
-                self._broker_plugin.account_id,
+                ("*" * max(len(_acct) - 4, 0)) + _acct[-4:] if _acct else "?",
             )
             broker_debug("account equity snapshot: %s", balance)
             self.broker_balance = balance

@@ -17,7 +17,7 @@ CEILING, FLOOR = 2058.6, 1789.4
 
 @pytest.fixture
 def broker(monkeypatch):
-    cfg = DNSEBrokerConfig(api_key="k", api_secret="s", account_no="0001672126")
+    cfg = DNSEBrokerConfig(api_key="k", api_secret="s", account_no="0001234567")
     b = DNSEBroker(symbol="VN30F1M", timeframe="1", config=cfg)
     monkeypatch.setattr(b, "_band", lambda: (CEILING, FLOOR))
     monkeypatch.setattr(b, "_mintick", lambda: MINTICK)
