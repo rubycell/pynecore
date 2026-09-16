@@ -16725,41 +16725,51 @@ def __test_122_parked_external_flatten_cancel_actually_re_drives__():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "#139: for a whole-row ExitIntent, `_dispatch_cancel`'s unknown-disposition "
-    "handler eagerly retires — it pops `_forced_cancel_pending`, "
-    "`_order_mapping` and the envelope itself — so the park cannot survive on "
-    "this branch until #139 lands. Flips to XPASS when it does."
-))
-def __test_139_tripwire_park_survives_an_ambiguous_cancel_on_the_non_strict_branch__():
-    """TRIPWIRE, NOT A GUARD — read this before trusting it.
+def __test_139_characterization_eager_retire_discards_the_park_and_mapping__():
+    """CHARACTERIZATION of today's #139 defect, doubling as a TRIPWIRE.
 
-    What it does: fires when #139 is fixed, so the real park-survival guard can
-    replace it.
+    Replaces an `xfail(strict=True)` version of the same idea. That form was
+    wrong for a reason worth recording: an xfail swallows EVERY reason the test
+    might not pass. If the harness broke, or the cancel were never dispatched at
+    all, it would keep xfailing quietly and nobody would look — the tripwire
+    would report "#139 still open" while actually reporting "something else is
+    broken and I cannot tell you what".
 
-    What it does NOT do: protect the #122 regression it sits next to. The bug
-    was an unconditional `_forced_cancel_pending.pop` in the non-strict branch,
-    releasing a park for a possibly-live order. This test CANNOT detect that
-    regression, because eager-retire pops the park with or without the bad line
-    — it fails identically in both worlds. A control that no wrong
-    implementation can fail pins nothing.
+    This form asserts the SPECIFIC defective behaviour instead, so it fails
+    LOUDLY in three distinguishable ways:
 
-    So the non-strict branch has NO automated guard today. That is a real,
-    recorded gap, carried on #139: landing #139 must convert this tripwire into
-    the genuine park-survival pin.
+    * the cancel is not attempted    -> the first assert fires (unrelated
+      regression upstream of the branch);
+    * eager-retire stops discarding  -> the last two fire, which is #139
+      LANDING: convert this test into the real park-survival pin and delete the
+      #139 note from the card;
+    * anything else changes shape    -> a normal failure, not a silent xfail.
 
-    Every intent reaching that branch is an ExitIntent (`exits_to_retire` is
-    typed `dict[str, ExitIntent]` and all three population paths filter on it),
-    while the handler's park branch requires an EntryIntent — so no intent shape
-    exists that would let a discriminating pin be written today.
+    What it still does NOT do — unchanged from the xfail version and recorded on
+    #139 — is guard #122's tenth finding (the unconditional
+    `_forced_cancel_pending.pop` in this branch). Eager-retire discards the park
+    with or without that line, so no assertion here can tell the two apart. That
+    branch has no guard until #139 lands.
     """
     b, engine, pos = _arm_protective_exit_engine()
+    key = "P" + chr(0) + "L"
     b.raise_on_next_cancel = OrderDispositionUnknownError(
         "cancel timed out", client_order_id=None,
     )
+    cancels_before = len(b.cancel_calls)
 
     engine._cleanup_position_tracking("L")   # fill-driven: NOT external flatten
 
-    assert "P\0L" in engine._forced_cancel_pending, (
-        "the park did not survive an ambiguous cancel on the non-strict branch"
+    assert len(b.cancel_calls) > cancels_before, (
+        "the cancel was never attempted — this test says nothing about #139 "
+        "until the dispatch actually happens; fix the upstream regression first"
+    )
+    assert key not in engine._forced_cancel_pending, (
+        "#139 APPEARS TO HAVE LANDED: the park survived an ambiguous cancel on "
+        "the non-strict branch. Convert this characterization into the real "
+        "park-survival pin and clear the obligation note on #139."
+    )
+    assert engine.order_mapping.get(key) is None, (
+        "#139 APPEARS TO HAVE LANDED: eager-retire no longer discards the "
+        "mapping. Same action as above."
     )
