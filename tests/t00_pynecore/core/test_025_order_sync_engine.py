@@ -16174,3 +16174,39 @@ def __test_122_flat_book_with_a_still_mapped_protective_exit_quarantines__():
     assert len(b.exit_calls) == 1, (
         "#122: no protection may be re-placed over a flat book"
     )
+
+
+def __test_122_a_single_stale_flat_snapshot_must_not_retire_protection__():
+    """One flat read is NOT proof of flat — and flat is the only verdict that
+    RETIRES protection (drops the Pine slot, clears position state).
+
+    Found by the stop-time review gate AFTER #122 was approved and closed. The
+    venue is measured to serve stale/non-monotonic snapshots (CLAUDE.md 08-17),
+    and on 2026-09-16 a single stale read in tools/flatten.py reported
+    ``long 1.0`` for an account that was really SHORT 1 and sold into it. The
+    same one-read trust here retires a LIVE position's protection, which is the
+    unrecoverable failure #122 exists to prevent.
+
+    Disagreement must resolve to UNREADABLE — never to the newer read, because
+    there is no evidence which snapshot is the stale one — and unreadable keeps
+    protection via the D2 policy point.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    real_long = b.position
+    reads = iter([None, real_long])      # stale FLAT, then the truth: still long
+
+    async def _staggered_get_position(_symbol):
+        return next(reads, real_long)
+
+    b.get_position = _staggered_get_position
+
+    engine._route_event(_coid_none_venue_cancel_of_exit("xchg-2"))
+
+    assert pos.exit_orders, (
+        "the Pine declaration slot was dropped on ONE unconfirmed flat read — "
+        "a stale snapshot just retired protection for a position the venue "
+        "still holds (naked, and nothing re-emits it)"
+    )
+    assert pos.size == 1.0, (
+        "engine position state was cleared on an unconfirmed flat snapshot"
+    )
