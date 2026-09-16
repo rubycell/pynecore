@@ -77,7 +77,7 @@
 #     minval: 1
 #    confirm: false
 # Change here to modify the input value
-#value =
+value = 45
 
 [inputs.doubleCheckPct]
 # Input metadata, cannot be modified
