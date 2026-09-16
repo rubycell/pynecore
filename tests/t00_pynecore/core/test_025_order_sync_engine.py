@@ -16466,3 +16466,62 @@ def __test_122_a_single_stale_flat_snapshot_must_not_retire_protection__():
     assert pos.size == 1.0, (
         "engine position state was cleared on an unconfirmed flat snapshot"
     )
+
+
+def __test_122_a_single_stale_opposite_sign_snapshot_must_not_retire_protection__():
+    """Sibling of the stale-flat pin, one verdict wider.
+
+    A stale OPPOSITE-SIGN read (the venue holds a LONG, the snapshot says
+    SHORT) is also "not open for this exit", so it authorises the same retire.
+    An earlier version confirmed only the exactly-FLAT verdict and left this
+    one able to retire live protection on ONE read — the same unsound-evidence
+    class, reached by a different value.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    real_long = b.position
+    stale_short = ExchangePosition(
+        symbol=SYMBOL, side="short", size=1.0, entry_price=50_000.0,
+        unrealized_pnl=0.0, liquidation_price=None,
+        leverage=1.0, margin_mode="isolated",
+    )
+    reads = iter([stale_short, real_long])
+
+    async def _staggered_get_position(_symbol):
+        return next(reads, real_long)
+
+    b.get_position = _staggered_get_position
+
+    engine._route_event(_coid_none_venue_cancel_of_exit("xchg-2"))
+
+    assert pos.exit_orders, (
+        "the Pine declaration slot was dropped on ONE unconfirmed "
+        "OPPOSITE-SIGN read — a stale snapshot retired protection for a long "
+        "the venue still holds"
+    )
+    assert pos.size == 1.0, "engine position state cleared on unproven evidence"
+
+
+def __test_122_the_retire_confirmation_is_separated_in_time__(monkeypatch):
+    """Two BACK-TO-BACK reads of a lagging replica return the SAME stale
+    snapshot, so agreement would prove nothing. The confirmation must sleep
+    between them or it is not evidence at all."""
+    slept: list[float] = []
+    from pynecore.core.broker import sync_engine as _se
+    real_sleep = _se.time.sleep
+    monkeypatch.setattr(
+        _se.time, "sleep",
+        lambda s: (slept.append(s), real_sleep(0))[1],
+    )
+    b, engine, pos = _arm_protective_exit_engine()
+
+    async def _always_flat(_symbol):
+        return None
+
+    b.get_position = _always_flat
+    engine._route_event(_coid_none_venue_cancel_of_exit("xchg-2"))
+
+    assert any(s > 0 for s in slept), (
+        "the two reads that authorise a retire ran back-to-back — a lagging "
+        "replica would serve the same stale snapshot twice and 'confirm' its "
+        "own staleness"
+    )

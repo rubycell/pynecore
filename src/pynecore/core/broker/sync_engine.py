@@ -462,6 +462,25 @@ constant's value — not any guard in the code — that closes that hazard.
 """
 
 
+_PROTECTIVE_EXIT_POSITION_CONFIRM_GAP_S = 1.5
+"""Minimum separation between the two reads that may authorise a RETIRE.
+
+Two BACK-TO-BACK reads of a lagging replica return the SAME stale snapshot, so
+"agreement" would prove nothing — the confirmation has to be separated in time
+to be evidence at all.  Matches the gap ``tools/flatten.py`` uses for the same
+venue property.
+
+HONEST RESIDUAL: a replica has been measured stale for ~10 s (CLAUDE.md, 08-17),
+which no gap we can afford inside the order-event drain will cover.  This gap
+therefore REDUCES the window, it does not close it.  What closes it is that the
+unproven path is SAFE: disagreement resolves to UNREADABLE, which keeps
+protection (D2), the phantom side is bounded by
+``_PROTECTIVE_EXIT_REARM_LIMIT`` (D3), and reconcile's sustained-flat grace
+(``EXTERNAL_FLATTEN_CONFIRM_GRACE_S``, >=2 passes) remains the authority that
+actually retires a genuinely flat position.
+"""
+
+
 _PROTECTIVE_EXIT_POSITION_READ_TIMEOUT_S = 2.5
 """Maximum #122 venue-position read time inside the cancel-event drain.
 
@@ -6809,16 +6828,17 @@ class OrderSyncEngine:
                 type(exc).__name__, exc,
             )
             return None, None
-        flat = self._snapshot_reads_flat(venue_position)
-        if not flat:
-            venue_side = (venue_position.side or '').lower()
-            matches = (
-                (intent.side == 'sell' and venue_side == 'long')
-                or (intent.side == 'buy' and venue_side == 'short')
-            )
+        if self._snapshot_opens_for_exit(venue_position, intent):
             # POSITIVE evidence needs no second opinion: it KEEPS protection,
-            # which is the safe direction to be wrong in.
-            return matches, venue_position
+            # which is the safe direction to be wrong in, and it keeps the
+            # confirmation cost off the common path.
+            return True, venue_position
+        # EVERY not-open verdict lands here — a FLAT snapshot AND an
+        # OPPOSITE-SIGN one. Both authorise a RETIRE (drop the Pine slot, clear
+        # position state), so both need the same standard of evidence: an
+        # earlier version confirmed only the exactly-flat case, leaving a stale
+        # opposite-sign read (venue long, snapshot says short) able to retire
+        # live protection on ONE read.
         # A FLAT snapshot is the dangerous one — it is the only verdict that
         # RETIRES protection (drops the Pine slot, clears position state). One
         # read is not enough to justify that: this venue is measured to serve
@@ -6827,44 +6847,57 @@ class OrderSyncEngine:
         # account that was really SHORT 1 and sold into it. Require a SECOND
         # agreeing read before believing flat.
         try:
+            # SEPARATED IN TIME — see the gap constant. Without this the second
+            # read hits the same lagging replica and "confirms" its own staleness.
+            time.sleep(_PROTECTIVE_EXIT_POSITION_CONFIRM_GAP_S)
             confirm = self._run_async_read(asyncio.wait_for(
                 self._broker.get_position(self._symbol),
                 timeout=_PROTECTIVE_EXIT_POSITION_READ_TIMEOUT_S,
             ))
         except Exception as exc:  # noqa: BLE001
             _blog_warning(
-                "#122: flat snapshot could NOT be confirmed (%s: %s) — "
-                "treating the venue as UNREADABLE, not flat; protection is "
-                "not retired on one unconfirmed read",
+                "#122: the not-open snapshot could NOT be confirmed (%s: %s) "
+                "— treating the venue as UNREADABLE; protection is never "
+                "retired on one unconfirmed read",
                 type(exc).__name__, exc,
             )
             return None, None
-        if not self._snapshot_reads_flat(confirm):
+        if self._snapshot_opens_for_exit(confirm, intent):
             # The two reads disagree, so we cannot prove flat. We also cannot
             # prove open: there is no evidence which snapshot is the stale one,
             # so we do NOT prefer the newer. Unreadable is the honest verdict,
             # and it routes to the policy point — which keeps protection.
             _blog_warning(
                 "#122: position reads DISAGREE across the protective-exit "
-                "cancel (flat, then %r) — refusing to retire protection on an "
-                "unproven flat; treating as UNREADABLE",
+                "cancel (not-open, then %r opens the protected side) — "
+                "refusing to retire protection on unproven evidence; treating "
+                "as UNREADABLE",
                 confirm,
             )
             return None, None
         return False, venue_position
 
     @staticmethod
-    def _snapshot_reads_flat(position: ExchangePosition | None) -> bool:
-        """``True`` when a READABLE snapshot shows no position.
+    def _snapshot_opens_for_exit(
+            position: ExchangePosition | None, intent: ExitIntent,
+    ) -> bool:
+        """``True`` when a READABLE snapshot shows a position this exit protects.
 
-        ``None`` here means the broker reported no position — a readable flat —
-        which is distinct from a read that FAILED (the caller returns ``None``
-        for that, never this).
+        The single predicate both reads are judged by, so "agreement" means
+        agreement about the thing that matters: is there a position on the side
+        this exit reduces? Everything else — flat, or an opposite-sign holding —
+        is not-open and would authorise a retire.
+
+        ``None`` means the broker reported NO position, a readable flat; a read
+        that FAILED never reaches here (the caller returns ``None`` for that).
         """
         if position is None:
-            return True
-        return (float(position.size) <= 0.0
-                or (position.side or '').lower() == 'flat')
+            return False
+        side = (position.side or '').lower()
+        if float(position.size) <= 0.0 or side == 'flat':
+            return False
+        return ((intent.side == 'sell' and side == 'long')
+                or (intent.side == 'buy' and side == 'short'))
 
     def _retire_cancelled_protective_exit(
             self, event: OrderEvent, key: str, intent: ExitIntent,
