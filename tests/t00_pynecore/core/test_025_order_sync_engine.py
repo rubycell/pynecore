@@ -17156,3 +17156,44 @@ def __test_122_reconcile_retires_pending_flat_parent_after_confirmation__():
     assert "P\0L" not in engine.active_intents
     assert "L" not in pos.entry_orders
     assert ("P", "L") not in pos.exit_orders
+
+
+def __test_123_pending_only_restart_flatten_waits_for_confirmation_grace__():
+    """Restart-replayed pending cleanup alone must arm the flat grace."""
+    b, engine, pos = _arm_protective_exit_engine()
+    pos.size = 0.0
+    pos.sign = 0.0
+    pos.open_trades.clear()
+    engine._cascade_cleanup_on_parent_flat_snapshot(["L"])
+    engine._active_intents.clear()
+    engine._last_position_fill_monotonic = (
+        time.monotonic() - EXTERNAL_FLATTEN_CONFIRM_GRACE_S - 1.0
+    )
+    engine._pending_reversal_opens.clear()
+    assert engine._unconfirmed_flat_pending == {"L"}
+    assert engine._order_mapping.get("P\0L")
+    assert "L" in engine._envelopes
+    assert "L" in pos.entry_orders
+    assert ("P", "L") in pos.exit_orders
+
+    b.position = None
+    engine.reconcile()
+
+    assert engine._unconfirmed_flat_pending == {"L"}, (
+        "one flat read swept pending-only restart protection"
+    )
+    assert engine._order_mapping.get("P\0L")
+    assert "L" in engine._envelopes
+    assert "L" in pos.entry_orders
+    assert ("P", "L") in pos.exit_orders
+
+    engine._flat_observed_with_intents_since = (  # type: ignore[attr-defined]
+        time.monotonic() - EXTERNAL_FLATTEN_CONFIRM_GRACE_S - 1.0
+    )
+    engine.reconcile()
+
+    assert engine._unconfirmed_flat_pending == set()
+    assert "P\0L" not in engine._order_mapping
+    assert "L" not in engine._envelopes
+    assert "L" not in pos.entry_orders
+    assert ("P", "L") not in pos.exit_orders
