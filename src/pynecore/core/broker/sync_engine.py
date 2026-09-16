@@ -4864,7 +4864,9 @@ class OrderSyncEngine:
                             size=broker_signed,
                             entry_price=broker_entry_price,
                         )
-        elif not is_startup and new_size == 0.0 and self._position.size != 0.0:
+        elif (not is_startup and new_size == 0.0
+              and (self._position.size != 0.0
+                   or self._unconfirmed_flat_pending)):
             # RAW by design (#73/C2): this gate reads the venue net, never
             # the journal-owned figure. ``net == 0`` on a netting account is
             # a proof of ABSENCE — nobody holds anything, so clearing is
