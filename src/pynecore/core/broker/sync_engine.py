@@ -4908,11 +4908,15 @@ class OrderSyncEngine:
             # glitched flat /positions read clear the book seconds before
             # the reversal close's own fill arrived — the fill then walked
             # an empty FIFO (measured on the Capital.com pyramid lane).
+            # After a restart, replayed protection can likewise leave only an
+            # unconfirmed-flat pending marker, so that pending-only state must
+            # arm the same grace before its protection is retired.
             now = time.monotonic()
             recent_fill = (now - self._last_position_fill_monotonic
                            < EXTERNAL_FLATTEN_CONFIRM_GRACE_S)
             if (self._active_intents or recent_fill
-                    or self._pending_reversal_opens):
+                    or self._pending_reversal_opens
+                    or self._unconfirmed_flat_pending):
                 if self._flat_observed_with_intents_since == 0.0:
                     self._flat_observed_with_intents_since = now
                 if (now - self._flat_observed_with_intents_since
