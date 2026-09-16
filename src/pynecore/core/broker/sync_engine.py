@@ -1064,6 +1064,10 @@ class OrderSyncEngine:
         explicitly so test paths that do not use a storage context can run.
     """
 
+    # Venue plugins can extend these through their profile when more
+    # authoritative entry-gone reject phrases are identified.
+    _ENTRY_GONE_REJECT_FRAGMENTS = ("no confirmed entry row",)
+
     def __init__(
             self,
             broker: 'BrokerPlugin',
@@ -1399,6 +1403,10 @@ class OrderSyncEngine:
         # so pyramiding entries with multiple tick-deferred exits per
         # ``from_entry`` each get their own slot.
         self._deferred_exits: dict[str, ExitIntent] = {}
+        # Parents preserved after a single flat snapshot.  This is intentionally
+        # in-memory only: after restart the next flat snapshot re-populates it
+        # before reconcile can accept the confirmed external flatten.
+        self._unconfirmed_flat_pending: set[str] = set()
         #: #82b log throttle: intent keys whose ``no_position_to_protect``
         #: skip already warned this episode (the skip re-fires every sync
         #: while the parent entry rests). Cleared per-key on a successful
@@ -4994,6 +5002,11 @@ class OrderSyncEngine:
             self._external_flatten_cleared_entry_ids.add(entry_id)
             self._cleanup_position_tracking(
                 entry_id, venue_flattened_externally=True)
+        for entry_id in self._unconfirmed_flat_pending - cleared_entry_ids:
+            self._external_flatten_cleared_entry_ids.add(entry_id)
+            self._cleanup_position_tracking(
+                entry_id, venue_flattened_externally=True)
+        self._unconfirmed_flat_pending.clear()
         self._clear_protective_exit_episodes()
 
     def _adopt_size_with_replayed_close(
@@ -9235,10 +9248,23 @@ class OrderSyncEngine:
         this caller stopped declaring the semantics.
         """
         for from_entry in from_entries:
+            self._unconfirmed_flat_pending.add(from_entry)
             self._cleanup_position_tracking(
                 from_entry, cascade_reason='parent_flat_snapshot',
                 flat_evidence_unconfirmed=True,
             )
+
+    def _reject_asserts_entry_gone(
+            self, exc: ExchangeOrderRejectedError,
+    ) -> bool:
+        """Whether a modify reject authoritatively says its parent is gone."""
+        if getattr(exc, 'entry_gone', False) is True:
+            return True
+        message = str(exc).lower()
+        return any(
+            fragment in message
+            for fragment in self._ENTRY_GONE_REJECT_FRAGMENTS
+        )
 
     def _retire_orphan_exits_on_flat_book(
             self, *, journal_only: bool = False,
@@ -20243,50 +20269,32 @@ class OrderSyncEngine:
             self._reanchor_envelope_after_reject(new.intent_key)
             self._dispatch_new(new)
         except ExchangeOrderRejectedError as e:
-            # An exit modify whose parent entry no longer carries any open
-            # trade is moot: the venue has already closed the position the
-            # replacement bracket would protect, so the reject ("no
-            # confirmed entry row" on Capital.com) proves there is nothing
-            # left to guard. Retire the stale tracking and continue — a
-            # raw raise here kills the whole run over a dead intent. Any
-            # other reject (a live parent losing its protection) still
-            # re-raises: swallowing it would leave real exposure unguarded.
+            # A tradeless local parent is only authoritative when the reject
+            # itself says the entry is gone. Generic validation / price-band /
+            # throttle rejects preserve tracking until reconcile confirms the
+            # flat snapshot; a reject over a locally open trade still raises.
             if (isinstance(new, ExitIntent)
                     and new.from_entry is not None
                     and not any(trade.entry_id == new.from_entry
                                 for trade in self._position.open_trades)):
-                _blog_warning(
-                    "modify rejected for %s but parent %r holds no open "
-                    "trade — retiring the stale exit tracking: %s",
-                    new, new.from_entry, e,
-                )
-                # EXTERNAL-FLATTEN SEMANTICS, adjudicated 2026-09-16 (the
-                # independent reviewer flagged this site without reporting it;
-                # verdict: it needs the flag). The comment above establishes
-                # that the POSITION is gone — it does NOT establish that the
-                # ORDER is. A rejected MODIFY means the venue refused the
-                # CHANGE; the predecessor exit may still be resting. And since
-                # no leg of ours filled, a native-OCA venue has no trigger, so
-                # without the flag the cancel is skipped and the mapping dropped
-                # in the same step.
-                # The asymmetry decides it: passing the flag costs at most a
-                # redundant cancel of an already-dead order, which
-                # `execute_cancel` reports as a benign no-op; omitting it risks
-                # a live reduce-only exit with no tracking, which later OPENS an
-                # opposite position. "The reject proves the order is gone" is
-                # also venue-shaped reasoning (Capital.com's "no confirmed entry
-                # row"), and #122's fifth finding was exactly a
-                # verified-on-one-venue argument shipped as general.
-                # AUTHORITATIVE, reverted from a brief unconfirmed
-                # classification: the evidence here is THE VENUE'S OWN REJECT
-                # ("no confirmed entry row for from_entry=...") plus no local
-                # open trade — a statement from the venue, not a position
-                # snapshot that might be lagging. A pre-existing test pins that
-                # this path RETIRES the stale entry intent so the run survives
-                # and the diff stops re-dispatching against it; preserving here
-                # breaks that contract for no safety gain.
-                self._cleanup_position_tracking(
-                    new.from_entry, venue_flattened_externally=True)
+                if self._reject_asserts_entry_gone(e):
+                    _blog_warning(
+                        "modify rejected for %s and the venue says parent %r "
+                        "is gone — retiring stale tracking: %s",
+                        new, new.from_entry, e,
+                    )
+                    self._cleanup_position_tracking(
+                        new.from_entry, venue_flattened_externally=True)
+                else:
+                    _blog_warning(
+                        "modify rejected for %s while parent %r is locally "
+                        "flat, but the reject does not assert the entry is "
+                        "gone — preserving tracking until reconcile: %s",
+                        new, new.from_entry, e,
+                    )
+                    self._unconfirmed_flat_pending.add(new.from_entry)
+                    self._cleanup_position_tracking(
+                        new.from_entry, flat_evidence_unconfirmed=True)
                 return
             _blog_error(
                 "modify failed for %s: %s: %s", new, type(e).__name__, e,
