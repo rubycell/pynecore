@@ -16312,3 +16312,41 @@ def __test_122_the_inline_cancel_path_never_retires_protection__():
         assert pos.size == 1.0, (
             f"a {snapshot_name} snapshot cleared engine position state inline"
         )
+
+
+def __test_122_external_flatten_cancels_the_phantom_on_a_native_oca_venue__():
+    """A native-OCA venue must NOT be trusted to sweep an EXTERNAL flatten.
+
+    Native OCA cancels the sibling when one leg FILLS. An external flatten is
+    not our fill — the position vanished elsewhere and no leg of ours executed —
+    so the venue has nothing to trigger on. The cleanup used to skip its own
+    cancel there AND drop the mapping in the same breath, orphaning a live
+    protective order beyond recovery.
+
+    This became reachable when #122 moved retirement to reconcile alone and
+    deliberately allowed a BOUNDED phantom: the entire safety argument for that
+    trade is "reconcile cancels it", which was silently false on native-OCA
+    venues. Found by stop-time review after the change landed.
+    """
+    b = MockBroker(
+        capabilities=ExchangeCapabilities(oca_cancel=CapabilityLevel.NATIVE),
+    )
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 1.0, stop=50_000.0)
+    pos.exit_orders[("P", "L")] = _exit_order(
+        "L", -1.0, "P", limit=50_100.0, stop=49_900.0,
+    )
+    engine.sync(BAR_TS)
+    engine._route_event(_fill_event('buy', 1.0, 50_000.0, pine_id="L"))
+    assert engine.order_mapping.get("P\0L"), "the protective exit is mapped"
+    cancels_before = len(b.cancel_calls)
+
+    # the venue flattened us elsewhere; our protective order never filled
+    engine._accept_confirmed_external_flatten()
+
+    assert len(b.cancel_calls) > cancels_before, (
+        "the protective order was left LIVE at a native-OCA venue after an "
+        "external flatten — nothing of ours filled, so native OCA had no "
+        "trigger, and the mapping was dropped in the same step: an orphaned "
+        "live order nothing will ever cancel"
+    )
