@@ -9652,11 +9652,23 @@ class OrderSyncEngine:
                             format_intent_key(key),
                         )
                         continue
-                except OrderDispositionUnknownError:
+                except (ExchangeConnectionError,
+                        OrderDispositionUnknownError):
+                    # BOTH, matching every sibling cancel-dispatch site in this
+                    # engine (seven of them pair these exactly). A connection
+                    # error here previously PROPAGATED out of
+                    # `_cleanup_position_tracking`, aborting the loop: the
+                    # remaining exits in `exits_to_retire` were then neither
+                    # cancelled NOR parked, and the caller
+                    # (`_accept_confirmed_external_flatten` -> reconcile) had
+                    # already cleared position state. The obligation for THIS
+                    # key survived because the park is taken before the
+                    # round-trip; its siblings had nothing.
                     # stays parked — the obligation outlives this process
                     _blog_warning(
-                        "external-flatten cleanup: cancel of %s returned an "
-                        "UNKNOWN disposition — the order may still rest live. "
+                        "external-flatten cleanup: cancel of %s did not "
+                        "complete (connection error or UNKNOWN disposition) — "
+                        "the order may still rest live. "
                         "Keeping its tracking rather than eagerly retiring it; "
                         "`_order_mapping` is the only id->key index and "
                         "reconcile does not diff orders, so a drop here strands "

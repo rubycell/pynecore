@@ -16788,3 +16788,45 @@ def __test_139_characterization_eager_retire_discards_the_park_and_mapping__(cap
         "#139 APPEARS TO HAVE LANDED: eager-retire no longer discards the "
         "mapping. Same action as above."
     )
+
+
+def __test_122_connection_error_during_cleanup_does_not_abort_the_sweep__(caplog):
+    """A connection error on ONE exit's cancel must not strand its SIBLINGS.
+
+    Found by an intra-engine consistency grep, not by reasoning: seven sibling
+    cancel-dispatch sites in this engine catch
+    `(ExchangeConnectionError, OrderDispositionUnknownError)` together. The
+    external-flatten cleanup caught only the second, so a connection error
+    propagated out of `_cleanup_position_tracking` and ABORTED the retire loop.
+    The key being dispatched survived (its park is taken before the round-trip),
+    but every remaining exit was left neither cancelled NOR parked — while the
+    caller had already cleared position state.
+
+    Two exits under one entry; the first cancel raises a connection error.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    # a second protective exit under the same entry
+    pos.exit_orders[("P2", "L")] = _exit_order(
+        "L", -1.0, "P2", limit=50_200.0, stop=49_800.0,
+    )
+    engine.sync(BAR_TS + 1)
+    assert engine.order_mapping.get("P2\0L"), "the second exit is mapped"
+    b.raise_on_next_cancel = ExchangeConnectionError("venue unreachable")
+
+    with caplog.at_level(logging.INFO, logger="pyne_core_logger"):
+        engine._accept_confirmed_external_flatten()   # must NOT raise
+
+    # The right question is whether the LOOP CONTINUED, not whether both keys
+    # are still tracked: a sibling whose cancel LANDS is correctly dropped.
+    # (An earlier version of this test asserted the latter and failed on
+    # correct behaviour.)
+    assert len(b.cancel_calls) >= 2, (
+        f"only {len(b.cancel_calls)} cancel(s) were dispatched — the "
+        "connection error on the first exit aborted the retire loop, so the "
+        "sibling never got a cancel at all, on an account whose position "
+        "state was just cleared"
+    )
+    assert "P\0L" in engine._forced_cancel_pending, (
+        "the exit whose cancel hit the connection error must stay PARKED for "
+        "the retry"
+    )
