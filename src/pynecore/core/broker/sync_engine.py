@@ -9550,6 +9550,34 @@ class OrderSyncEngine:
         :meth:`_handle_bracket_attach_after_fill_reject` — a follow-up
         invocation on the same id finds nothing to do.
         """
+        if flat_evidence_unconfirmed:
+            # BELIEVED flat, not PROVEN flat — and this method DESTROYS
+            # protection state, so it must not run on belief.
+            #
+            # The caller's evidence is a single `get_position` snapshot, or a
+            # reject message plus local belief. Neither is authoritative on this
+            # venue class (reads measured stale ~10 s, CLAUDE.md 08-17). Every
+            # action below is unsafe on that: cancelling strips protection from
+            # a position that may still be live (naked, unrecoverable), dropping
+            # `_order_mapping` orphans an order that may still rest (no handle
+            # left), and dropping the PINE slots retires the declaration so the
+            # strategy can never re-emit the exit — the last one is why a guard
+            # inside the exits loop was not enough: the Pine-side teardown at
+            # the end of this method ran regardless and destroyed exactly the
+            # state the loop had just preserved.
+            #
+            # So: touch NOTHING. Reconcile is the single authority — it confirms
+            # flatness across >=2 passes over EXTERNAL_FLATTEN_CONFIRM_GRACE_S
+            # and then reaches `_accept_confirmed_external_flatten`, which runs
+            # this method with authoritative evidence and retires properly.
+            _blog_info(
+                "cleanup for %r SKIPPED — the venue-flat evidence here is a "
+                "single snapshot or local belief, not confirmed. Protection "
+                "state is left intact; reconcile owns the confirmed retire.",
+                closed_entry_id,
+            )
+            return
+
         # §2.6.7 retire: drop any NativeStopState parked under this entry id
         # BEFORE the partial-bracket cascade evicts the legs (the leg-walk
         # branch needs them populated). Idempotent / no-op when nothing is
@@ -9641,30 +9669,6 @@ class OrderSyncEngine:
                     sl_price=recovered['sl_price'],
                 ))
         for key, intent in exits_to_retire.items():
-            if flat_evidence_unconfirmed:
-                # BELIEVED flat, not PROVEN flat. The caller's evidence is a
-                # single `get_position` snapshot, or engine belief, neither of
-                # which is authoritative on this venue class (reads measured
-                # stale ~10 s, CLAUDE.md 08-17).
-                #
-                # Both available actions are unsafe on unconfirmed evidence:
-                # CANCELLING strips protection from a position that may still
-                # be live (naked — unrecoverable), and DROPPING the mapping
-                # orphans an exit that may still be resting (no handle left to
-                # cancel it). So do NEITHER: keep the tracking exactly as it is
-                # and let reconcile — the single authority, confirming flatness
-                # across >=2 passes over EXTERNAL_FLATTEN_CONFIRM_GRACE_S —
-                # decide. It reaches `_accept_confirmed_external_flatten`,
-                # which cancels properly.
-                _blog_info(
-                    "cleanup: leaving %s tracked — the venue-flat evidence "
-                    "here is a single snapshot / local belief, not confirmed. "
-                    "Neither cancelling (strips live protection) nor dropping "
-                    "(orphans a resting order) is safe on it; reconcile owns "
-                    "the confirmed retire.",
-                    format_intent_key(key),
-                )
-                continue
             # A software bracket exposes TP and SL as independent venue
             # orders. The fill that flattened the parent terminalizes only
             # one physical leg; dropping the logical exit before dispatching
@@ -20210,8 +20214,16 @@ class OrderSyncEngine:
                 # also venue-shaped reasoning (Capital.com's "no confirmed entry
                 # row"), and #122's fifth finding was exactly a
                 # verified-on-one-venue argument shipped as general.
+                # AUTHORITATIVE, reverted from a brief unconfirmed
+                # classification: the evidence here is THE VENUE'S OWN REJECT
+                # ("no confirmed entry row for from_entry=...") plus no local
+                # open trade — a statement from the venue, not a position
+                # snapshot that might be lagging. A pre-existing test pins that
+                # this path RETIRES the stale entry intent so the run survives
+                # and the diff stops re-dispatching against it; preserving here
+                # breaks that contract for no safety gain.
                 self._cleanup_position_tracking(
-                    new.from_entry, flat_evidence_unconfirmed=True)
+                    new.from_entry, venue_flattened_externally=True)
                 return
             _blog_error(
                 "modify failed for %s: %s: %s", new, type(e).__name__, e,

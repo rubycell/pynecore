@@ -16668,8 +16668,9 @@ def __test_122_journal_only_orphan_exit_is_cancelled_on_a_native_oca_venue__():
     )
 
 
-def __test_122_parent_flat_snapshot_cascade_declares_unconfirmed_evidence__():
-    """The cascade's flat evidence is ONE snapshot — it must say so.
+def __test_122_parent_flat_snapshot_cascade_declares_unconfirmed_evidence__(
+        tmp_path, request):
+    """The cascade's ONE-snapshot evidence must preserve every tracking layer.
 
     Drives `_drive_partial_bracket_triggers` itself, NOT the extracted helper.
     An earlier version of this pin called
@@ -16687,24 +16688,56 @@ def __test_122_parent_flat_snapshot_cascade_declares_unconfirmed_evidence__():
     (which would orphan a possibly-resting order). Reconcile, confirming across
     >=2 passes, owns the retire.
     """
-    from pynecore.core.broker.software_partial_bracket_engine import PartialBracketLeg
+    from pynecore.core.broker.storage import BrokerStore
     from pynecore.core.broker.store_helpers import (
         LEG_KIND_SL_PARTIAL, LEG_STATE_ARMED,
+        LEG_STATE_CASCADED_CANCEL_BY_PARENT_CLOSE,
     )
+    store = BrokerStore(tmp_path / "broker.sqlite", plugin_name="testbroker")
+    request.addfinalizer(store.close)
+    ctx = store.open_run(
+        _restart_identity(), script_source="src", script_path="t.py",
+    )
+    request.addfinalizer(ctx.close)
     b = MockBroker()
-    engine, pos = _mk_engine(b)
+    pos = BrokerPosition()
+    engine = OrderSyncEngine(
+        broker=b, position=pos, symbol=SYMBOL,  # type: ignore[arg-type]
+        run_tag=RUN_TAG, mintick=1.0, store_ctx=ctx,
+    )
     _open_long_with_bracket(b, engine, pos)
 
-    leg = PartialBracketLeg(
-        coid='leg-sl', symbol=SYMBOL, pine_id='X1', from_entry='L',
-        leg_kind=LEG_KIND_SL_PARTIAL, leg_state=LEG_STATE_ARMED,
-        side='sell', qty=0.5, intent_key="X1\0L", parent_pine_entry_id='L',
-        parent_entry_dispatch_ref='parent-coid', intent_partial_qty=0.5,
-        trigger_level=49_900.0, oca_group=None, oca_type=None,
+    parent_ref = engine._envelopes["L"].client_order_id('e')
+    _persist_partial_leg(
+        ctx, leg_kind=LEG_KIND_SL_PARTIAL, leg_state=LEG_STATE_ARMED,
+        intent_key="X1\0L", pine_id="X1", from_entry="L", qty=0.5,
+        intent_partial_qty=0.5, trigger_level=49_900.0,
+        parent_entry_dispatch_ref=parent_ref,
     )
     pbe = engine._partial_bracket_engine  # type: ignore[attr-defined]
-    pbe._legs[leg.key] = leg
-    pbe._legs_by_parent.setdefault((leg.symbol, leg.from_entry), set()).add(leg.key)
+    pbe.restart_replay()
+    leg = next(iter(pbe.iter_legs()))
+    row_before = ctx.get_order(leg.coid)
+    assert row_before is not None
+    assert row_before.extras["leg_state"] == LEG_STATE_ARMED
+    assert row_before.closed_ts_ms is None
+
+    failsafe = engine._native_failsafe_manager  # type: ignore[attr-defined]
+    failsafe.register_parent(
+        parent_entry_dispatch_ref=parent_ref, symbol=SYMBOL,
+        parent_side='long', mintick=1.0, pending_confirmation=True,
+        now_ms=float(BAR_TS),
+    )
+    native_state = failsafe.get_state(parent_ref)
+    assert native_state.health is FailsafeHealth.DEGRADING
+
+    active_before = dict(engine._active_intents)
+    mapping_before = {
+        key: list(order_ids) for key, order_ids in engine._order_mapping.items()
+    }
+    envelopes_before = dict(engine._envelopes)
+    entry_slot = pos.entry_orders["L"]
+    exit_slot = pos.exit_orders[("L-X", "L")]
 
     # the venue snapshot says flat while an armed leg believes the parent open
     b.position = None
@@ -16735,4 +16768,27 @@ def __test_122_parent_flat_snapshot_cascade_declares_unconfirmed_evidence__():
         "the cascade claimed AUTHORITATIVE flatness from a single snapshot — "
         "that authorises cancellation on evidence this venue class does not "
         "support"
+    )
+    assert failsafe.get_state(parent_ref) is native_state
+    assert native_state.health is FailsafeHealth.DEGRADING, (
+        "unconfirmed flat evidence retired the parent's NativeStopState"
+    )
+    assert pbe.get_leg(leg.key) is leg
+    assert leg.leg_state == LEG_STATE_ARMED, (
+        "unconfirmed flat evidence cascaded the partial-bracket leg"
+    )
+    row_after = ctx.get_order(leg.coid)
+    assert row_after is not None
+    assert row_after.extras["leg_state"] != (
+        LEG_STATE_CASCADED_CANCEL_BY_PARENT_CLOSE
+    ), "unconfirmed flat evidence marked the durable leg row cascaded"
+    assert row_after.extras["leg_state"] == LEG_STATE_ARMED
+    assert row_after.closed_ts_ms is None
+    assert engine._active_intents == active_before
+    assert engine._order_mapping == mapping_before
+    assert engine._envelopes == envelopes_before
+    assert pos.entry_orders.get("L") is entry_slot
+    assert pos.exit_orders.get(("L-X", "L")) is exit_slot, (
+        "unconfirmed flat evidence dropped the Pine exit slot, preventing the "
+        "strategy from re-emitting its protection"
     )
