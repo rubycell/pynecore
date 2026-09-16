@@ -165,6 +165,16 @@ Fork-specific venue plugins, editable-installed (so they import as
   Live testing exists but is its own gated suite (see "DNSE testing" below). Docs mirror + sync tool:
   `docs/dnse-openapi-documentation/` (`fetch_docs.py`); plans in `docs/plan/`.
 
+## A DNSE position read is NOT authoritative alone (measured twice 2026-09-16)
+
+A single `get_position`/position read can be STALE (lagging replica; measured: `long 1.0`
+served while the account was really SHORT 1 — acting on it doubled the position; and a
+stale FLAT nearly retired protection for a live position, #122 post-close fix 6abe04c6).
+**Any code deciding something IRREVERSIBLE from a position snapshot (its SIGN, or its
+emptiness) requires TWO AGREEING READS; disagreement resolves to could-not-determine —
+never to the newer snapshot — and the fail-closed action.** Enforced today in
+`tools/flatten.py` (bf5096e3) and `sync_engine.py` (6abe04c6); new call sites must follow.
+
 ## STOCK amend is CANCEL+REPLACE with a NEW id; write rejects are CODED (measured 2026-09-15)
 
 Live-measured on prod (#117 probe, funded stock account):
