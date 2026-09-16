@@ -9560,7 +9560,17 @@ class OrderSyncEngine:
             if (isinstance(intent, ExitIntent)
                     and intent.from_entry == closed_entry_id):
                 exits_to_retire.setdefault(intent.intent_key, intent)
-        if self._store_ctx is not None and not self._oca_cancel_native:
+        # The native-OCA skip applies here for the same reason it applies to the
+        # dispatch below — and fails for the same reason on an external flatten.
+        # This clause POPULATES `exits_to_retire` from the durable journal, so
+        # gating it on native-OCA alone means a JOURNAL-ONLY exit (known only
+        # from the store — an adopted leg, or anything surviving a restart) is
+        # never even CONSIDERED for cancellation on a native-OCA venue. Fixing
+        # the dispatch decision without fixing the POPULATION left those orphans
+        # exactly as stranded as before: the loop cannot cancel what the loop
+        # never sees.
+        if self._store_ctx is not None and (not self._oca_cancel_native
+                                            or venue_flattened_externally):
             durable_exits: dict[str, dict[str, Any]] = {}
             for row in self._store_ctx.iter_live_orders(from_entry=closed_entry_id):
                 if (row.intent_key is None
