@@ -205,6 +205,13 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         #: and emits one delta (cross-transport dedup; a cumulative <= watermark
         #: is a duplicate -> dropped).
         self._last_seen: dict[str, tuple] = {}
+        #: #135 — ``(order_id, raw_status)`` pairs already reported as STALE.
+        #: Keyed per STATE, not per id: a persistently-lagging replica then warns
+        #: once per distinct stale state (no 0.5 s storm), while a genuinely
+        #: anomalous sequence leaves a visible WARNING trail instead of one
+        #: buried line. A reconnecting transport replaying a lifecycle costs at
+        #: most one warning per status it replays.
+        self._stale_row_logged: set[tuple] = set()
         #: #121 dual-transport failsafe (see config.enable_ws_order_events).
         #: Lazily-started PROD WS order-event source; None until first
         #: ``watch_orders`` cycle (or when disabled). Both transports feed the
@@ -640,7 +647,8 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
                 return
             from .ws_order_source import WSOrderSource
             src = WSOrderSource(self.config.api_key, self.config.api_secret,
-                                investor_id, self.market_type)
+                                investor_id, self.market_type,
+                                ws_url=getattr(self.config, "ws_url", None))
             await src.start()
             self._ws_order_source = src
         except asyncio.CancelledError:
@@ -2906,6 +2914,45 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         raw_status = str(raw.get("orderStatus") or "")
         previous, prev_status = self._last_seen.get(order_id, (0.0, None))
         if cumulative == previous and raw_status == prev_status:
+            return []
+        if cumulative < previous:
+            # #135 — THE WATERMARK ONLY EVER RATCHETS UP. A row carrying LESS
+            # cumulative than we have already booked is STALE: it predates our
+            # high-water mark. Emit nothing and — critically — write nothing,
+            # because the old unconditional advance walked the watermark
+            # BACKWARDS and re-armed a fill that was already counted.
+            #
+            # Measured live 2026-09-16: the REST poll saw an order already
+            # Filled (cum=1) and set the watermark; the WS queue then drained
+            # that order's EARLIER frames (PendingNew, New — both cum=0), which
+            # reset it to 0; the WS's own Filled(cum=1) then read as a fresh
+            # 0->1 delta. The engine believed position 2.0 after a 1-lot fill,
+            # strategy.close() dispatched sell 2 against a real long 1, and the
+            # run opened a NAKED SHORT.
+            #
+            # `<` and never `<=`: an EQUAL cumulative with a NEW status is a
+            # real transition (a terminal arriving after a partial) and must
+            # still flow, or cancel/expiry detection goes blind.
+            #
+            # No legitimate per-id cumulative DECREASE exists (adjudicated
+            # 2026-09-16): an amend keeps the id but never rewrites fills; a
+            # conditional replace mints a NEW id (#117, live 09-15); venue id
+            # reuse is PER-DAY and a run is intraday, so same-day monotonicity
+            # holds; and a restart seeds this watermark from the journal ON
+            # PURPOSE, so suppressing replayed pre-restart fills is the ratchet
+            # working, not a lost fill.
+            stale_key = (order_id, raw_status)
+            if stale_key not in self._stale_row_logged:
+                self._stale_row_logged.add(stale_key)
+                log.broker_warning(
+                    "#135 STALE row for %s ignored: cumulative=%s is BELOW the "
+                    "booked high-water %s (status=%s) — a transport replayed an "
+                    "earlier frame, or a lagging replica served an older view "
+                    "(CLAUDE.md 08-17). Watermark left untouched; nothing "
+                    "emitted. This is DELAYED, not lost: when the source catches "
+                    "up, a terminal status arriving AT the high-water cumulative "
+                    "still flows. Warned once per (id, status).",
+                    order_id, cumulative, previous, raw_status)
             return []
         if order_id in self._superseded_amend_order_ids:
             # #117: this id was REPLACED by an amend — the venue's own cancel

@@ -372,7 +372,40 @@ def __test_watch_orders_survives_transient_iter_orders_exception__(fake_client, 
     assert calls["n"] > 1, "the flaky get_orders must actually have been called more than once"
 
 
-def __test_watch_orders_cumulative_decrease_clamps_no_negative_fill__(fake_client, collect):
+def __test_watch_orders_cumulative_decrease_is_dropped_as_stale__(fake_client, collect):
+    """A decreasing cumulative is STALE: dropped, watermark frozen, warned.
+
+    SUPERSESSION — read this before "fixing" it back.
+
+    OLD contract (this test, pre-2026-09-16):
+    ``__test_watch_orders_cumulative_decrease_clamps_no_negative_fill__`` pinned
+    CLAMP-AND-REPORT — the down-poll still emitted an event, with ``fill_qty``
+    clamped to None so a shrinking cumulative could never produce a NEGATIVE
+    fill. It was written for the measured venue behaviour that a read can be
+    stale/non-monotonic (CLAUDE.md: a Canceled order served as ``New`` by a
+    lagging replica ~10 s later, 08-17).
+
+    NEW contract (#135, forced by a LIVE INCIDENT on 2026-09-16): acting on a
+    provably-stale row double-counted a real fill and cost a contract. The REST
+    poll saw an order already Filled (cum=1) and set the watermark; the WS queue
+    then drained that order's EARLIER frames (PendingNew, New — both cum=0),
+    whose unconditional watermark write reset it to 0; the WS's own Filled(cum=1)
+    then read as a fresh 0->1 delta. The engine believed position 2.0 after a
+    1-lot fill, ``strategy.close()`` dispatched sell 2 against a real long 1, and
+    the run opened a NAKED SHORT.
+
+    So the watermark now only ratchets UP, and a row below it is dropped
+    entirely. Note this honours the OLD test's actual concern — never emit a
+    negative fill — MORE strongly: it emits nothing at all.
+
+    DELAYED, NOT LOST. Dropping a stale row does not silence the order forever;
+    the companion test below pins the catch-up path.
+
+    REJECTED ALTERNATIVE (do not re-propose): freeze the watermark but still emit
+    the clamped event. It satisfies both contracts and does fix the incident, but
+    because ``_last_seen`` no longer advances, a persistently-lagging replica
+    re-emits on EVERY poll — an event storm at the 0.5 s poll cadence.
+    """
     calls = {"n": 0}
 
     def get_orders(account, market_type, order_category=None, page_index=0,
@@ -385,13 +418,43 @@ def __test_watch_orders_cumulative_decrease_clamps_no_negative_fill__(fake_clien
 
     b = _broker(fake_client, get_orders=get_orders)
     b._identity["O1"] = ("pineA", None, LegType.ENTRY)
-    events = collect(b.watch_orders(), 2)
-    assert len(events) == 2, "both the up-poll and the down-poll must each report a change"
+    events = collect(b.watch_orders(), 2, timeout=0.3)
+
+    assert len(events) == 1, \
+        f"only the up-poll may report; the down-poll is stale, got {len(events)}"
     assert events[0].fill_qty == 10.0
-    assert events[1].fill_qty is None, \
-        "a decreasing cumulative must clamp delta to 0 (never a negative fill_qty)"
-    assert events[1].order.filled_qty == 4.0, \
-        "the order's own cumulative filled_qty still reflects the raw drop"
+    assert b._last_seen["O1"][0] == 10.0, \
+        "the watermark must stay at the high-water mark, never regress to 4.0"
+
+
+def __test_stale_drop_is_delayed_not_lost_when_the_replica_catches_up__(fake_client):
+    """The honest replacement for what the old pin actually guarded.
+
+    A lagging replica is not silenced forever. Its stale LOWER-cumulative rows
+    are dropped, but the moment it catches up, the terminal status arrives AT the
+    high-water cumulative and flows through the equal-cum/new-status branch —
+    so cancel/expiry detection still sees it.
+    """
+    async def run():
+        b = _broker(fake_client)
+        b._identity["O1"] = ("pineA", None, LegType.ENTRY)
+        booked = await b._scan_row(
+            _order_row("O1", "PartiallyFilled", fill=9.0, qty=30.0))
+        # the replica lags: an older view, LOWER cumulative -> dropped + warned
+        stale = await b._scan_row(_order_row("O1", "New", fill=0.0, qty=30.0))
+        # ...then it catches up: the remainder was cancelled, AT the high-water
+        caught_up = await b._scan_row(
+            _order_row("O1", "Canceled", fill=9.0, qty=30.0))
+        return booked, stale, caught_up, b._last_seen["O1"]
+
+    booked, stale, caught_up, watermark = asyncio.run(run())
+    assert sum(e.fill_qty or 0.0 for e in booked) == 9.0
+    assert stale == [], "the lagging replica's older view must be dropped"
+    assert caught_up, (
+        "once the replica catches up, the terminal status at the high-water "
+        "cumulative MUST flow — a stale drop delays, it never silences")
+    assert watermark == (9.0, "Canceled"), \
+        "status advances at an unchanged cumulative; the ratchet never regresses"
 
 
 # --- get_balance -------------------------------------------------------

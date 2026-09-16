@@ -70,6 +70,10 @@ class _FakeTradingClient:
         self.calls: list[tuple] = []
         self.handlers: dict[str, list] = {}
         self._fail_on = fail_on
+        #: #135/2 — the ctor args matter: the endpoint the client dials is
+        #: decided here, and getting it wrong is silent (prod default wins).
+        self.ctor_args = a
+        self.ctor_kwargs = k
 
     def _maybe_fail(self, name):
         if self._fail_on == name:
@@ -457,3 +461,147 @@ def __test_server_error_frame_warns_and_never_emits_the_milestone__(monkeypatch,
         "an error frame must NEVER be mistaken for delivery"
     assert "server error" in text.lower() or "refused" in text.lower(), \
         "a server-side subscription error must be reported, not swallowed"
+
+
+# === the watermark must never walk BACKWARDS (live incident 2026-09-16) =====
+# A real fill of ONE contract was counted TWICE on prod, and the engine's
+# position belief went 1.0 -> 2.0. strategy.close("E") then closed what it
+# believed it held — 2 — against a real long of 1, opening a NAKED SHORT.
+#
+# Mechanism (from the run log, not inferred): the REST poll observed the order
+# already `Filled` (cum=1) and set the watermark. The WS queue THEN drained
+# frames that PREDATE that observation — PendingNew and New, both cum=0 —
+# and `_scan_row` ends with an UNCONDITIONAL
+#     self._last_seen[order_id] = (cumulative, raw_status)
+# which walked the watermark back to 0. The WS's own Filled(cum=1) then looked
+# like a fresh 0->1 delta and emitted a SECOND fill.
+#
+# Note why every existing test missed it: they model both transports seeing the
+# SAME cumulative. Nothing modelled a LOWER cumulative arriving AFTER a higher
+# one, which is exactly what a queued transport does when it drains behind a
+# poll that already saw the end state.
+
+def __test_stale_frame_must_not_walk_the_watermark_backwards__(fake_client):
+    """One venue fill of 1 must be counted ONCE, whatever order the frames
+    arrive in. This is the live shape, replayed exactly."""
+    async def run():
+        b = _broker(fake_client)
+        b._identity["O1"] = ("pineA", None, LegType.ENTRY)
+        # the POLL gets there first and sees the END state:
+        poll = await b._scan_row(_order_row("O1", "Filled", fill=1.0, qty=1.0))
+        # the WS queue now drains frames that predate it (cum=0):
+        stale_pending = await b._scan_row(
+            _order_row("O1", "PendingNew", fill=0.0, qty=1.0))
+        stale_new = await b._scan_row(_order_row("O1", "New", fill=0.0, qty=1.0))
+        # ...followed by the WS's own copy of the fill it already counted:
+        ws_filled = await b._scan_row(_order_row("O1", "Filled", fill=1.0, qty=1.0))
+        return poll, stale_pending, stale_new, ws_filled, b._last_seen["O1"]
+
+    poll, stale_pending, stale_new, ws_filled, watermark = asyncio.run(run())
+
+    # non-fill events (CREATED) carry fill_qty=None — count only real fills
+    counted = sum(event.fill_qty or 0.0 for group in
+                  (poll, stale_pending, stale_new, ws_filled) for event in group)
+    assert counted == 1.0, (
+        f"ONE venue fill of 1 contract must be counted ONCE, got {counted} — "
+        "a double count makes strategy.close() oversize and opens a reverse "
+        "position (live 2026-09-16: long 1 -> close sell 2 -> naked short 1)")
+    assert watermark[0] == 1.0, (
+        f"the watermark must not regress below the highest cumulative seen; "
+        f"got {watermark}")
+
+
+# === #135/2: the WS order feed must dial the CONFIGURED endpoint ============
+# Measured 2026-09-16: WSOrderSource built TradingClient(api_key, api_secret,
+# auto_reconnect=True) and never passed base_url, so the vendored default
+# ("wss://ws-openapi.dnse.com.vn" — PROD) always won. Pointed at the sandbox the
+# WS order feed therefore dialled PROD with SANDBOX keys, failed auth
+# ("invalid API key") and degraded to poll-only. Consequence: the sandbox has
+# NEVER been able to exercise the WS order path, which is a large part of why
+# the watermark double-count reached production untested.
+
+def _captured_client(monkeypatch):
+    """Patch in the fake and hand back the instance it built."""
+    built = {}
+
+    def _factory(*a, **k):
+        client = _FakeTradingClient(*a, **k)
+        built["client"] = client
+        return client
+
+    monkeypatch.setattr(ws_mod, "TradingClient", _factory)
+    return built
+
+
+def __test_ws_order_source_dials_the_configured_endpoint__(monkeypatch):
+    """A configured ws_url (e.g. the sandbox) MUST reach the client."""
+    built = _captured_client(monkeypatch)
+    ws_mod.WSOrderSource("k", "s", "1000005917", "DERIVATIVE",
+                         ws_url="wss://ws-sb-openapi.dnse.com.vn")
+
+    assert built["client"].ctor_kwargs.get("base_url") == \
+        "wss://ws-sb-openapi.dnse.com.vn", (
+        "the configured ws_url must be passed to TradingClient — otherwise the "
+        "vendored PROD default wins and a sandbox run silently dials prod")
+
+
+def __test_ws_order_source_without_a_url_leaves_the_vendored_default__(monkeypatch):
+    """No ws_url configured -> do NOT force one: the vendored default stays the
+    single source of truth for the prod endpoint (no second hard-coded copy)."""
+    built = _captured_client(monkeypatch)
+    ws_mod.WSOrderSource("k", "s", "1000005917", "DERIVATIVE")
+
+    assert "base_url" not in built["client"].ctor_kwargs, \
+        "with no configured url the vendored default must apply, unduplicated"
+
+
+def __test_equal_cumulative_status_transition_still_flows__(fake_client):
+    """THE OVER-DROP GUARD for the staleness fix.
+
+    A terminal status arriving at the SAME cumulative as a partial (e.g. the
+    remainder is Canceled after a partial fill) must still be PROCESSED. If the
+    staleness guard were written as `cumulative <= previous -> drop`, it would
+    silently blind the cancel/expiry machinery (#124/#135) — this pins that it
+    is `<`, not `<=`."""
+    async def run():
+        b = _broker(fake_client)
+        b._identity["O1"] = ("pineA", None, LegType.ENTRY)
+        partial = await b._scan_row(
+            _order_row("O1", "PartiallyFilled", fill=9.0, qty=30.0))
+        # same cumulative, TERMINAL status — the rest of the order was cancelled
+        terminal = await b._scan_row(
+            _order_row("O1", "Canceled", fill=9.0, qty=30.0))
+        return partial, terminal, b._last_seen["O1"]
+
+    partial, terminal, watermark = asyncio.run(run())
+    assert sum(e.fill_qty or 0.0 for e in partial) == 9.0
+    assert terminal, ("a terminal status at an UNCHANGED cumulative must still "
+                      "produce an event — dropping it blinds cancel detection")
+    assert watermark == (9.0, "Canceled"), \
+        "the status must advance even when the cumulative does not"
+
+
+def __test_restart_seeded_high_water_suppresses_replayed_fills__(fake_client):
+    """A restart seeds the watermark from the journal. Frames replayed by a
+    transport that reconnects and re-sends the order's earlier lifecycle must
+    NOT re-emit fills the previous run already booked — the ratchet working as
+    designed, not a lost fill."""
+    async def run():
+        b = _broker(fake_client)
+        b._identity["O1"] = ("pineA", None, LegType.ENTRY)
+        # as the journal seeding does at startup (broker.py ~504):
+        b._last_seen["O1"] = (1.0, "Filled")
+        replay_pending = await b._scan_row(
+            _order_row("O1", "PendingNew", fill=0.0, qty=1.0))
+        replay_new = await b._scan_row(_order_row("O1", "New", fill=0.0, qty=1.0))
+        replay_filled = await b._scan_row(
+            _order_row("O1", "Filled", fill=1.0, qty=1.0))
+        return replay_pending, replay_new, replay_filled, b._last_seen["O1"]
+
+    a, b_, c, watermark = asyncio.run(run())
+    counted = sum(e.fill_qty or 0.0 for group in (a, b_, c) for e in group)
+    assert counted == 0.0, (
+        f"pre-restart fills must not be re-emitted, got {counted} — the "
+        "previous run already booked them")
+    assert watermark[0] == 1.0, \
+        f"seeded high-water must not regress, got {watermark}"
