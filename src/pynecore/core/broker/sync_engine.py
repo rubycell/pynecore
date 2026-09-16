@@ -9286,7 +9286,16 @@ class OrderSyncEngine:
                 "trade — retiring the orphan exits (adopted-leg shape)",
                 pid,
             )
-            self._cleanup_position_tracking(pid)
+            # EXTERNAL-FLATTEN SEMANTICS, same as
+            # `_accept_confirmed_external_flatten`: the book is flat and there
+            # is NO open trade, so nothing of OURS filled. A native-OCA venue
+            # cancels the sibling of a leg that EXECUTED — it has no trigger
+            # here, so without this flag the cleanup would skip its own cancel
+            # AND drop the mapping, orphaning a live protective order. Found by
+            # asking which OTHER callers share the semantics that made the flag
+            # necessary, rather than only fixing the caller that was reported.
+            self._cleanup_position_tracking(
+                pid, venue_flattened_externally=True)
 
     def _resolve_parent_opening_ref(self, from_entry: str) -> str | None:
         """Resolve the dispatch ref the parent position actually OPENED under.
