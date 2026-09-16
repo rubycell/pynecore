@@ -17197,3 +17197,70 @@ def __test_123_pending_only_restart_flatten_waits_for_confirmation_grace__():
     assert "L" not in engine._envelopes
     assert "L" not in pos.entry_orders
     assert ("P", "L") not in pos.exit_orders
+
+
+def __test_124_own_fill_retirement_clears_stale_flat_marker_before_id_reuse__():
+    """A retired episode's flat marker must not sweep a same-id re-entry."""
+    b, engine, pos = _arm_protective_exit_engine()
+
+    # One stale flat read preserves the old episode and records its parent.
+    engine._cascade_cleanup_on_parent_flat_snapshot(["L"])
+    assert engine._unconfirmed_flat_pending == {"L"}
+
+    # Our own TP fill authoritatively ends that episode.
+    engine._route_event(_fill_event(
+        'sell', 1.0, 50_100.0, pine_id="P",
+        leg=LegType.TAKE_PROFIT, xchg_id="xchg-2", fill_id="tp-old",
+    ))
+    assert pos.size == 0.0
+    assert "L" not in engine._unconfirmed_flat_pending
+
+    # Pine reuses L while the new entry rests at the venue.
+    pos.entry_orders["L"] = _entry_order("L", 1.0, stop=50_200.0)
+    pos.exit_orders[("P", "L")] = _exit_order(
+        "L", -1.0, "P", limit=50_300.0, stop=50_100.0,
+    )
+    engine.sync(BAR_TS + 60_000)
+    assert engine.order_mapping["L"] == ["xchg-3"]
+    entry_envelope = engine._envelopes["L"]
+    entry_slot = pos.entry_orders["L"]
+    exit_slot = pos.exit_orders[("P", "L")]
+    cancels_before = len(b.cancel_calls)
+
+    # A legitimate flat snapshot for the resting entry must not let the old
+    # episode's marker arm the pending-only confirmed-flatten sweep.
+    b.position = None
+    engine.reconcile()
+    engine._flat_observed_with_intents_since = (
+        time.monotonic() - EXTERNAL_FLATTEN_CONFIRM_GRACE_S - 1.0
+    )
+    engine.reconcile()
+
+    assert engine.order_mapping["L"] == ["xchg-3"]
+    assert engine._envelopes["L"] is entry_envelope
+    assert pos.entry_orders["L"] is entry_slot
+    assert pos.exit_orders[("P", "L")] is exit_slot
+    assert len(b.cancel_calls) == cancels_before
+
+
+def __test_124_fresh_entry_fill_clears_stale_flat_marker_for_reused_id__():
+    """A fresh ENTRY fill is a second, independent same-id episode boundary."""
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 1.0, stop=50_000.0)
+    pos.exit_orders[("P", "L")] = _exit_order(
+        "L", -1.0, "P", limit=50_100.0, stop=49_900.0,
+    )
+    engine.sync(BAR_TS)
+
+    engine._cascade_cleanup_on_parent_flat_snapshot(["L"])
+    assert engine._unconfirmed_flat_pending == {"L"}
+
+    engine._route_event(_fill_event(
+        'buy', 1.0, 50_000.0, pine_id="L", fill_id="entry-new",
+    ))
+
+    assert "L" not in engine._unconfirmed_flat_pending
+    assert engine.order_mapping.get("P\0L")
+    assert "L" in pos.entry_orders
+    assert ("P", "L") in pos.exit_orders

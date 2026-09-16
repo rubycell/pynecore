@@ -5533,6 +5533,8 @@ class OrderSyncEngine:
             # entry ids across trades.
             if event.leg_type is LegType.ENTRY and event.pine_id:
                 self._external_flatten_cleared_entry_ids.discard(event.pine_id)
+                # New episode under a reused id: a stale marker must not sweep it.
+                self._unconfirmed_flat_pending.discard(event.pine_id)
             elif (event.leg_type in (LegType.TAKE_PROFIT, LegType.STOP_LOSS,
                                      LegType.TRAILING_STOP, LegType.CLOSE)
                     and self._external_flatten_cleared_entry_ids
@@ -9617,6 +9619,11 @@ class OrderSyncEngine:
                 closed_entry_id,
             )
             return
+
+        # Every retiring path ends this id's episode. Genuinely preserved
+        # episodes are not starved: their cascade re-adds the id each sync
+        # before taking the unconfirmed-evidence early return above.
+        self._unconfirmed_flat_pending.discard(closed_entry_id)
 
         # §2.6.7 retire: drop any NativeStopState parked under this entry id
         # BEFORE the partial-bracket cascade evicts the legs (the leg-walk
