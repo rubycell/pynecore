@@ -10776,6 +10776,11 @@ def __test_oca_cancel_without_queued_sibling_fill_is_not_oca_classified__():
     """
     b = MockBroker()
     engine, pos, tp_id, sl_id = _mk_two_leg_bracket_without_close(b)
+    b.position = ExchangePosition(
+        symbol=SYMBOL, side="long", size=1.0, entry_price=50_000.0,
+        unrealized_pnl=0.0, liquidation_price=None,
+        leverage=1.0, margin_mode="isolated",
+    )
 
     engine.on_order_event(_reduce_only_cancel_event(tp_id))
     engine._drain_events()
@@ -15166,6 +15171,11 @@ def _arm_protective_exit_engine() -> tuple[MockBroker, OrderSyncEngine, BrokerPo
     assert len(b.exit_calls) == 1, "the protective exit armed on the fill"
     assert engine.order_mapping.get("P\0L"), "the armed exit is venue-mapped"
     assert isinstance(engine.active_intents.get("P\0L"), ExitIntent)
+    b.position = ExchangePosition(
+        symbol=SYMBOL, side="long", size=1.0, entry_price=50_000.0,
+        unrealized_pnl=0.0, liquidation_price=None,
+        leverage=1.0, margin_mode="isolated",
+    )
     return b, engine, pos
 
 
@@ -15209,6 +15219,11 @@ def __test_124_venue_cancel_of_protective_exit_coid_none_quarantines_and_bares_p
     the next diff re-dispatches the exit Pine still declares.
     """
     b, engine, pos = _arm_protective_exit_engine()
+    b.position = ExchangePosition(
+        symbol=SYMBOL, side="long", size=1.0, entry_price=50_000.0,
+        unrealized_pnl=0.0, liquidation_price=None,
+        leverage=1.0, margin_mode="isolated",
+    )
     deal_id = engine.order_mapping["P\0L"][0]
 
     engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
@@ -15352,6 +15367,27 @@ def __test_124_third_unclassified_cancel_of_the_rearmed_exit_quarantines_loudly_
     ]
     assert loud and "3 times" in loud[0], (
         f"the quarantine must name the counter, got {loud}"
+    )
+    # #122/D3 — THE PROPERTY THE CONSTANT ACTUALLY PROMISES. Its docstring says
+    # "a venue/operator that keeps killing the protection cannot loop forever",
+    # but this test only ever asserted the FLAG and the log ladder. Measured on
+    # the pre-fix engine: over 8 cycles the counter rose 1..8 while placements
+    # rose 2..9 — `quarantined` was True from cycle 3 and gated NOTHING, because
+    # the quarantine blocks `EntryIntent` only. The bound was on log severity.
+    places_at_exhaustion = len(b.exit_calls)
+    for extra in range(4, 9):
+        _rearm_cycle(engine, bar_ts=BAR_TS + extra)
+    assert len(b.exit_calls) == places_at_exhaustion, (
+        f"#122/D3: placement must STOP once the bound is exhausted — 5 further "
+        f"external cancels placed {len(b.exit_calls) - places_at_exhaustion} "
+        f"more protective order(s). A bound that only raises the log level "
+        f"leaves an unbounded re-place loop against a possibly-flat venue."
+    )
+    assert engine.unprotected_position_quarantine is True, (
+        "#122/D3: an exhausted protective budget must set "
+        "`unprotected_position` in the quarantine context, or run.py exits 0 "
+        "(:2208) and a supervisor sees a GREEN session after the engine gave "
+        "up on protecting a live position."
     )
     # Entry dispatch is blocked from here on (the quarantine's contract).
     before = len(b.entry_calls)
@@ -16234,15 +16270,6 @@ def __test_122_sweep_cancel_over_a_stale_open_belief_does_not_quarantine__():
     assert engine.halted is False
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "#122 half 2 (PHANTOM RE-PLACE) is OPEN at HEAD: the #124 re-arm gate "
-    "``_position_open_for_exit`` (sync_engine.py:6638) reads the engine's own "
-    "``_position.size`` belief and never the venue, so a sweep cancel arriving "
-    "before reconcile has observed the flatten re-arms protection and the next "
-    "``sync`` dispatches a REAL order to an account holding nothing. Flips "
-    "green when the re-arm requires venue evidence that the protected position "
-    "still exists (and the belief is reconciled when it does not)."
-))
 def __test_122_sweep_cancel_must_not_rearm_protection_against_a_flat_venue__():
     """#122 half 2 (the phantom half): after the flatten swept our protection,
     the engine must NOT place a new protective order while the venue holds
