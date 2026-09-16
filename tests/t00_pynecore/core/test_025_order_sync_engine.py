@@ -16285,6 +16285,22 @@ def __test_122_sweep_cancel_must_not_rearm_protection_against_a_flat_venue__():
     be hand-cleaned. The re-arm is measured to be venue-blind: with the venue
     reporting a REAL open long instead (the control below) HEAD takes the
     identical branch and produces the identical dispatch.
+
+    !! THE GUARANTEE THIS TEST PINS WAS DELIBERATELY WEAKENED 2026-09-16 !!
+    It first asserted NO placement against a flat venue. Achieving that inline
+    required believing a SINGLE position snapshot — and this venue is measured
+    to serve stale reads for ~10 s (CLAUDE.md 08-17), so a stale "flat" would
+    have retired protection for a LIVE position: naked, unrecoverable, nothing
+    left to re-emit it. Three stop-time review findings in a row landed on that
+    one path.
+    The authority to retire therefore moved to reconcile ALONE, which confirms
+    flatness across >= 2 passes over EXTERNAL_FLATTEN_CONFIRM_GRACE_S and is
+    multi-read by construction. The inline path may now only answer "is
+    protection still needed?", where YES is safe on one read.
+    So the phantom is no longer PREVENTED inline; it is BOUNDED (asserted
+    below), loud, non-zero-exiting, and cancelled by that same reconcile. Do not
+    "restore" the stronger assertion without restoring a SOUND inline authority
+    to go with it.
     """
     b, engine, pos = _arm_protective_exit_engine()
     b.position = None                      # venue truth: nothing is held
@@ -16294,10 +16310,26 @@ def __test_122_sweep_cancel_must_not_rearm_protection_against_a_flat_venue__():
     engine._route_event(_coid_none_venue_cancel_of_exit(deal_id))
     engine.sync(BAR_TS + 1)
 
-    assert len(b.exit_calls) == armed_exits, (
-        "#122: protection was RE-PLACED against a flat venue — the engine "
-        f"dispatched {len(b.exit_calls) - armed_exits} new protective order(s) "
-        "while ``get_position`` reports the account holds nothing"
+    # CONTRACT CHANGED 2026-09-16 — see the docstring note below. The guarantee
+    # is no longer "never place against a flat venue": a single snapshot cannot
+    # establish flatness on this venue, so the inline path may not act on one.
+    # What is guaranteed now is that the phantom is BOUNDED — the re-arm limit
+    # gates DISPATCH, so a venue that keeps cancelling cannot produce an
+    # unbounded stream of live orders against a flat account.
+    for extra in range(2, 9):
+        mapped = engine.order_mapping.get("P" + chr(0) + "L") or ["gone"]
+        engine._route_event(_coid_none_venue_cancel_of_exit(mapped[0]))
+        engine.sync(BAR_TS + extra)
+
+    from pynecore.core.broker.sync_engine import _PROTECTIVE_EXIT_REARM_LIMIT
+    placed = len(b.exit_calls) - armed_exits
+    assert placed <= _PROTECTIVE_EXIT_REARM_LIMIT - 1, (
+        f"#122: {placed} protective orders were placed against a flat venue — "
+        f"the bound must cap it at {_PROTECTIVE_EXIT_REARM_LIMIT - 1}. HEAD's "
+        "unbounded re-place loop is what left a live phantom to hand-clean."
+    )
+    assert engine.unprotected_position_quarantine is True, (
+        "#122: giving up on protection must exit non-zero, not report green"
     )
 
 
@@ -16501,27 +16533,38 @@ def __test_122_a_single_stale_opposite_sign_snapshot_must_not_retire_protection_
     assert pos.size == 1.0, "engine position state cleared on unproven evidence"
 
 
-def __test_122_the_retire_confirmation_is_separated_in_time__(monkeypatch):
-    """Two BACK-TO-BACK reads of a lagging replica return the SAME stale
-    snapshot, so agreement would prove nothing. The confirmation must sleep
-    between them or it is not evidence at all."""
-    slept: list[float] = []
-    from pynecore.core.broker import sync_engine as _se
-    real_sleep = _se.time.sleep
-    monkeypatch.setattr(
-        _se.time, "sleep",
-        lambda s: (slept.append(s), real_sleep(0))[1],
-    )
-    b, engine, pos = _arm_protective_exit_engine()
+def __test_122_the_inline_cancel_path_never_retires_protection__():
+    """The strongest form of the stale-snapshot pins: a stale snapshot cannot
+    retire protection BECAUSE NOTHING INLINE RETIRES IT.
 
-    async def _always_flat(_symbol):
-        return None
+    Supersedes an inline two-read confirm that was tried and then REMOVED: the
+    reads ran back-to-back, so a lagging replica confirmed its own staleness,
+    and a gap long enough to beat the measured ~10 s staleness cannot be spent
+    inside the order-event drain. A known-unsound authority is worse than none
+    when a sound one exists. ONE authority retires — reconcile, on sustained
+    flat across >= 2 passes — and this pins that the cancel path is not it, for
+    EVERY snapshot it might see.
+    """
+    for snapshot_name, snapshot in (
+        ("flat", None),
+        ("opposite-sign", ExchangePosition(
+            symbol=SYMBOL, side="short", size=1.0, entry_price=50_000.0,
+            unrealized_pnl=0.0, liquidation_price=None,
+            leverage=1.0, margin_mode="isolated")),
+    ):
+        b, engine, pos = _arm_protective_exit_engine()
 
-    b.get_position = _always_flat
-    engine._route_event(_coid_none_venue_cancel_of_exit("xchg-2"))
+        async def _snapshot(_symbol, _s=snapshot):
+            return _s
 
-    assert any(s > 0 for s in slept), (
-        "the two reads that authorise a retire ran back-to-back — a lagging "
-        "replica would serve the same stale snapshot twice and 'confirm' its "
-        "own staleness"
-    )
+        b.get_position = _snapshot
+        engine._route_event(_coid_none_venue_cancel_of_exit("xchg-2"))
+
+        assert pos.exit_orders, (
+            f"a {snapshot_name} snapshot retired protection from the INLINE "
+            "cancel path — only reconcile may retire, and only on sustained "
+            "multi-pass evidence"
+        )
+        assert pos.size == 1.0, (
+            f"a {snapshot_name} snapshot cleared engine position state inline"
+        )
