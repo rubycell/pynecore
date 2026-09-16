@@ -400,6 +400,9 @@ near leg fills and the far leg must be CANCELLED.
   entry / position) changed, five instances (08-12/14/17, 09-14 x2) — the native-OCO
   shape may cascade (or respawn the child; the engine can't tell: the OCO book is
   never scanned). Decisive observation named on #124.
+  RESOLVED 09-16: ALL instances were the OPERATOR'S manual app cancels (his confirmation,
+  #128 closed). No native-OCO cascade phenomenon is in evidence; the original 'no cascade'
+  fact stands unqualified for venue behavior.
   **Fix status (live 2026-09-15, first prod confirmation):** the #124 fix now RE-ARMS the
   protective exit instead of quarantining into a naked position (logs `#124: ... re-arming
   (N/3), no quarantine`) — the cancel is SAFE, but the venue-cancel ROOT CAUSE (timing seen

@@ -17,6 +17,14 @@ Base URL: `https://openapi.dnse.com.vn`. Auth = HMAC signing headers
 (date-based; conditional STOP/OCO need `version >= 2026-07-23`); order **writes**
 additionally need `trading-token`.
 
+> **Where the docs are WRONG or incomplete:** see **`MEASURED_FACTS.md`** — a
+> LOCAL file (never fetched, never overwritten by `fetch_docs.py`) holding our
+> live measurements where they contradict or qualify a mirrored page: the prod
+> order WS streams NORMAL-book events only, the broker order channel is refused
+> on a retail account, and `/accounts` carries `investorId` at the TOP LEVEL.
+> Fetched pages are the vendor's claim — never edit one to match a measurement;
+> record it there instead, or the next sync erases it.
+
 > **Why this mirror exists:** discovered mid-development that DNSE has **two order
 > backends** (below), and the schemas are client-rendered on the doc site (not in
 > the SSG HTML), so the endpoint details had to be mirrored to be usable offline.
