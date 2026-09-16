@@ -16377,3 +16377,36 @@ def __test_122_external_flatten_keeps_tracking_when_the_cancel_did_not_land__():
         "that explicitly did not land — nothing in memory can drive its retry "
         "and the order rests live at the broker"
     )
+
+
+def __test_122_ambiguous_cancel_must_not_strand_the_protective_order__():
+    """An AMBIGUOUS cancel must keep its tracking, even though
+    `_dispatch_cancel` returns True for it.
+
+    The trap that produced this: True does NOT mean "it landed". Per its own
+    contract, `_dispatch_cancel` returns True for a landed cancel, a benign
+    no-op, AND an `OrderDispositionUnknownError` whose ambiguity the
+    cancel-tentative machinery now "owns". A previous fix keyed the
+    keep-tracking decision off that return value and so covered only the
+    explicit False, leaving the ambiguous case dropping `_order_mapping`.
+
+    That is fatal specifically because `_find_key_for_order_id` walks
+    `_order_mapping` and NOTHING ELSE: with the mapping gone, the broker's
+    later event for that order can never be matched back to the key waiting on
+    it, the disposition stays pending forever, and the order rests live with
+    nothing able to re-drive its cancel.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    assert engine.order_mapping.get("P\0L"), "the protective exit is mapped"
+    b.raise_on_next_cancel = OrderDispositionUnknownError(
+        "cancel timed out — the venue may or may not have taken it",
+        client_order_id=None,
+    )
+
+    engine._accept_confirmed_external_flatten()
+
+    assert engine.order_mapping.get("P\0L"), (
+        "tracking was dropped after an AMBIGUOUS cancel — `_order_mapping` is "
+        "the only id->key index, so the pending disposition can never resolve "
+        "and a possibly-live protective order is stranded"
+    )

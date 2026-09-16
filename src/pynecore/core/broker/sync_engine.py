@@ -9452,6 +9452,36 @@ class OrderSyncEngine:
                 ref, now_ms=float(self._current_bar_ts_ms),
             )
 
+    def _tracking_is_still_needed(self, key: str) -> str | None:
+        """Why ``key``'s tracking must NOT be dropped yet, or ``None``.
+
+        #122 DISPOSITION INVARIANT — a systematic replacement for three
+        case-by-case fixes that each missed the next case:
+
+        ``_order_mapping`` is the ONLY index from a venue order id back to an
+        intent key (``_find_key_for_order_id`` walks nothing else). So dropping
+        it while a cancel's disposition is still open makes that disposition
+        PERMANENTLY UNRESOLVABLE: the broker's later event for the order can no
+        longer be matched to the key that is waiting for it, and the order rests
+        live with nothing able to re-drive its cancel.
+
+        Both open-disposition parks are checked, because each produced its own
+        orphan on this path:
+
+        * ``_forced_cancel_pending`` — ``execute_cancel`` said the order is
+          still live; the per-sync retry needs the handle.
+        * ``_cancel_disposition_pending`` — the cancel raised
+          ``OrderDispositionUnknownError``, so ``_dispatch_cancel`` returned
+          TRUE (the cancel-tentative machinery "owns" it) while the ambiguity is
+          unresolved. Returning True is NOT "it landed", and treating it as such
+          is what made an ambiguous cancel orphan the order.
+        """
+        if key in self._forced_cancel_pending:
+            return 'the cancel did not land (order still live at the broker)'
+        if key in self._cancel_disposition_pending:
+            return 'the cancel disposition is still UNKNOWN (cancel-tentative)'
+        return None
+
     def _cleanup_position_tracking(
             self,
             closed_entry_id: str,
@@ -9494,9 +9524,16 @@ class OrderSyncEngine:
             reason=cascade_reason,
         )
         # Entry intent + its mapping/envelope.
-        self._active_intents.pop(closed_entry_id, None)
-        self._order_mapping.pop(closed_entry_id, None)
-        self._drop_envelope(closed_entry_id)
+        entry_blocked = self._tracking_is_still_needed(closed_entry_id)
+        if entry_blocked is None:
+            self._active_intents.pop(closed_entry_id, None)
+            self._order_mapping.pop(closed_entry_id, None)
+            self._drop_envelope(closed_entry_id)
+        else:
+            _blog_warning(
+                "cleanup: keeping tracking for entry %r — %s",
+                closed_entry_id, entry_blocked,
+            )
         # Every exit intent that points at this entry. Include Pine's bracket
         # book as well as the active diff slots: a restart-recovered bracket can
         # temporarily have durable broker legs while its active slot is absent,
@@ -9564,25 +9601,54 @@ class OrderSyncEngine:
             # to reconcile alone and deliberately allowed a BOUNDED phantom:
             # the whole safety argument for that is "reconcile cancels it",
             # which was silently false on native-OCA venues.
-            settled = True
-            if not self._oca_cancel_native or venue_flattened_externally:
-                settled = self._dispatch_cancel(intent)
-            if not settled:
-                # `_dispatch_cancel` returns False for exactly one reason:
-                # `execute_cancel` said the working order is STILL LIVE at the
-                # broker. Dropping `_active_intents` / `_order_mapping` / the
-                # envelope here would discard our only in-memory handle on a
-                # live protective order — the same orphan this method was just
-                # taught to avoid on native-OCA venues, reached by a different
-                # route. The intent is parked in `_forced_cancel_pending` for
-                # the per-sync retry; KEEP the tracking so that retry, and
-                # reconcile, still have something to act on.
+            if venue_flattened_externally:
+                # STRICT on this path, by the contract's own rule: it is for
+                # "paths that arm replacement state only after the original is
+                # provably gone", and dropping our only handle on the order IS
+                # that. The default `_dispatch_cancel` SWALLOWS an unknown
+                # disposition and, for a whole-row ExitIntent, eagerly retires —
+                # popping `_order_mapping` itself and returning True. Its
+                # documented safety net is that "the next reconcile() observes
+                # whether the order is still live", but `reconcile()` explicitly
+                # does NOT diff orders (its docstring disclaims order-level
+                # reconciliation), so for an EXTERNAL flatten that net does not
+                # exist and the order is simply stranded.
+                try:
+                    if not self._dispatch_cancel_strict(intent):
+                        # Documented "did not land, still pending": the broker
+                        # order may still rest, and strict deliberately KEEPS
+                        # the engine-side tracking for exactly that reason.
+                        _blog_warning(
+                            "external-flatten cleanup: cancel of %s did NOT "
+                            "land (order still live at the broker) — keeping "
+                            "its tracking for the retry",
+                            format_intent_key(key),
+                        )
+                        continue
+                except OrderDispositionUnknownError:
+                    _blog_warning(
+                        "external-flatten cleanup: cancel of %s returned an "
+                        "UNKNOWN disposition — the order may still rest live. "
+                        "Keeping its tracking rather than eagerly retiring it; "
+                        "`_order_mapping` is the only id->key index and "
+                        "reconcile does not diff orders, so a drop here strands "
+                        "it permanently",
+                        format_intent_key(key),
+                    )
+                    continue
+            elif not self._oca_cancel_native:
+                self._dispatch_cancel(intent)
+            # Belt and braces: the invariant also covers a refused cancel and
+            # any disposition parked by the non-strict path above.
+            blocked = self._tracking_is_still_needed(key)
+            if blocked is not None:
                 _blog_warning(
-                    "external-flatten cleanup: cancel of %s did NOT land (the "
-                    "order is still live at the broker) — keeping its tracking "
-                    "for the retry instead of dropping it; a dropped mapping "
-                    "here is an orphaned live order",
-                    format_intent_key(key),
+                    "external-flatten cleanup: keeping tracking for %s — %s. "
+                    "Dropping `_order_mapping` here would strand it: that is "
+                    "the only index from the venue order id back to this key, "
+                    "so the disposition could never resolve and the order "
+                    "would rest live with nothing able to re-drive its cancel",
+                    format_intent_key(key), blocked,
                 )
                 continue
             self._active_intents.pop(key, None)
