@@ -4992,7 +4992,8 @@ class OrderSyncEngine:
         self._position.open_commission = 0.0
         for entry_id in cleared_entry_ids:
             self._external_flatten_cleared_entry_ids.add(entry_id)
-            self._cleanup_position_tracking(entry_id)
+            self._cleanup_position_tracking(
+                entry_id, venue_flattened_externally=True)
         self._clear_protective_exit_episodes()
 
     def _adopt_size_with_replayed_close(
@@ -9464,6 +9465,7 @@ class OrderSyncEngine:
             closed_entry_id: str,
             *,
             cascade_reason: str = 'parent_closed',
+            venue_flattened_externally: bool = False,
     ) -> None:
         """Drop active intent + Pine order-book entries for ``closed_entry_id``.
 
@@ -9559,8 +9561,18 @@ class OrderSyncEngine:
             # orders. The fill that flattened the parent terminalizes only
             # one physical leg; dropping the logical exit before dispatching
             # its cancel would orphan the reduce-only sibling. Native-OCA
-            # venues own this sweep themselves.
-            if not self._oca_cancel_native:
+            # venues own this sweep themselves — BUT ONLY WHEN A FILL OF OURS
+            # TRIGGERED IT.
+            #
+            # An EXTERNAL flatten is not our fill: the position vanished
+            # elsewhere, no leg of ours executed, and native OCA has nothing to
+            # act on. Skipping the cancel there leaves the order live at the
+            # venue AND drops our mapping to it in the same breath — orphaned
+            # beyond recovery. That became reachable when #122 moved retirement
+            # to reconcile alone and deliberately allowed a BOUNDED phantom:
+            # the whole safety argument for that is "reconcile cancels it",
+            # which was silently false on native-OCA venues.
+            if not self._oca_cancel_native or venue_flattened_externally:
                 self._dispatch_cancel(intent)
             self._active_intents.pop(key, None)
             self._order_mapping.pop(key, None)
