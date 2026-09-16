@@ -16725,12 +16725,41 @@ def __test_122_parked_external_flatten_cancel_actually_re_drives__():
     )
 
 
-# NOTE (#122 / #139): the fix for "cleanup released a park it never proved"
-# — an unconditional `_forced_cancel_pending.pop` that sat in the plain
-# `_dispatch_cancel` branch — is NOT pinned here, deliberately. A pin for that
-# branch would have to assert the park SURVIVES an ambiguous cancel, and it
-# cannot: for a whole-row ExitIntent `_dispatch_cancel`'s unknown-disposition
-# handler eagerly retires, popping `_forced_cancel_pending`, `_order_mapping`
-# and the envelope itself. That is #139 (pre-existing, carded, out of scope
-# here), so the branch is unpinnable until #139 lands. The release is now
-# confined to the strict/proven-landed path, which IS pinned above.
+@pytest.mark.xfail(strict=True, reason=(
+    "#139: for a whole-row ExitIntent, `_dispatch_cancel`'s unknown-disposition "
+    "handler eagerly retires — it pops `_forced_cancel_pending`, "
+    "`_order_mapping` and the envelope itself — so the park cannot survive on "
+    "this branch until #139 lands. Flips to XPASS when it does."
+))
+def __test_139_tripwire_park_survives_an_ambiguous_cancel_on_the_non_strict_branch__():
+    """TRIPWIRE, NOT A GUARD — read this before trusting it.
+
+    What it does: fires when #139 is fixed, so the real park-survival guard can
+    replace it.
+
+    What it does NOT do: protect the #122 regression it sits next to. The bug
+    was an unconditional `_forced_cancel_pending.pop` in the non-strict branch,
+    releasing a park for a possibly-live order. This test CANNOT detect that
+    regression, because eager-retire pops the park with or without the bad line
+    — it fails identically in both worlds. A control that no wrong
+    implementation can fail pins nothing.
+
+    So the non-strict branch has NO automated guard today. That is a real,
+    recorded gap, carried on #139: landing #139 must convert this tripwire into
+    the genuine park-survival pin.
+
+    Every intent reaching that branch is an ExitIntent (`exits_to_retire` is
+    typed `dict[str, ExitIntent]` and all three population paths filter on it),
+    while the handler's park branch requires an EntryIntent — so no intent shape
+    exists that would let a discriminating pin be written today.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    b.raise_on_next_cancel = OrderDispositionUnknownError(
+        "cancel timed out", client_order_id=None,
+    )
+
+    engine._cleanup_position_tracking("L")   # fill-driven: NOT external flatten
+
+    assert "P\0L" in engine._forced_cancel_pending, (
+        "the park did not survive an ambiguous cancel on the non-strict branch"
+    )
