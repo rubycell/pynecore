@@ -16873,3 +16873,52 @@ def __test_122_flat_book_orphan_retire_cancels_on_a_native_oca_venue__():
         "trigger, and the mapping was dropped in the same step: a live order "
         "nothing will ever cancel"
     )
+
+
+def __test_122_journal_only_orphan_exit_is_cancelled_on_a_native_oca_venue__():
+    """A JOURNAL-ONLY exit must be cancelled on an external flatten, even on a
+    native-OCA venue.
+
+    The durable-journal clause that POPULATES `exits_to_retire` was gated on
+    `not self._oca_cancel_native` alone. So an exit known only from the store —
+    an adopted leg, or anything that survived a restart, with no
+    `_active_intents` row and no Pine `exit_orders` entry — was never even
+    CONSIDERED for cancellation on a native-OCA venue.
+
+    Fixing the DISPATCH decision without fixing the POPULATION left those
+    orphans exactly as stranded: the loop cannot cancel what the loop never
+    sees. This pins the population half.
+    """
+    b = MockBroker(
+        capabilities=ExchangeCapabilities(oca_cancel=CapabilityLevel.NATIVE),
+    )
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 1.0, stop=50_000.0)
+    engine.sync(BAR_TS)
+    engine._route_event(_fill_event('buy', 1.0, 50_000.0, pine_id="L"))
+
+    # an exit that exists ONLY in the durable journal
+    journal_row = SimpleNamespace(
+        intent_key="PJ" + chr(0) + "L", pine_entry_id="L",
+        side="sell", qty=1.0, tp_level=50_100.0, sl_level=49_900.0,
+    )
+    class _JournalOnlyStore:
+        """Only `iter_live_orders` matters here; everything else is inert so
+        the test pins the population clause, not the store's full surface."""
+        def iter_live_orders(self, from_entry=None):
+            return [journal_row]
+
+        def __getattr__(self, _name):
+            return lambda *a, **k: None
+
+    engine._store_ctx = _JournalOnlyStore()
+    engine._order_mapping["PJ" + chr(0) + "L"] = ["xchg-journal-only"]
+    cancels_before = len(b.cancel_calls)
+
+    engine._accept_confirmed_external_flatten()
+
+    assert len(b.cancel_calls) > cancels_before, (
+        "a journal-only protective exit was never cancelled on a native-OCA "
+        "venue — the population clause skipped it entirely, so the retire loop "
+        "never saw it and a live order was left with nothing to cancel it"
+    )
