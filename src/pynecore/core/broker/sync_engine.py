@@ -9237,7 +9237,7 @@ class OrderSyncEngine:
         for from_entry in from_entries:
             self._cleanup_position_tracking(
                 from_entry, cascade_reason='parent_flat_snapshot',
-                venue_flattened_externally=True,
+                flat_evidence_unconfirmed=True,
             )
 
     def _retire_orphan_exits_on_flat_book(self) -> None:
@@ -9313,6 +9313,14 @@ class OrderSyncEngine:
             # AND drop the mapping, orphaning a live protective order. Found by
             # asking which OTHER callers share the semantics that made the flag
             # necessary, rather than only fixing the caller that was reported.
+            # AUTHORITATIVE: this path is reached only via a closing-leg FILL
+            # OF OURS (see its single caller), so the position's closure is
+            # evidenced by our own execution, not by a snapshot that might be
+            # stale. Adopted legs under a foreign parent are not necessarily in
+            # the venue's OCA group for that fill, so they need our explicit
+            # cancel — which is what the flag provides. Pre-existing tests pin
+            # that this path RETIRES; preserving instead would break a real
+            # contract.
             self._cleanup_position_tracking(
                 pid, venue_flattened_externally=True)
 
@@ -9524,6 +9532,7 @@ class OrderSyncEngine:
             *,
             cascade_reason: str = 'parent_closed',
             venue_flattened_externally: bool = False,
+            flat_evidence_unconfirmed: bool = False,
     ) -> None:
         """Drop active intent + Pine order-book entries for ``closed_entry_id``.
 
@@ -9632,6 +9641,30 @@ class OrderSyncEngine:
                     sl_price=recovered['sl_price'],
                 ))
         for key, intent in exits_to_retire.items():
+            if flat_evidence_unconfirmed:
+                # BELIEVED flat, not PROVEN flat. The caller's evidence is a
+                # single `get_position` snapshot, or engine belief, neither of
+                # which is authoritative on this venue class (reads measured
+                # stale ~10 s, CLAUDE.md 08-17).
+                #
+                # Both available actions are unsafe on unconfirmed evidence:
+                # CANCELLING strips protection from a position that may still
+                # be live (naked — unrecoverable), and DROPPING the mapping
+                # orphans an exit that may still be resting (no handle left to
+                # cancel it). So do NEITHER: keep the tracking exactly as it is
+                # and let reconcile — the single authority, confirming flatness
+                # across >=2 passes over EXTERNAL_FLATTEN_CONFIRM_GRACE_S —
+                # decide. It reaches `_accept_confirmed_external_flatten`,
+                # which cancels properly.
+                _blog_info(
+                    "cleanup: leaving %s tracked — the venue-flat evidence "
+                    "here is a single snapshot / local belief, not confirmed. "
+                    "Neither cancelling (strips live protection) nor dropping "
+                    "(orphans a resting order) is safe on it; reconcile owns "
+                    "the confirmed retire.",
+                    format_intent_key(key),
+                )
+                continue
             # A software bracket exposes TP and SL as independent venue
             # orders. The fill that flattened the parent terminalizes only
             # one physical leg; dropping the logical exit before dispatching
@@ -20178,7 +20211,7 @@ class OrderSyncEngine:
                 # row"), and #122's fifth finding was exactly a
                 # verified-on-one-venue argument shipped as general.
                 self._cleanup_position_tracking(
-                    new.from_entry, venue_flattened_externally=True)
+                    new.from_entry, flat_evidence_unconfirmed=True)
                 return
             _blog_error(
                 "modify failed for %s: %s: %s", new, type(e).__name__, e,

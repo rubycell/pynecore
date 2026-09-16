@@ -16668,39 +16668,48 @@ def __test_122_journal_only_orphan_exit_is_cancelled_on_a_native_oca_venue__():
     )
 
 
-def __test_122_parent_flat_snapshot_cascade_cancels_on_a_native_oca_venue__(caplog):
-    """THIRD caller with external-flatten semantics: the partial-bracket
-    cascade's `parent_flat_snapshot` cleanup.
+def __test_122_parent_flat_snapshot_cascade_declares_unconfirmed_evidence__():
+    """The cascade's flat evidence is ONE snapshot — it must say so.
 
-    Its own branch comment declares the semantics — "the position vanished
-    (external/manual close, broker-native fail-safe SL, ...)". Nothing of OURS
-    filled, so a native-OCA venue has no trigger. Without the flag the
-    population clause is skipped, the dispatch branch is skipped, and the
-    mapping / envelope / exit_orders slots are dropped anyway, orphaning a live
-    reduce-only exit that would later OPEN an opposite position the engine has
-    no record of.
+    Drives `_drive_partial_bracket_triggers` itself, NOT the extracted helper.
+    An earlier version of this pin called
+    `_cascade_cleanup_on_parent_flat_snapshot(["L"])` directly; the reviewer
+    demonstrated the gap by reverting the call site to its pre-fix inline loop —
+    reintroducing the orphan bug verbatim — with the suite staying fully green.
+    A pin that cannot see its own call site pins nothing about it.
 
-    Nothing recovers it: `_retire_orphan_exits_on_flat_book` is reached only via
-    a closing-leg FILL of ours, which an external flatten never produces.
+    WHAT IS ASSERTED, and why it changed: the cascade's `parent_is_flat` comes
+    from a SINGLE `get_position` snapshot, from code whose own comment
+    acknowledges read lag. That is not authoritative on this venue class (reads
+    measured stale ~10 s). So this site must declare
+    `flat_evidence_unconfirmed`, which makes the cleanup NEITHER cancel (which
+    would strip protection from a possibly-live position) NOR drop the mapping
+    (which would orphan a possibly-resting order). Reconcile, confirming across
+    >=2 passes, owns the retire.
     """
-    b = MockBroker(
-        capabilities=ExchangeCapabilities(oca_cancel=CapabilityLevel.NATIVE),
+    from pynecore.core.broker.software_partial_bracket_engine import PartialBracketLeg
+    from pynecore.core.broker.store_helpers import (
+        LEG_KIND_SL_PARTIAL, LEG_STATE_ARMED,
     )
+    b = MockBroker()
     engine, pos = _mk_engine(b)
-    pos.entry_orders["L"] = _entry_order("L", 1.0, stop=50_000.0)
-    pos.exit_orders[("P", "L")] = _exit_order(
-        "L", -1.0, "P", limit=50_100.0, stop=49_900.0,
-    )
-    engine.sync(BAR_TS)
-    engine._route_event(_fill_event('buy', 1.0, 50_000.0, pine_id="L"))
-    assert engine.order_mapping.get("P\0L"), "the protective exit is mapped"
-    cancels_before = len(b.cancel_calls)
+    _open_long_with_bracket(b, engine, pos)
 
-    # Drive the CALL SITE, not the function. Calling
-    # `_cleanup_position_tracking(..., venue_flattened_externally=True)`
-    # directly would pass even if :11811 stopped passing the flag — it would
-    # test the callee that two sibling pins already cover, and prove nothing
-    # about this caller. Capture what the cascade actually passes.
+    leg = PartialBracketLeg(
+        coid='leg-sl', symbol=SYMBOL, pine_id='X1', from_entry='L',
+        leg_kind=LEG_KIND_SL_PARTIAL, leg_state=LEG_STATE_ARMED,
+        side='sell', qty=0.5, intent_key="X1\0L", parent_pine_entry_id='L',
+        parent_entry_dispatch_ref='parent-coid', intent_partial_qty=0.5,
+        trigger_level=49_900.0, oca_group=None, oca_type=None,
+    )
+    pbe = engine._partial_bracket_engine  # type: ignore[attr-defined]
+    pbe._legs[leg.key] = leg
+    pbe._legs_by_parent.setdefault((leg.symbol, leg.from_entry), set()).add(leg.key)
+
+    # the venue snapshot says flat while an armed leg believes the parent open
+    b.position = None
+    pos.open_trades.clear()
+
     passed: dict = {}
     real_cleanup = engine._cleanup_position_tracking
 
@@ -16709,25 +16718,21 @@ def __test_122_parent_flat_snapshot_cascade_cancels_on_a_native_oca_venue__(capl
         return real_cleanup(entry_id, **kwargs)
 
     engine._cleanup_position_tracking = _recording_cleanup  # type: ignore[method-assign]
-    with caplog.at_level(logging.INFO, logger="pyne_core_logger"):
-        engine._cascade_cleanup_on_parent_flat_snapshot(["L"])
+
+    engine._drive_partial_bracket_triggers(last_price=50_000.0)
 
     assert passed.get("cascade_reason") == 'parent_flat_snapshot', (
-        "the cascade did not reach its cleanup call at all"
+        "the parent_flat_snapshot cascade never reached its cleanup call — "
+        "this test proves nothing about the call site until it does"
     )
-    assert passed.get("venue_flattened_externally") is True, (
-        "the parent_flat_snapshot cascade did NOT declare external-flatten "
-        "semantics — its own branch comment says the position vanished "
-        "externally, so a native-OCA venue has no OCA trigger and the exit is "
-        "orphaned"
+    assert passed.get("flat_evidence_unconfirmed") is True, (
+        "the cascade did NOT declare its evidence unconfirmed. Its flat "
+        "snapshot is a single read from lag-acknowledged code: cancelling on "
+        "it strips protection from a possibly-live position, and dropping the "
+        "mapping orphans a possibly-resting order"
     )
-
-    assert len(b.cancel_calls) > cancels_before, (
-        "the protective exit was retired WITHOUT a cancel on a native-OCA "
-        "venue — nothing of ours filled so the venue had no OCA trigger, and "
-        "the mapping was dropped in the same step: a live reduce-only order "
-        "that will later OPEN an opposite position"
-    )
-    assert engine.order_mapping.get("P\0L") is None, (
-        "tracking should be dropped once the cancel provably landed"
+    assert passed.get("venue_flattened_externally") is not True, (
+        "the cascade claimed AUTHORITATIVE flatness from a single snapshot — "
+        "that authorises cancellation on evidence this venue class does not "
+        "support"
     )
