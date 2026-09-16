@@ -16350,3 +16350,30 @@ def __test_122_external_flatten_cancels_the_phantom_on_a_native_oca_venue__():
         "trigger, and the mapping was dropped in the same step: an orphaned "
         "live order nothing will ever cancel"
     )
+
+
+def __test_122_external_flatten_keeps_tracking_when_the_cancel_did_not_land__():
+    """A cancel that explicitly did NOT land must not cost us the mapping.
+
+    `_dispatch_cancel` returns False for exactly one reason: `execute_cancel`
+    reported the working order is STILL LIVE at the broker, and its contract
+    says the caller "MUST NOT arm replacement state for the key". The
+    external-flatten cleanup ignored the return value and popped
+    `_active_intents` / `_order_mapping` / the envelope regardless — discarding
+    the only in-memory handle on a live protective order.
+
+    That is the same orphan the native-OCA fix had just closed, reached by a
+    different route: there the cancel was never dispatched, here it was
+    dispatched and refused. Found by stop-time review after that fix landed.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    assert engine.order_mapping.get("P\0L"), "the protective exit is mapped"
+    b.false_on_next_cancel = True          # the venue refuses: order stays live
+
+    engine._accept_confirmed_external_flatten()
+
+    assert engine.order_mapping.get("P\0L"), (
+        "tracking for a STILL-LIVE protective order was dropped after a cancel "
+        "that explicitly did not land — nothing in memory can drive its retry "
+        "and the order rests live at the broker"
+    )

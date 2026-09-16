@@ -9564,8 +9564,27 @@ class OrderSyncEngine:
             # to reconcile alone and deliberately allowed a BOUNDED phantom:
             # the whole safety argument for that is "reconcile cancels it",
             # which was silently false on native-OCA venues.
+            settled = True
             if not self._oca_cancel_native or venue_flattened_externally:
-                self._dispatch_cancel(intent)
+                settled = self._dispatch_cancel(intent)
+            if not settled:
+                # `_dispatch_cancel` returns False for exactly one reason:
+                # `execute_cancel` said the working order is STILL LIVE at the
+                # broker. Dropping `_active_intents` / `_order_mapping` / the
+                # envelope here would discard our only in-memory handle on a
+                # live protective order — the same orphan this method was just
+                # taught to avoid on native-OCA venues, reached by a different
+                # route. The intent is parked in `_forced_cancel_pending` for
+                # the per-sync retry; KEEP the tracking so that retry, and
+                # reconcile, still have something to act on.
+                _blog_warning(
+                    "external-flatten cleanup: cancel of %s did NOT land (the "
+                    "order is still live at the broker) — keeping its tracking "
+                    "for the retry instead of dropping it; a dropped mapping "
+                    "here is an orphaned live order",
+                    format_intent_key(key),
+                )
+                continue
             self._active_intents.pop(key, None)
             self._order_mapping.pop(key, None)
             self._drop_envelope(key)
