@@ -16725,7 +16725,7 @@ def __test_122_parked_external_flatten_cancel_actually_re_drives__():
     )
 
 
-def __test_139_characterization_eager_retire_discards_the_park_and_mapping__():
+def __test_139_characterization_eager_retire_discards_the_park_and_mapping__(caplog):
     """CHARACTERIZATION of today's #139 defect, doubling as a TRIPWIRE.
 
     Replaces an `xfail(strict=True)` version of the same idea. That form was
@@ -16758,8 +16758,23 @@ def __test_139_characterization_eager_retire_discards_the_park_and_mapping__():
     )
     cancels_before = len(b.cancel_calls)
 
-    engine._cleanup_position_tracking("L")   # fill-driven: NOT external flatten
+    with caplog.at_level(logging.INFO, logger="pyne_core_logger"):
+        engine._cleanup_position_tracking("L")   # fill-driven: NOT external
 
+    # PROVE THE AMBIGUOUS BRANCH RAN. Without this the test is VACUOUS: a
+    # perfectly CLEAN cancel also drops the mapping and leaves no park, so the
+    # assertions below would pass whether or not eager-retire was ever
+    # exercised — it would characterise nothing. `_dispatch_cancel`'s
+    # unknown-disposition handler is the only thing that logs this.
+    timed_out = [
+        rec.getMessage() for rec in caplog.records
+        if "timed out" in rec.getMessage() and "P|L" in rec.getMessage()
+    ]
+    assert timed_out, (
+        "the ambiguous-cancel branch never ran — `raise_on_next_cancel` was "
+        "consumed elsewhere or the dispatch took a different path, so this "
+        "test characterises NOTHING about #139"
+    )
     assert len(b.cancel_calls) > cancels_before, (
         "the cancel was never attempted — this test says nothing about #139 "
         "until the dispatch actually happens; fix the upstream regression first"
