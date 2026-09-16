@@ -97,12 +97,25 @@ class WSOrderSource:
         #: normalised raw-row dicts awaiting _scan_row (order frames only).
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=queue_max)
         self._started = False
+        #: #134 — channels we ASKED for. A venue ACK is not confirmation (#131),
+        #: so this is a record of intent, never of a live transport.
+        self._requested_channels: list[str] = []
+        #: #134 — the first delivered frame is the ONLY positive evidence that
+        #: the transport works; the milestone fires once, on that frame.
+        self._first_frame_logged = False
 
     def _on_order(self, order: Any) -> None:
         """Vendored-client callback (its dispatch task). Log the frame (masked)
         for observability — this is the evidence a prod order frame arrived —
         then enqueue the normalised raw row for the watch task to _scan_row."""
         raw = _order_model_to_raw_row(order)
+        if not self._first_frame_logged:
+            self._first_frame_logged = True
+            log.broker_info(
+                "[BROKER] WS ORDER SOURCE FIRST LIVE FRAME — the transport is "
+                "DELIVERING (channels requested: %s). This, not the subscribe "
+                "acknowledgement, is proof the WS order path works (#134).",
+                " + ".join(self._requested_channels) or "<none recorded>")
         log.broker_info(
             "[BROKER] order frame via WS: id=%s status=%s fillQty=%s "
             "avgPx=%s acct=%s",
@@ -118,6 +131,23 @@ class WSOrderSource:
             log.broker_warning(
                 "WS order queue full — dropping a WS frame (poll still detects "
                 "the fill); consumer stalled")
+
+    def _on_server_error(self, error: Any) -> None:
+        """A server ERROR control frame (#134).
+
+        ATTRIBUTION IS NOT POSSIBLE HERE, and the log says so rather than
+        guessing: the vendored client drops both the error CODE and the channel
+        (``client.py`` emits ``Exception(data.get("message"))`` only), so a
+        ``SUBSCRIBE_FAILED`` for the broker channel arrives indistinguishable
+        from any other server error. We therefore report it and let the
+        first-frame milestone decide what is actually live — never mark a
+        specific channel dead from this."""
+        log.broker_warning(
+            "[BROKER] WS server error frame: %s — a subscription may have been "
+            "REFUSED (the venue sends this AFTER acking the subscribe, #131). "
+            "The channel cannot be identified from this frame (the client "
+            "passes no code and no channel), so treat the absence of a FIRST "
+            "LIVE FRAME as the real signal. Poll remains the floor.", error)
 
     def _on_position(self, position: Any) -> None:
         """Position frames are OBSERVABILITY ONLY — the engine's position is
@@ -152,6 +182,10 @@ class WSOrderSource:
         # without a handler.
         self._client.on("order_event", self._on_order)
         self._client.on("position_event", self._on_position)
+        # #134: the venue refuses a subscription ASYNCHRONOUSLY, with an error
+        # CONTROL frame delivered after the subscribe coroutine has already
+        # returned cleanly — so `_try` below can never see it.
+        self._client.on("error", self._on_server_error)
 
         subscribed: list[str] = []
 
@@ -187,9 +221,14 @@ class WSOrderSource:
                 "WS order feed: BOTH order channels failed to subscribe "
                 f"({short_channel} and {broker_channel}) — poll-only")
         self._started = True
+        self._requested_channels = list(subscribed)
         log.broker_info(
-            "[BROKER] WS order feed subscribed: %s (#121 dual-channel failsafe; "
-            "poll remains the floor)", " + ".join(subscribed))
+            "[BROKER] WS order feed subscribe REQUESTED for: %s — the venue "
+            "ACKs a subscription it may never honour (#131: a broker channel "
+            "answered SUBSCRIBE_FAILED asynchronously, AFTER a clean "
+            "subscribe), so this line is NOT evidence a channel is live. The "
+            "FIRST DELIVERED FRAME is (#134; poll remains the floor).",
+            " + ".join(subscribed))
 
     async def collect(self, timeout: float) -> list[dict]:
         """Wait up to ``timeout`` s for the next WS order frame; return it plus
