@@ -13801,6 +13801,48 @@ def __test_moot_exit_modify_reject_retires_instead_of_crashing__():
     assert len(b.modify_exit_calls) == 1
 
 
+def __test_generic_moot_exit_modify_reject_preserves_tracking__():
+    """A generic modify reject is not proof that the parent is gone.
+
+    A stale-flat local ledger can coincide with a price-band, validation, or
+    throttle reject while the venue position is still live.  Until reconcile
+    confirms flatness, the engine must keep every handle on the protective
+    order and must not cancel its predecessor.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+
+    pos.entry_orders["L1"] = _entry_order("L1", 1.0)
+    pos.exit_orders[("L1-X", "L1")] = _exit_order(
+        "L1", 1.0, "L1-X", limit=51_000.0,
+    )
+    engine.sync(BAR_TS)
+    engine._route_event(  # type: ignore[attr-defined]
+        _fill_event('buy', 1.0, 50_000.0, pine_id="L1"))
+
+    pos.open_trades.clear()
+    pos.size = 0.0
+    pos.sign = 0.0
+    mapping_before = list(engine.order_mapping["L1-X\0L1"])
+    envelope_before = engine._envelopes["L1-X\0L1"]
+    cancels_before = len(b.cancel_calls)
+
+    pos.exit_orders[("L1-X", "L1")] = _exit_order(
+        "L1", 1.0, "L1-X", limit=52_000.0,
+    )
+    b.raise_on_next_modify_exit = ExchangeOrderRejectedError(
+        "venue price-band validation rejected replacement",
+    )
+    engine.sync(BAR_TS + 60_000)  # must preserve and await reconcile
+
+    assert "L1" in engine.active_intents
+    assert "L1-X\0L1" in engine.active_intents
+    assert engine.order_mapping["L1-X\0L1"] == mapping_before
+    assert engine._envelopes["L1-X\0L1"] is envelope_before
+    assert len(b.cancel_calls) == cancels_before
+    assert engine._unconfirmed_flat_pending == {"L1"}
+
+
 def __test_exit_modify_reject_over_a_live_parent_still_raises__():
     """The moot-modify degrade must NOT swallow a live parent's reject.
 
@@ -16792,3 +16834,30 @@ def __test_122_parent_flat_snapshot_cascade_declares_unconfirmed_evidence__(
         "unconfirmed flat evidence dropped the Pine exit slot, preventing the "
         "strategy from re-emitting its protection"
     )
+
+    # Reconcile's sustained-flat acceptance is the retiring authority.  The
+    # pending parent is absent from open_trades, so every family preserved
+    # above must now retire together.
+    engine._accept_confirmed_external_flatten()
+
+    retired_state = failsafe.get_state(parent_ref)
+    assert retired_state is native_state
+    assert retired_state.health is FailsafeHealth.RETIRED
+    assert failsafe.block_new_entry(
+        symbol=SYMBOL, pine_id="NEXT", bar_ts_ms=BAR_TS,
+    ) is False
+    assert pbe.get_leg(leg.key) is None
+    retired_row = ctx.get_order(leg.coid)
+    assert retired_row is not None
+    assert retired_row.extras["leg_state"] == (
+        LEG_STATE_CASCADED_CANCEL_BY_PARENT_CLOSE
+    )
+    assert retired_row.closed_ts_ms is not None
+    assert "L" not in engine._active_intents
+    assert "L-X\0L" not in engine._active_intents
+    assert "L" not in engine._order_mapping
+    assert "L-X\0L" not in engine._order_mapping
+    assert "L" not in engine._envelopes
+    assert "L-X\0L" not in engine._envelopes
+    assert "L" not in pos.entry_orders
+    assert ("L-X", "L") not in pos.exit_orders
