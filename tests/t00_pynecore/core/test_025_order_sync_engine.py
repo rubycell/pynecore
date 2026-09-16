@@ -16410,3 +16410,31 @@ def __test_122_ambiguous_cancel_must_not_strand_the_protective_order__():
         "the only id->key index, so the pending disposition can never resolve "
         "and a possibly-live protective order is stranded"
     )
+
+
+def __test_122_unresolved_external_flatten_cancel_is_durably_parked__():
+    """Keeping tracking IN MEMORY is not enough — it must survive a restart.
+
+    `_dispatch_cancel` pre-parks a durable cancel obligation precisely so that
+    "if the process dies in the window before the disposition lands, the working
+    order rests live at the broker with NO journal row to re-drive its cancel".
+    `_dispatch_cancel_strict` does NOT pre-park (only the swallowing variant
+    does), so switching this path to strict silently traded durability for
+    correct in-memory behaviour: after a restart the map is gone, the script may
+    never re-emit the intent, and nothing re-detects the order — reconcile does
+    not diff orders and `_active_intents` is empty.
+
+    An unresolved cancel here must therefore be parked for the retry.
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    b.raise_on_next_cancel = OrderDispositionUnknownError(
+        "cancel timed out", client_order_id=None,
+    )
+
+    engine._accept_confirmed_external_flatten()
+
+    assert "P\0L" in engine._forced_cancel_pending, (
+        "an UNRESOLVED external-flatten cancel was not parked for retry — it "
+        "survives only in memory, so a restart strands a possibly-live "
+        "protective order with nothing able to re-drive its cancel"
+    )
