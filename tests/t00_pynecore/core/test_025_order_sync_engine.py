@@ -16666,3 +16666,68 @@ def __test_122_journal_only_orphan_exit_is_cancelled_on_a_native_oca_venue__():
         "venue — the population clause skipped it entirely, so the retire loop "
         "never saw it and a live order was left with nothing to cancel it"
     )
+
+
+def __test_122_parent_flat_snapshot_cascade_cancels_on_a_native_oca_venue__(caplog):
+    """THIRD caller with external-flatten semantics: the partial-bracket
+    cascade's `parent_flat_snapshot` cleanup.
+
+    Its own branch comment declares the semantics — "the position vanished
+    (external/manual close, broker-native fail-safe SL, ...)". Nothing of OURS
+    filled, so a native-OCA venue has no trigger. Without the flag the
+    population clause is skipped, the dispatch branch is skipped, and the
+    mapping / envelope / exit_orders slots are dropped anyway, orphaning a live
+    reduce-only exit that would later OPEN an opposite position the engine has
+    no record of.
+
+    Nothing recovers it: `_retire_orphan_exits_on_flat_book` is reached only via
+    a closing-leg FILL of ours, which an external flatten never produces.
+    """
+    b = MockBroker(
+        capabilities=ExchangeCapabilities(oca_cancel=CapabilityLevel.NATIVE),
+    )
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 1.0, stop=50_000.0)
+    pos.exit_orders[("P", "L")] = _exit_order(
+        "L", -1.0, "P", limit=50_100.0, stop=49_900.0,
+    )
+    engine.sync(BAR_TS)
+    engine._route_event(_fill_event('buy', 1.0, 50_000.0, pine_id="L"))
+    assert engine.order_mapping.get("P\0L"), "the protective exit is mapped"
+    cancels_before = len(b.cancel_calls)
+
+    # Drive the CALL SITE, not the function. Calling
+    # `_cleanup_position_tracking(..., venue_flattened_externally=True)`
+    # directly would pass even if :11811 stopped passing the flag — it would
+    # test the callee that two sibling pins already cover, and prove nothing
+    # about this caller. Capture what the cascade actually passes.
+    passed: dict = {}
+    real_cleanup = engine._cleanup_position_tracking
+
+    def _recording_cleanup(entry_id, **kwargs):
+        passed.update(kwargs)
+        return real_cleanup(entry_id, **kwargs)
+
+    engine._cleanup_position_tracking = _recording_cleanup  # type: ignore[method-assign]
+    with caplog.at_level(logging.INFO, logger="pyne_core_logger"):
+        engine._cascade_cleanup_on_parent_flat_snapshot(["L"])
+
+    assert passed.get("cascade_reason") == 'parent_flat_snapshot', (
+        "the cascade did not reach its cleanup call at all"
+    )
+    assert passed.get("venue_flattened_externally") is True, (
+        "the parent_flat_snapshot cascade did NOT declare external-flatten "
+        "semantics — its own branch comment says the position vanished "
+        "externally, so a native-OCA venue has no OCA trigger and the exit is "
+        "orphaned"
+    )
+
+    assert len(b.cancel_calls) > cancels_before, (
+        "the protective exit was retired WITHOUT a cancel on a native-OCA "
+        "venue — nothing of ours filled so the venue had no OCA trigger, and "
+        "the mapping was dropped in the same step: a live reduce-only order "
+        "that will later OPEN an opposite position"
+    )
+    assert engine.order_mapping.get("P\0L") is None, (
+        "tracking should be dropped once the cancel provably landed"
+    )

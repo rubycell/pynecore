@@ -9213,6 +9213,33 @@ class OrderSyncEngine:
             return
         self._cleanup_position_tracking(closed_entry_id)
 
+    def _cascade_cleanup_on_parent_flat_snapshot(
+            self, from_entries: "Iterable[str]",
+    ) -> None:
+        """Retire tracking for parents the venue shows FLAT with legs armed.
+
+        EXTERNAL-FLATTEN SEMANTICS, declared by the calling branch's own
+        comment: "the position vanished (external/manual close, broker-native
+        fail-safe SL, ...)". Nothing of OURS filled, so a native-OCA venue has
+        no trigger to cancel siblings with. Without
+        ``venue_flattened_externally`` the population clause is skipped, the
+        dispatch branch is skipped, and the mapping / envelope / exit_orders
+        slots are dropped anyway — orphaning a live reduce-only exit that would
+        later OPEN an opposite position the engine has no record of. Nothing
+        recovers it: :meth:`_retire_orphan_exits_on_flat_book` is reached only
+        via a closing-leg FILL of ours, which an external flatten never
+        produces.
+
+        Extracted from the cascade loop so the CALL SITE is testable: a pin that
+        invokes :meth:`_cleanup_position_tracking` directly would pass even if
+        this caller stopped declaring the semantics.
+        """
+        for from_entry in from_entries:
+            self._cleanup_position_tracking(
+                from_entry, cascade_reason='parent_flat_snapshot',
+                venue_flattened_externally=True,
+            )
+
     def _retire_orphan_exits_on_flat_book(self) -> None:
         """Retire exit tracking whose parent id owns nothing on a flat book.
 
@@ -11795,10 +11822,8 @@ class OrderSyncEngine:
             # (d) wipes the matching :attr:`Position.entry_orders` and
             # :attr:`Position.exit_orders` slots. Idempotent, so a
             # subsequent sync that sees the same flat snapshot is a no-op.
-            for from_entry in from_entries_to_cascade:
-                self._cleanup_position_tracking(
-                    from_entry, cascade_reason='parent_flat_snapshot',
-                )
+            self._cascade_cleanup_on_parent_flat_snapshot(
+                from_entries_to_cascade)
             return
         triggering = self._partial_bracket_engine.on_price_tick(
             symbol=self._symbol,
@@ -20135,7 +20160,25 @@ class OrderSyncEngine:
                     "trade — retiring the stale exit tracking: %s",
                     new, new.from_entry, e,
                 )
-                self._cleanup_position_tracking(new.from_entry)
+                # EXTERNAL-FLATTEN SEMANTICS, adjudicated 2026-09-16 (the
+                # independent reviewer flagged this site without reporting it;
+                # verdict: it needs the flag). The comment above establishes
+                # that the POSITION is gone — it does NOT establish that the
+                # ORDER is. A rejected MODIFY means the venue refused the
+                # CHANGE; the predecessor exit may still be resting. And since
+                # no leg of ours filled, a native-OCA venue has no trigger, so
+                # without the flag the cancel is skipped and the mapping dropped
+                # in the same step.
+                # The asymmetry decides it: passing the flag costs at most a
+                # redundant cancel of an already-dead order, which
+                # `execute_cancel` reports as a benign no-op; omitting it risks
+                # a live reduce-only exit with no tracking, which later OPENS an
+                # opposite position. "The reject proves the order is gone" is
+                # also venue-shaped reasoning (Capital.com's "no confirmed entry
+                # row"), and #122's fifth finding was exactly a
+                # verified-on-one-venue argument shipped as general.
+                self._cleanup_position_tracking(
+                    new.from_entry, venue_flattened_externally=True)
                 return
             _blog_error(
                 "modify failed for %s: %s: %s", new, type(e).__name__, e,
