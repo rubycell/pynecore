@@ -297,3 +297,53 @@ def __test_stale_prior_day_row_must_not_claim_a_foreign_order__(
         "the sweep cancelled the OPERATOR's order via a stale prior-day "
         "id collision (#96) — attribution must be scoped by day/account")
     assert rc == 0
+
+
+# === two agreeing reads before acting on the SIGN (live incident 09-16) =====
+
+def __test_disagreeing_position_reads_refuse_to_act__(fake_client, tmp_path,
+                                                      monkeypatch):
+    """THE red-first pin for the 2026-09-16 incident.
+
+    A single read decides the SIGN, and the sign decides BUY vs SELL. Get it
+    wrong and the "flatten" DOUBLES the position: with the account really SHORT
+    1, one read answered `long 1.0`, the tool sold 1, and the account went to
+    SHORT 2. The read was never cached — `get_position` hits the venue each
+    time — the VENUE served a stale view (the same non-monotonic read CLAUDE.md
+    records for order details, 08-17).
+
+    So disagreement must be fail-closed: exit 2 (could-not-determine) and NO
+    order. Never split the difference, never prefer the newer read — we have no
+    evidence which of the two is stale.
+    """
+    monkeypatch.setattr(tool.time, "sleep", lambda _s: None)
+    reads = iter([1.0, -1.0])       # long 1, then short 1: irreconcilable
+    monkeypatch.setattr(tool, "_read_position_size",
+                        lambda *_a, **_k: next(reads, -1.0))
+    b = _broker(fake_client, tmp_path)
+
+    rc = tool.flatten(b, "VN30F1M", set())
+
+    assert rc == 2, f"disagreeing reads must be could-not-determine, got {rc}"
+    writes = [c[0] for c in b._client.calls
+              if c[0] in ("post_order", "cancel_order")]
+    assert writes == [], (
+        f"NOTHING may be sent when the sign is unproven — got {writes}. "
+        "Acting on the wrong sign doubles the position (live 2026-09-16)")
+
+
+def __test_agreeing_reads_still_flatten__(fake_client, tmp_path, monkeypatch):
+    """The over-block guard: the confirmation must not freeze the normal path.
+
+    Two agreeing reads -> the close is still placed. Without this, a fix that
+    simply refused everything would pass the test above and look correct.
+    """
+    monkeypatch.setattr(tool.time, "sleep", lambda _s: None)
+    state = {"pos": 1}
+    b = _broker(fake_client, tmp_path, **_short_position_book(state))
+
+    rc = tool.flatten(b, "VN30F1M", {"prot-cond-1"})
+
+    assert rc == 0, f"agreeing reads must proceed normally, got rc={rc}"
+    assert any(c[0] == "post_order" for c in b._client.calls), \
+        "the close must still be placed when both reads agree"
