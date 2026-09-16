@@ -130,10 +130,44 @@ def _read_position_size(broker, symbol: str) -> "float | None":
     return float(pos.size or 0.0)
 
 
+def _read_position_size_confirmed(broker, symbol: str,
+                                  *, gap_s: float = 1.5) -> "float | None":
+    """Signed net size CONFIRMED by two agreeing reads, else ``None``.
+
+    WHY TWO READS (live incident 2026-09-16): a single read decides the SIGN,
+    and the sign decides whether we BUY or SELL. Get it wrong and the "flatten"
+    DOUBLES the position instead of closing it — which is exactly what happened:
+    with the account really SHORT 1, one read answered ``long 1.0``, so the tool
+    sold 1 and took it to SHORT 2. The read was not cached — ``get_position``
+    hits the venue every time — the VENUE served a stale view, which CLAUDE.md
+    already documents for order detail reads ("a Canceled order served as New by
+    a lagging replica ~10 s later", 08-17).
+
+    So a directional action now requires agreement. Disagreement means we cannot
+    prove the sign, and the fail-closed answer to "which way do I trade?" is DO
+    NOTHING — never split the difference, never prefer the newer read (we have no
+    evidence which of the two is the stale one).
+    """
+    first = _read_position_size(broker, symbol)
+    if first is None:
+        return None
+    time.sleep(gap_s)
+    second = _read_position_size(broker, symbol)
+    if second is None:
+        return None
+    if first != second:
+        print(f"position reads DISAGREE ({first} then {second}) — refusing to "
+              f"act. A wrong SIGN doubles the position instead of closing it "
+              f"(live 2026-09-16). Re-run once the venue settles, or flatten in "
+              f"the app.")
+        return None
+    return first
+
+
 def flatten(broker, symbol: str, owned_ids: "set[str] | None",
             *, close_wait_s: int = 25) -> int:
     """Close-first flatten + owned-order sweep. See module docstring."""
-    size = _read_position_size(broker, symbol)
+    size = _read_position_size_confirmed(broker, symbol)
     if size is None:
         return 2
 

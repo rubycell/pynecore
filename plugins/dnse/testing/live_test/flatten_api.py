@@ -11,6 +11,7 @@ Exit codes (venue.py convention): 0 flat AND owned orders swept/resolved,
 
 Usage: .venv/bin/python plugins/dnse/testing/live_test/flatten_api.py [--dry-run]
 """
+import argparse
 import sys
 from pathlib import Path
 
@@ -25,7 +26,24 @@ STORE = REPO / "workdir" / "output" / "logs" / "broker.sqlite"
 
 
 def main() -> int:
-    dry = "--dry-run" in sys.argv
+    # STRICT parsing, and it happens BEFORE anything touches the venue.
+    # This used to be `dry = "--dry-run" in sys.argv`, which silently IGNORED
+    # every other argument — so `--help`, typed expecting usage text, fell
+    # straight through and FLATTENED A LIVE ACCOUNT (2026-09-16: it read a
+    # stale position and sold, taking short 1 to short 2). An execution-capable
+    # tool must never treat an unrecognised argument as "proceed".
+    parser = argparse.ArgumentParser(
+        description="API flatten for the FILL tier (#91). Closes the position, "
+                    "then sweeps the bot's OWN protection. Foreign orders are "
+                    "reported, never cancelled.",
+        epilog="Exit codes: 0 flat and swept, 1 unresolved, 2 could not "
+               "determine. --help NEVER contacts the venue.")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="report attribution and exit; send nothing")
+    # parse_args exits 2 on an unknown flag and 0 on --help, both BEFORE the
+    # broker below is constructed.
+    dry = parser.parse_args().dry_run
+
     cfg = ensure_config(DNSEBrokerConfig,
                         REPO / "workdir/config/plugins/dnse_broker.toml")
     broker = DNSEBroker(symbol="VN30F1M", timeframe="1", config=cfg)
