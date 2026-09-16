@@ -83,6 +83,39 @@ def _midnight_utc(day: _date) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
 
 
+def _order_metadata(detail: object) -> dict:
+    """The ``metadata`` of an order detail as a dict — ``{}`` when there is none.
+
+    The venue serves it as a JSON **string** (documented sample,
+    ``dnse-get-order-detail.md``), so a caller that reads ``detail["metadata"]``
+    directly gets a string and every field lookup silently answers ``None``. A
+    dict is accepted too (defensive: the WS/order shapes are not identical).
+    Diagnostics only — nothing classifies on this.
+    """
+    if not isinstance(detail, dict):
+        return {}
+    metadata = detail.get("metadata")
+    if isinstance(metadata, dict):
+        return metadata
+    if isinstance(metadata, str) and metadata:
+        try:
+            parsed = json.loads(metadata)
+        except (ValueError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _metadata_field(metadata: dict, name: str) -> str:
+    """One metadata field for a log line — the literal ``absent`` when missing.
+
+    "absent" is printed rather than ``None`` so a log reader can tell a field
+    the venue did not serve from a field it served empty.
+    """
+    value = metadata.get(name)
+    return "absent" if value is None else str(value)
+
+
 _SIDE_TO_DNSE = {"buy": "NB", "sell": "NS"}
 _DNSE_TO_SIDE = {"NB": "buy", "NS": "sell"}
 
@@ -293,6 +326,11 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         #: child therefore could not be read back against its umbrella at all.
         #: Observation only — nothing routes or classifies by this map.
         self._oco_umbrella_ids: dict[str, str] = {}
+        #: #128 instrumentation: intent keys whose child ``condition`` string has
+        #: already been logged. The condition is long (the whole trigger
+        #: expression), so it is worth exactly ONE line per bracket — the
+        #: per-cancel line carries only the short discriminators.
+        self._condition_logged_keys: set[str] = set()
         #: #117 (measured live 2026-09-15): venue order ids a STOCK amend
         #: SUPERSEDED — the PUT answered 200 with a NEW id and the venue
         #: auto-cancels the predecessor, whose ``Canceled`` push arrives
@@ -2694,18 +2732,35 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         ``respawn-candidate``; ADOPTING it is deliberately out of scope
         (deferred until measured live), so the event still flows untagged.
 
-        Timeboxed to :attr:`_executions_read_deadline_s` (~2.5 s): the event
-        path is never blocked on a hung venue read.
+        **#128 (leg transition):** the same read answers the OTHER open question
+        — WHY the venue ended the bracket. ``currentAction``'s VALUE is exposed
+        by NO read we have (the umbrella's OCO detail carries no metadata at
+        all; ``currentAction`` appears only as a VARIABLE inside the child's
+        metadata ``condition`` string), so the transition is INFERRED from two
+        things that ARE readable and are both logged here:
+
+        * **child succession** — the umbrella's ``externalOrderId`` vs the id
+          that was cancelled (logged with BOTH ids on every mismatch, terminal
+          umbrella or not);
+        * **the cancelled CHILD's own metadata** — ``cancel_ip`` (who sent the
+          cancel), ``originCategory`` and ``eventNo`` (was 4 on the 09-15 live
+          cancel; possibly a transition counter), plus the ``condition`` string
+          once per intent key. See :meth:`_observe_cancelled_child`.
+
+        Timeboxed to :attr:`_executions_read_deadline_s` (~2.5 s) for BOTH reads
+        together — the #128 read gets only what the #124 read left, so the
+        classification above can never be starved by the instrument.
         """
         umbrella_id = self._oco_umbrella_ids.get(str(order_id))
         if umbrella_id is None and self._placed_category.get(str(order_id)) == "OCO":
             umbrella_id = str(order_id)   # the umbrella IS the tracked order
         if umbrella_id is None:
             return None
+        budget_s = self._executions_read_deadline_s
+        started = time.monotonic()
         try:
             detail, position = await asyncio.wait_for(
-                self._read_oco_umbrella(umbrella_id),
-                timeout=self._executions_read_deadline_s)
+                self._read_oco_umbrella(umbrella_id), timeout=budget_s)
         except Exception as exc:                                # noqa: BLE001
             log.broker_warning("#124-OBS read-failed (%s: %s)",
                                type(exc).__name__, exc)
@@ -2717,24 +2772,104 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         log.broker_info(
             "#124-OBS umbrella=%s umbrella_status=%s externalOrderId=%s "
             "position=%s", umbrella_id, raw_status or None, external_id, net)
+        child_moved = (external_id is not None
+                       and str(external_id) != str(order_id))
         status = _STATUS_MAP.get(
             raw_status.upper().replace("_", "").replace("-", ""))
+        reason: "str | None" = None
         if status in (OrderStatus.CANCELLED, OrderStatus.REJECTED,
                       OrderStatus.EXPIRED):
             log.broker_info(
                 "#124 umbrella %s is TERMINAL (%s) — the child's cancel is "
                 "venue-driven, tagging %s", umbrella_id, raw_status,
                 CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL)
-            return CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL
-        if (external_id is not None
-                and str(external_id) != str(order_id)):
+            reason = CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL
+            if child_moved:
+                # #128: the umbrella died pointing at a DIFFERENT child than the
+                # one whose cancel we are handling — i.e. the bracket changed
+                # legs before it ended. That succession IS the leg-transition
+                # evidence (``currentAction`` itself is not readable).
+                log.broker_info(
+                    "#128-OBS leg-transition: umbrella=%s ended %s pointing at "
+                    "new_child=%s, NOT at the cancelled cancelled_child=%s — "
+                    "the bracket changed legs before the umbrella ended",
+                    umbrella_id, raw_status, external_id, order_id)
+        elif child_moved:
             log.broker_warning(
                 "#124-OBS respawn-candidate: umbrella %s still %s but its "
                 "externalOrderId=%s differs from the cancelled child %s — "
                 "protection may have MOVED to a new child (adoption "
-                "deliberately not implemented; event emitted untagged)",
-                umbrella_id, raw_status or None, external_id, order_id)
-        return None
+                "deliberately not implemented; event emitted untagged) "
+                "[#128 leg-transition: new_child=%s cancelled_child=%s]",
+                umbrella_id, raw_status or None, external_id, order_id,
+                external_id, order_id)
+        if str(order_id) == str(umbrella_id):
+            # The tracked order IS the umbrella (no NORMAL-book child was ever
+            # resolved): its detail is already in hand — parse THAT rather than
+            # spend a second GET on the id we just read. It also measures the
+            # claim that an OCO detail carries no metadata.
+            self._log_cancelled_child_metadata(str(order_id), detail,
+                                               book="OCO (umbrella detail)")
+        else:
+            await self._observe_cancelled_child(
+                str(order_id), budget_s - (time.monotonic() - started))
+        return reason
+
+    async def _observe_cancelled_child(self, order_id: str,
+                                       budget_s: float) -> None:
+        """#128: read the CANCELLED child's own order detail and log its
+        metadata — the only place the venue says anything about WHO ended it.
+
+        Pure measurement: it returns nothing, raises nothing and changes no
+        classification. Every failure path (no budget left, a slow or failed
+        GET) logs ``#128-OBS read-failed`` and returns — the cancel event is
+        already decided by :meth:`_observe_oco_cancel` before this runs, so a
+        venue that stops answering costs a log line and nothing else.
+        """
+        if budget_s <= 0:
+            log.broker_warning(
+                "#128-OBS read-failed (child=%s: the umbrella read used the "
+                "whole ~%.1fs observation budget)", order_id,
+                self._executions_read_deadline_s)
+            return
+        book = self._order_category.get(order_id, "NORMAL")
+        try:
+            _status, detail = await asyncio.wait_for(asyncio.to_thread(
+                lambda: self.client.get_order_detail(
+                    self.account_id, order_id, self.market_type,
+                    order_category=book)), timeout=budget_s)
+        except Exception as exc:                                # noqa: BLE001
+            log.broker_warning("#128-OBS read-failed (child=%s %s: %s)",
+                               order_id, type(exc).__name__, exc)
+            return
+        self._log_cancelled_child_metadata(order_id, detail, book=book)
+
+    def _log_cancelled_child_metadata(self, order_id: str, detail: object, *,
+                                      book: str) -> None:
+        """ONE ``#128-OBS child=`` line per cancel, plus the ``condition``
+        string ONCE per intent key (it is long — the whole trigger expression —
+        and it does not change between the legs of one bracket)."""
+        metadata = _order_metadata(detail)
+        log.broker_info(
+            "#128-OBS child=%s book=%s cancel_ip=%s origin=%s eventNo=%s "
+            "(metadata: %s)", order_id, book,
+            _metadata_field(metadata, "cancel_ip"),
+            _metadata_field(metadata, "originCategory"),
+            _metadata_field(metadata, "eventNo"),
+            f"{len(metadata)} fields" if metadata else "absent")
+        condition = metadata.get("condition")
+        if not condition:
+            return
+        pine_id, from_entry, _leg = self._identity.get(
+            order_id, (None, None, None))
+        key = (f"{pine_id}\x00{from_entry}" if pine_id is not None
+               else f"order\x00{order_id}")
+        if key in self._condition_logged_keys:
+            return
+        self._condition_logged_keys.add(key)
+        log.broker_info(
+            "#128-OBS child=%s conditionOrderId=%s condition=%s", order_id,
+            _metadata_field(metadata, "conditionOrderId"), condition)
 
     async def _read_oco_umbrella(self, umbrella_id: str
                                  ) -> "tuple[dict, ExchangePosition | None]":
