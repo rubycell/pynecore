@@ -16438,3 +16438,32 @@ def __test_122_unresolved_external_flatten_cancel_is_durably_parked__():
         "survives only in memory, so a restart strands a possibly-live "
         "protective order with nothing able to re-drive its cancel"
     )
+
+
+def __test_122_parked_external_flatten_cancel_actually_re_drives__():
+    """Parking is only half the obligation — the retry must actually FIRE.
+
+    The previous pin proved the intent gets parked. Parked-but-never-retried
+    would look identical at the park site and still leave the order live, so
+    this pins the other half: the next `sync` re-attempts the cancel.
+
+    (`_retry_forced_cancels` runs once per sync and after every routing event
+    drain, so a parked obligation is re-driven without the script re-emitting
+    anything — which matters because after an external flatten the Pine side
+    has no position and will not re-emit the exit.)
+    """
+    b, engine, pos = _arm_protective_exit_engine()
+    b.raise_on_next_cancel = OrderDispositionUnknownError(
+        "cancel timed out", client_order_id=None,
+    )
+    engine._accept_confirmed_external_flatten()
+    assert "P\0L" in engine._forced_cancel_pending, "precondition: it parked"
+    cancels_after_park = len(b.cancel_calls)
+
+    engine.sync(BAR_TS + 1)          # the retry pass runs here
+
+    assert len(b.cancel_calls) > cancels_after_park, (
+        "the parked cancel was never re-attempted — a park that nothing "
+        "re-drives leaves the protective order live at the broker just as "
+        "surely as no park at all"
+    )
