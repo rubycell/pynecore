@@ -162,3 +162,15 @@ bd7ee0eacd75b765e40c66e9d8399b90439b1450ea40889e689c63b37f5e3eed  tests/t01_lib/
 9387c425c9771811d676c6bc7fc233daa72d5acea28ddb50f2ceff066d89850d  tests/t01_lib/t30_strategy/data/p5_drawdown_liveness.py
 1f938c0d15a10f227dbf7ac5055b3dcd0a1d4fa1bcb78a5d83cd509445f6d62b  tests/t01_lib/t30_strategy/data/p5_drawdown_control.pine
 95b1b51d913d41387317ed06a1549c050638168ad77661ebd0b4c1613a7ff68e  tests/t01_lib/t30_strategy/data/p5_drawdown_control.py
+# 2026-09-17 #133: "minted today" no longer encodes the cron's hour (schedule moved to 06:20; a status line must not carry the caller's timetable)
+c59f4a20f2a93190146a85bf8f3573672d08717a7a0f212409793332a4c81967  plugins/dnse/tools/token_status.py
+# 2026-09-18 ownership hook: unresolvable-target message no longer says "NOT enforcing" (one target not checked); whole $(...) targets captured
+510e5d9216a3c9ccbcbb48d0c068f552b4b6423baf012cec735417d39063843f  .claude/hooks/enforce_ownership.py
+# 2026-09-18 #133 docs wording: schedule 06:45, gate from ~07:05, no timetable in code (four moves in two days)
+ec23c30094d0cef173a4c13e342bf3f73bd62ff9facdc8aa907244196add7395  plugins/dnse/tools/token_status.py
+58c403ed93f616bdae3bb5c3185e09e9365f1bf5a88a705f61c0eb289597e531  plugins/dnse/tools/refresh_token.py
+05f99daa1fdf371e0f07fa3bc5d52b3563cded6932e6acb20e5c69da2b9258d6  plugins/dnse/tools/probe_imap_headers.py
+# 2026-09-18 ownership hook rev: the computed-target capture keeps the whole token around $(...)
+67b7294da7875b0ba0a876642e80eae327f2cb68493e6424f09cd061c8fa0359  .claude/hooks/enforce_ownership.py
+# 2026-09-18 ownership hook rev: captures de-duplicated (longest wins) so a computed target is reported once, whole
+98bc7b2c67fbb8a05d93ef895d7d92f6956ae9fa6df346865d8fa6c03000b7fd  .claude/hooks/enforce_ownership.py

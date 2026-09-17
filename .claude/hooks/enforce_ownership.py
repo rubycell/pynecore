@@ -84,6 +84,7 @@ _QUOTED_REDIRECT_PATTERNS = [
 ]
 
 _WRITE_PATTERNS = [
+    re.compile(r">>?\s*([^\s;&|>]*\$\([^)]*\)[^\s;&|>]*)"),   # whole target containing `$( … )`, spaces inside allowed
     re.compile(r">>?\s*([^\s;&|>]+)"),
     re.compile(r"\btee\s+(?:-a\s+)?([^\s;&|]+)"),
     # No `$` anchor: `sed -i … f && …` and `sed -i … f; …` are ordinary.
@@ -165,18 +166,27 @@ def _targets(payload: dict) -> list[Path]:
         # strip, capture a redirect whose target is a quoted string: the quote
         # must immediately follow the operator, which is exactly what the
         # prose false positive (`--body "… -> path"`) never has.
+        captured: list[str] = []
+
         def _take(target: str) -> None:
-            target = target.strip("'\"")
+            captured.append(target.strip("'\""))
+
+        def _judge(target: str) -> None:
             if target.startswith("$") or "$(" in target or "`" in target:
                 # A variable or computed target cannot be resolved without
                 # evaluating the shell, which a PreToolUse hook must not do.
                 # Not blocked — `> "$LOG"` to scratch is ordinary — but never
                 # silent either: this is a documented blind spot (measured: two
                 # sessions read the silent allow as "the hook is not loaded").
-                _warn(f"Bash redirect target {target!r} is a variable or "
-                      f"computed value the ownership hook cannot resolve; if "
-                      f"it names another session's file this write is NOT "
-                      f"gated (use the Edit tool or a literal path)")
+                # Not the "NOT enforcing" prefix: everything else in the
+                # command IS gated; only this one target could not be judged.
+                sys.stdout.write(json.dumps({"systemMessage":
+                    f"enforce_ownership: one write target not checked — "
+                    f"{target!r} is a shell variable or computed value the hook "
+                    f"cannot resolve. Fine for scratch/backup paths; if it "
+                    f"names another session's file, use a literal path or the "
+                    f"Edit tool."}) + "\n")
+                sys.stderr.write(f"enforce_ownership (target not checked): {target}\n")
                 return
             raw.append(target)
 
@@ -187,6 +197,14 @@ def _targets(payload: dict) -> list[Path]:
         for pattern in _WRITE_PATTERNS:
             for match in pattern.finditer(command):
                 _take(match.group(1))
+        # Two patterns can capture the same target at different lengths (the
+        # generic redirect stops at the first space inside a `$( … )`); keep
+        # the longest and drop any capture that is a strict prefix of another,
+        # so a computed target is reported once, whole.
+        for target in sorted(set(captured), key=len, reverse=True):
+            if any(other != target and other.startswith(target) for other in captured):
+                continue
+            _judge(target)
 
     out: list[Path] = []
     for item in raw:
