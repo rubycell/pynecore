@@ -1,0 +1,391 @@
+"""#132 W0 — the naked-position invariant, as PURE logic.
+
+An OPEN, BOT-OWNED position must have at least one RESTING protective order
+at the venue that can reduce it. This module answers that question and
+NOTHING else: no venue calls, no sqlite, no asyncio, no clock of its own.
+Every input arrives in an :class:`Observation`; the clock is passed in.
+``naked_watch.py`` is the I/O shell that fills those in.
+
+WHY THE SPLIT (panel, card #132, lens 3): the two cautionary examples in
+this repo are both seam failures. ``test_flatten_tool.py``'s disagreeing-
+reads pin has to monkeypatch the very reader whose bug it would need to
+exercise, because reading and deciding live in one module with no seam; and
+an off-session rule is only testable during the 15 minutes a day the clock
+says so, unless the phase is injected. Everything below is therefore a pure
+function of its arguments, and the pins drive it with no venue at all.
+
+THE VERDICTS, and why there are six rather than two:
+
+  OK           the invariant holds — nothing owned is open, or cover rests
+  UNSTOPPED    cover rests, but none of it is stop-class (see below)
+  NAKED        owned exposure is open and NOTHING covers it
+  UNDETERMINED a read did not answer, or the evidence contradicts itself
+  BLIND        the watcher cannot prove it can see (#145) — never OK
+  HOLD         outside continuous trading; the population is FROZEN
+
+``UNDETERMINED`` and ``BLIND`` exist because the repo's rule is exit-2-never-
+no: a read that FAILED is not evidence of safety. Applied here it also points
+inward — a watchdog that cannot prove its own sight must say so rather than
+report calm. ``HOLD`` exists because off-session the order books answer 200
+with ZERO rows, so every order legitimately "vanishes" and an evaluating
+watchdog would alarm on every held position (card #132, HC3).
+
+``UNSTOPPED`` is lens 1's split. The invariant as frozen asks "is anything
+resting?", but the operator's real question is "is my STOPLOSS there?", and on
+this venue an OCO bracket's only VISIBLE leg is its take-profit child (the
+umbrella lives on a book ``_CATEGORIES`` never scans, broker.py:160/326).
+So take-profit-only cover satisfies the frozen invariant and still deserves
+its own signal — at its own severity, without weakening NAKED.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+
+#: Exit codes, MEANINGS identical to ``plugins/dnse/tools/venue.py``
+#: (0 affirmative / 1 negative / 2 could-not-determine). Duplicated rather
+#: than imported because importing ``venue`` would drag config loading and a
+#: ``sys.path`` rewrite into this pure module; ``test_naked_watch.py`` pins
+#: the two definitions equal so they cannot drift apart silently.
+EXIT_OK, EXIT_NEGATIVE, EXIT_UNKNOWN = 0, 1, 2
+
+#: The canonical marker is IMPORTED by the shell from the engine, never
+#: retyped. This tag rides ALONGSIDE it: the engine already emits that marker
+#: from four sites (sync_engine.py ~7211/~7219/~7227 and the re-place backoff
+#: gate at ~16590), so without a distinguishing tag a grader grepping evidence
+#: could not tell the sidecar's finding from the engine's own.
+SIDECAR_TAG = "#132 W0 SIDECAR"
+
+#: ``extras.leg_kind`` values that are STOP-class protection. Used ONLY to
+#: split NAKED from UNSTOPPED — never to decide whether an order is cover.
+#: That decision is ``from_entry``, a typed column that is required on
+#: ExitIntent and absent by construction on EntryIntent/CloseIntent, so it
+#: covers TP, SL, trailing and the partials WITHOUT an allowlist. An
+#: allowlist here is safe precisely because being wrong only mislabels a
+#: severity; the same allowlist used as the cover predicate was measured
+#: wrong (it omitted TRAILING_STOP, tp_partial and trail_partial — three of
+#: eight real values — which would have paged a trailing strategy NAKED
+#: continuously; card #132 adjudication).
+STOP_CLASS_LEG_KINDS = frozenset({
+    "STOP_LOSS", "sl_partial", "TRAILING_STOP", "trail_partial",
+})
+
+#: Floor for the NAKED-confirm window, in seconds. A FLAT CONSTANT, never
+#: derived from the poll cadence: ``broker.py:301-305`` records a 5x-cadence
+#: rule producing a MEASURED FALSE CANCEL, and ``residue_detector`` answered
+#: it with a flat 30 s. The real window is ``max(this, one bar period)``
+#: because a reactively placed exit arms A BAR LATE by measured design
+#: (CLAUDE.md, live 2026-09-15) — at 15m that is 900 s of LEGITIMATE
+#: nakedness after every entry, and a watchdog that pages on every trade is
+#: a watchdog that gets muted.
+NAKED_CONFIRM_FLOOR_S = 30.0
+
+#: Session phases in which the invariant is evaluated at all. Any other
+#: phase FREEZES the population (HOLD) rather than muting the alarm: off
+#: session an empty book is not evidence of a missing order.
+CONTINUOUS_PHASES = frozenset({"continuous"})
+
+
+class Verdict(Enum):
+    OK = "OK"
+    UNSTOPPED = "UNSTOPPED"
+    NAKED = "NAKED"
+    UNDETERMINED = "UNDETERMINED"
+    BLIND = "BLIND"
+    HOLD = "HOLD"
+
+    @property
+    def exit_code(self) -> int:
+        if self is Verdict.NAKED:
+            return EXIT_NEGATIVE
+        if self in (Verdict.UNDETERMINED, Verdict.BLIND):
+            return EXIT_UNKNOWN
+        return EXIT_OK
+
+
+@dataclass(frozen=True)
+class RestingOrder:
+    """One order the VENUE reports as working, plus what we know of it.
+
+    ``from_entry`` and ``leg_kind`` come from the run journal (attribution);
+    everything else from the venue record. ``classifiable`` is False when the
+    venue detail read did not answer for this order — which must never be
+    confused with "it is not protection".
+    """
+    venue_id: str
+    side: str                      # "buy" | "sell"
+    qty: float
+    owned: bool
+    from_entry: str | None = None
+    leg_kind: str | None = None
+    classifiable: bool = True
+    book: str | None = None        # log content only, never a gate
+    stop_price: float | None = None  # log content only, never a gate
+
+
+@dataclass(frozen=True)
+class Observation:
+    """Everything one evaluation cycle needs, already read.
+
+    ``None`` means "the read did not answer" for every field that has it —
+    never "nothing there".
+    """
+    phase: str
+    contract_proven: bool
+    position_signed: float | None
+    owned_exposure: float | None
+    resting: tuple[RestingOrder, ...] | None
+    bar_period_s: float = 0.0
+    contract: str | None = None
+
+
+@dataclass(frozen=True)
+class Assessment:
+    verdict: Verdict
+    reason: str
+    exposure: float = 0.0
+    covers: tuple[str, ...] = ()
+    stop_class_covers: tuple[str, ...] = ()
+    covered_qty: float = 0.0
+
+
+def reduces(side: str, exposure_signed: float) -> bool:
+    """Can an order of this side REDUCE that exposure?
+
+    The necessary half of the cover test (candidate S2). Necessary but never
+    sufficient: a flip strategy's reverse-entry stop is reduce-side by
+    construction, and ENTRY rows were 85 of 155 in the measured journal, so
+    a side test ALONE accepts an entry order as protection — false SILENCE,
+    the one direction this tool must not have.
+    """
+    if exposure_signed > 0.0:
+        return side == "sell"
+    if exposure_signed < 0.0:
+        return side == "buy"
+    return False
+
+
+def is_cover(order: RestingOrder, exposure_signed: float) -> bool:
+    """Does this resting order protect that exposure?
+
+    All five conditions, in the order they were adjudicated (card #132):
+    owned by us, classifiable, attributed as an EXIT by the journal
+    (``from_entry``), and able to reduce the exposure. The venue already
+    answered "resting" by returning it, and the shell has already removed
+    #41 phantom shells.
+    """
+    if not order.owned or not order.classifiable:
+        return False
+    if not order.from_entry:
+        return False
+    return reduces(order.side, exposure_signed)
+
+
+def owned_exposure_at_venue(
+        venue_signed: float, owned_signed: float,
+) -> tuple[float, bool]:
+    """-> (exposure, determinate). The venue-clamped, bot-owned slice.
+
+    Mirrors ``_clamp_adoption_to_owned`` (sync_engine.py:4542) with ONE
+    deliberate difference, and it is the difference that matters here.
+
+    That clamp returns ``0.0`` when the journal and the venue disagree about
+    the SIGN, because for ADOPTION "do not guess" correctly means "claim
+    nothing". Read by a watchdog, the same ``0.0`` means "we own nothing, all
+    clear" — so the process would go SILENT over a position it cannot
+    attribute, which is exactly the #135-class corruption it exists to catch.
+    Identical arithmetic, inverted safety meaning. Here a sign disagreement
+    is ``determinate=False`` -> UNDETERMINED, and stays loud.
+
+    The two agreeing cases are unchanged: a flat VENUE is proof of absence
+    (nothing to protect) whatever the journal believes, and owning nothing
+    means any open position is foreign — neither is our invariant.
+    """
+    if venue_signed == 0.0 or owned_signed == 0.0:
+        return 0.0, True
+    if (venue_signed > 0.0) != (owned_signed > 0.0):
+        return 0.0, False
+    magnitude = min(abs(venue_signed), abs(owned_signed))
+    return (magnitude if venue_signed > 0.0 else -magnitude), True
+
+
+def evaluate(obs: Observation) -> Assessment:
+    """The whole invariant, as a pure function of one observation."""
+    if not obs.contract_proven:
+        return Assessment(
+            Verdict.BLIND,
+            "cannot prove the watcher can SEE: the traded contract was not "
+            "resolved from a successful instruments read (#145 — a cached "
+            "alias makes every position read answer FLAT, silently)")
+
+    if obs.phase not in CONTINUOUS_PHASES:
+        return Assessment(
+            Verdict.HOLD,
+            f"phase={obs.phase!r} — population FROZEN (off session the books "
+            f"answer 200 with zero rows, so an absent order is not evidence)")
+
+    if obs.position_signed is None:
+        return Assessment(
+            Verdict.UNDETERMINED,
+            "the venue position read did not answer (or two reads disagreed) "
+            "— NOT evidence of flat, and NOT evidence of naked")
+
+    if obs.owned_exposure is None:
+        return Assessment(
+            Verdict.UNDETERMINED,
+            "attribution UNAVAILABLE: the run journal could not be read, so "
+            "ownership of any open position is unproven (never a clean pass)")
+
+    exposure, determinate = owned_exposure_at_venue(
+        obs.position_signed, obs.owned_exposure)
+    if not determinate:
+        return Assessment(
+            Verdict.UNDETERMINED,
+            f"journal and venue disagree about the SIGN "
+            f"(venue={obs.position_signed:+g}, journal={obs.owned_exposure:+g}) "
+            f"— exposure unattributable; refusing to read that as 'own nothing'")
+
+    if exposure == 0.0:
+        return Assessment(
+            Verdict.OK,
+            f"nothing bot-owned is open (venue={obs.position_signed:+g}, "
+            f"journal={obs.owned_exposure:+g})", exposure=0.0)
+
+    if obs.resting is None:
+        return Assessment(
+            Verdict.UNDETERMINED,
+            f"owned exposure {exposure:+g} is open but the working-order "
+            f"books did not answer — cover unknown, which is not cover "
+            f"absent", exposure=exposure)
+
+    covers = tuple(o for o in obs.resting if is_cover(o, exposure))
+    covered_qty = sum(o.qty for o in covers)
+    if covers:
+        stop_class = tuple(
+            o.venue_id for o in covers if o.leg_kind in STOP_CLASS_LEG_KINDS)
+        ids = tuple(o.venue_id for o in covers)
+        if stop_class:
+            return Assessment(
+                Verdict.OK,
+                f"exposure {exposure:+g} covered by {len(covers)} resting "
+                f"order(s) ({covered_qty:g}), {len(stop_class)} stop-class",
+                exposure, ids, stop_class, covered_qty)
+        return Assessment(
+            Verdict.UNSTOPPED,
+            f"exposure {exposure:+g} has cover ({covered_qty:g}) but NO "
+            f"stop-class leg among it — a take-profit is not a stoploss "
+            f"(an OCO umbrella's stop leg is invisible to the books, "
+            f"broker.py:160)",
+            exposure, ids, (), covered_qty)
+
+    # No proven cover. Before calling it naked, an order we could not
+    # classify must poison the verdict rather than its own candidacy: a
+    # reduce-side owned order whose detail read failed MIGHT be the
+    # protection. ``venue.classify_working`` files such an order under LIVE,
+    # which is the safe direction for ``venue.py flat`` (it cries wolf) and
+    # the WRONG one here (it would be admitted as cover), so the shell marks
+    # it unclassifiable and this branch degrades to could-not-determine.
+    # Ordering matters: a PROVEN cover above already returned, so this can
+    # never make a genuinely covered position look uncertain.
+    unclassifiable = tuple(
+        o.venue_id for o in obs.resting
+        if o.owned and not o.classifiable and reduces(o.side, exposure))
+    if unclassifiable:
+        return Assessment(
+            Verdict.UNDETERMINED,
+            f"exposure {exposure:+g} has no PROVEN cover, but "
+            f"{len(unclassifiable)} owned reduce-side order(s) could not be "
+            f"classified ({', '.join(unclassifiable)}) — one of them may be "
+            f"the protection", exposure)
+
+    foreign = sum(1 for o in obs.resting if not o.owned)
+    return Assessment(
+        Verdict.NAKED,
+        f"exposure {exposure:+g} is OPEN and UNPROTECTED: zero owned "
+        f"reduce-side exit orders rest at the venue "
+        f"({len(obs.resting)} working order(s) seen, {foreign} foreign)",
+        exposure)
+
+
+@dataclass
+class AlarmLadder:
+    """Confirm-then-throttle, so W0 neither cries wolf nor spams.
+
+    TWO separate jobs, deliberately not one:
+
+    * **confirm** — a NAKED verdict must persist for ``window_s`` of wall
+      clock before it is an alarm. A reactively placed protective exit arms
+      A BAR LATE by measured design, so every entry produces a legitimately
+      naked interval; without this the tool pages on every trade and is
+      muted within a day. The window is ``max(NAKED_CONFIRM_FLOOR_S, one bar
+      period)`` and is never derived from the poll cadence.
+    * **throttle** — once alarming, re-warn every ``rewarn_every`` cycles
+      rather than every cycle, the ladder ``feed_health.py`` already uses
+      (warn_after / rewarn_every), so a multi-hour outage costs bounded log
+      volume. It is also the only thing standing between an unlisted
+      exchange holiday (the session table is clock-only) and an all-day
+      alarm storm.
+
+    The FIRST suppressed cycle logs its reason, so a genuinely naked position
+    that lands inside the confirm window is still visible in the transcript
+    rather than silently swallowed.
+    """
+    window_s: float
+    rewarn_every: int = 12
+    _since: float = field(default=0.0)
+    _armed: bool = field(default=False)
+    _suppressed_logged: bool = field(default=False)
+    _cycles_since_warn: int = field(default=0)
+
+    def observe(self, verdict: Verdict, now: float) -> tuple[str | None, str | None]:
+        """-> (alarm_line, note). Both may be None; the note is informational."""
+        if verdict is not Verdict.NAKED:
+            self._since = 0.0
+            self._armed = False
+            self._suppressed_logged = False
+            self._cycles_since_warn = 0
+            return None, None
+
+        if self._since == 0.0:
+            self._since = now
+        held_for = now - self._since
+
+        if not self._armed:
+            if held_for < self.window_s:
+                if not self._suppressed_logged:
+                    self._suppressed_logged = True
+                    return None, (
+                        f"NAKED observed but WITHHELD for up to "
+                        f"{self.window_s:.0f}s: a reactively placed exit arms "
+                        f"a bar late by design, so this is the expected "
+                        f"post-entry window. Alarms if it persists.")
+                return None, None
+            self._armed = True
+            self._cycles_since_warn = 0
+            return (f"CONFIRMED naked for {held_for:.0f}s "
+                    f"(window {self.window_s:.0f}s)"), None
+
+        self._cycles_since_warn += 1
+        if self._cycles_since_warn >= self.rewarn_every:
+            self._cycles_since_warn = 0
+            return f"STILL naked after {held_for:.0f}s", None
+        return None, None
+
+
+def confirm_window_s(bar_period_s: float) -> float:
+    """``max(floor, one bar period)`` — see :data:`NAKED_CONFIRM_FLOOR_S`."""
+    return max(NAKED_CONFIRM_FLOOR_S, float(bar_period_s or 0.0))
+
+
+def worst_exit_code(seen: "list[Verdict] | tuple[Verdict, ...]") -> int:
+    """Loop-mode exit code. ALARM outranks could-not-determine.
+
+    A deliberate deviation from ``venue.py``'s ``max()`` precedence, with the
+    MEANINGS unchanged: a run that alarmed must never report as merely
+    inconclusive because some later read failed. Unanimous on the panel.
+    """
+    if any(v is Verdict.NAKED for v in seen):
+        return EXIT_NEGATIVE
+    if any(v in (Verdict.UNDETERMINED, Verdict.BLIND) for v in seen):
+        return EXIT_UNKNOWN
+    return EXIT_OK
