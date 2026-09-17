@@ -40,6 +40,10 @@ _EXEC_PATTERNS = [
     re.compile(r"(?:^|[;&|]\s*|\b)(?:[^\s;&|]*python[0-9.]*)\s+([^\s;&|]+\.py)\b"),
     re.compile(r"(?:^|[;&|]\s*)(\./[^\s;&|]+\.(?:sh|py))\b"),
     re.compile(r"(?:^|[;&|]\s*)((?:/|[A-Za-z0-9_./-]*/)?plugins/[^\s;&|]+\.(?:sh|py))(?=\s|$|[;&|])"),
+    # pytest executes the named test file (and whatever it imports): every .py
+    # path argument in a pytest / py.test / -m pytest invocation is an execution.
+    # Known limit: an APPROVED test importing an unapproved tool is not visible here.
+    re.compile(r"(?:pytest|py\.test)\b[^;&|]*?\s([^\s;&|]+\.py)(?=\s|$|[;&|:])"),
 ]
 
 

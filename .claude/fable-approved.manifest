@@ -6,3 +6,8 @@ cb06cf89c028702204007ff96e46363e9bf9e7ade6b678be806493422332e484  .claude/card.s
 fa6cd2a94df6590721aa583335308d6c5d935ed1138fae1abdc8c51017749ec5  plugins/dnse/tools/naked_position.py
 7012e6a1f696355acdbbbcf56504b75f7fd07ae94db3ac741a428d480b184bfd  plugins/dnse/tools/naked_watch.py
 88fd89f8e75dfaba22eb9a9d726fdc73f844789cdd14cfcad82424ce9886af61  plugins/dnse/tests/test_naked_watch.py  # re-approved: sys.modules registration before exec_module (dataclass under __future__ annotations)
+# 2026-09-17 #146 F13 runner (l2b vehicle) + read-only grader (Worker3) — pre-commit approval; review at commit
+267dcfd6ba2eaf4051e6ea5887b438eea2421a6e05c6ff9a1f087e7446a3e1f1  plugins/dnse/testing/live_test/run_f13_latency.sh
+66a69f9a55e0b3f284e2a0223ef9212ca7f154c4a3a43e9303b3773507f2dcbe  plugins/dnse/testing/live_test/f13_grade.py
+ec98c5b26c89e2c740a8ae098eb1d48b811cb89871b6f2302d92d270b23cb8ba  plugins/dnse/tests/test_f13_grade.py
+3e8e25a38c9caa68471fe7bc5a0d832cc6db11fbeafc9de4361d0aa8eae865e5  .claude/hooks/enforce_code_review.py  # hook self-approval after the pytest-bypass patch (re-blocks on any later edit)
