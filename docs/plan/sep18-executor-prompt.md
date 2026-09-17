@@ -44,9 +44,9 @@ operator.
 If ANY fails: STOP, report exactly what is missing. Do not proceed to live.
 
 ## Phase 1 — gates (08:20–09:05)
-First, any time after ~06:40 (the cron fires at 06:20; it was proven unattended on 09-17 at
+First, any time after ~07:05 (the cron fires at 06:45; it was proven unattended on 09-17 at
 19:00): `.venv/bin/python plugins/dnse/tools/token_status.py --require-cron` — exit 0 means
-the 06:20 cron minted (post it as the #133 daily result); exit 1 with
+the 06:45 cron minted (post it as the #133 daily result); exit 1 with
 "NOTHING DATED <today>" means the cron did not fire — tell the operator to mint manually
 (`refresh_token.py`; it reads the OTP from the dedicated mailbox itself) and post THAT as the #133
 result. Then `token_status.py` (plain) must say GOOD, `venue.py flat` (exit 0),
