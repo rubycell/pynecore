@@ -18,6 +18,7 @@ from datetime import datetime, time, timedelta, timezone
 from time import monotonic as _monotonic
 from typing import Callable, TypeVar
 
+from pynecore.core.broker.exceptions import ExchangeConnectionError
 from pynecore.core.plugin import override
 from pynecore.core.plugin.provider import ProviderPlugin
 from pynecore.core.plugin.live_provider import LiveProviderConfig
@@ -59,6 +60,15 @@ _ICT = timezone(timedelta(hours=7))
 #: enough that a genuinely unlisted symbol cannot turn ``market_type`` — read
 #: on every client call — into a per-call REST request.
 _SECDEF_RETRY_S = 60.0
+
+#: How long an UNRESOLVED contract answer is trusted before the instruments
+#: read is retried (seconds), mirroring ``_SECDEF_RETRY_S`` (#119/G1). #145:
+#: the old code cached the alias fallback PERMANENTLY, including after a failed
+#: read, so one transient failure made every position read answer FLAT for the
+#: life of the process. Never-caching is not the answer either — measured at
+#: ~10k extra ``/market/instruments`` calls per venue-down session against an
+#: endpoint that is already throttled and already failing.
+_CONTRACT_RETRY_S = 60.0
 
 _INDEX_SYMBOLS = frozenset({
     "VNINDEX", "VN30", "VN100", "VNMIDCAP", "VNSMALLCAP", "VNALLSHARE",
@@ -196,28 +206,99 @@ class DNSEProvider(ProviderPlugin[DNSEConfigT]):
 
         DNSE's symbol model is two-level: ``VN30F1M`` is a *symbolType* accepted
         by ``/price/ohlc``, while orders and the streaming channels want the
-        dated contract (``41I1G8000``). ``/market/instruments`` carries both, so
-        the alias resolves to the front month here and is cached per instance.
+        dated contract (``41I1G8000``). ``/market/instruments`` carries both.
 
         A symbol that is not a known alias is returned unchanged — stocks such
-        as ``HPG`` are already their own tradable code.
+        as ``HPG`` are already their own tradable code, and the alias is also
+        the CORRECT value on the ``/price/ohlc`` data path. So this method
+        never raises: callers that specifically need a TRADABLE contract must
+        use :meth:`require_contract`, which refuses to guess.
+        """
+        return self._resolve_contract_entry(
+            (symbol or self.symbol or "").upper())[0]
+
+    def require_contract(self, symbol: str | None = None) -> str:
+        """The tradable contract, or raise — for position / book / write paths.
+
+        #145. ``resolve_contract`` falls back to the alias, and that fallback is
+        indistinguishable from a legitimate stock passthrough: the SUCCESS path
+        for ``HPG`` and the FAILURE path for a dead endpoint produce identical
+        strings. Downstream that is silent and live-money — ``get_position``
+        filters venue rows by the resolved symbol, so an unresolved alias never
+        matches the dated contract the venue reports, the net stays 0, and the
+        read answers ``None``, which this codebase treats as FLAT. The engine's
+        external-flatten gate then takes that absence as proof.
+
+        The two-agreeing-reads rule cannot catch it: both reads consult the same
+        cache, both answer ``None``, and they AGREE.
+
+        So any consumer that needs a tradable contract asks HERE, and gets an
+        :class:`ExchangeConnectionError` — could-not-determine — instead of a
+        confident wrong answer. The data path keeps ``resolve_contract``.
+
+        :raises ExchangeConnectionError: the contract could not be established.
         """
         wanted = (symbol or self.symbol or "").upper()
+        value, resolved = self._resolve_contract_entry(wanted)
+        if not resolved:
+            raise ExchangeConnectionError(
+                f"DNSE contract for {wanted!r} is UNRESOLVED — the instruments "
+                f"catalogue did not yield a tradable code (failed or truncated "
+                f"read); refusing to answer with the alias, which would read as "
+                f"FLAT on every position query"
+            )
+        return value
+
+    def _resolve_contract_entry(self, wanted: str) -> "tuple[str, bool]":
+        """``(value, resolved_from_catalogue)``, cached with a negative TTL.
+
+        PROVENANCE, not the HTTP status, is the discriminator (#145). A
+        ``status != 200`` is obviously unresolved, but so is a 200 that simply
+        does not contain the row: ``/market/instruments`` is PAGED (the client
+        takes ``limit`` and ``page``) and this call asks for one page, so a
+        catalogue larger than the page, a partial body, or a missing ``data``
+        key all yield "no match" from a perfectly healthy-looking response. A
+        status-only gate is structurally blind to that arm.
+
+        A full page is therefore treated as POSSIBLY TRUNCATED and refuses to
+        conclude, rather than silently reporting the alias as tradable.
+        """
         cache = getattr(self, "_contract_cache", None)
         if cache is None:
             cache = self._contract_cache = {}
-        if wanted in cache:
-            return cache[wanted]
+        cached = cache.get(wanted)
+        if cached is not None:
+            value, resolved, read_at = cached
+            # A RESOLVED answer is cached permanently, as before. An
+            # UNRESOLVED one is trusted only for the retry window, so a
+            # transient failure heals on its own instead of sticking.
+            if resolved or (_monotonic() - read_at) < _CONTRACT_RETRY_S:
+                return value, resolved
 
-        status, body = self.client.get_instruments(limit=200)
-        resolved = wanted
+        limit = 200
+        status, body = self.client.get_instruments(limit=limit)
+        value, resolved = wanted, False
+        rows: list = []
         if status == 200 and isinstance(body, dict):
-            for row in body.get("data") or []:
+            rows = list(body.get("data") or [])
+            for row in rows:
                 if row.get("symbolType") == wanted:
-                    resolved = row["symbol"]
+                    value = row.get("symbol") or wanted
+                    resolved = bool(row.get("symbol"))
                     break
-        cache[wanted] = resolved
-        return resolved
+        if not resolved and status == 200 and rows and len(rows) < limit:
+            # The catalogue came back WHOLE (a non-empty body, short of the
+            # page limit) and does not list this symbolType: the documented
+            # passthrough — a stock IS its own tradable code.
+            #
+            # ``rows`` must be non-empty. A 200 carrying no ``data`` key, or an
+            # empty list, is not a catalogue that "does not list" anything — it
+            # is a response that tells us nothing, and trusting it is how a
+            # healthy-looking read poisons the cache. Empty is suspicious, not
+            # conclusive.
+            resolved = True
+        cache[wanted] = (value, resolved, _monotonic())
+        return value, resolved
 
     @override
     def normalize_symbol(self, symbol: str) -> str:
