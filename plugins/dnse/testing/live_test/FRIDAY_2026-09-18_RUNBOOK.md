@@ -33,9 +33,23 @@ a pass — but a wasted night is still a wasted night.
 - Sanity before walking away: `tail -3` the log and confirm cycles are ticking
   with all three arms populated.
 
+**WHAT HAPPENED 2026-09-17/18 (measured): the roll went unmeasured.** The only probe run
+had been started 09-16 16:27 and died 09-17 08:04 — before Thursday's session — and nobody
+relaunched it Thursday afternoon (the live session took the day). At 06:40 Friday the alias
+already resolved to the NEW code (VN30F1M → 41I1GA000, VN30F2M → 41I1GB000): the mechanic
+("the morning after expiry") is confirmed, the timestamp is lost inside a ~22 h gap. Rule from
+it, applied by Worker3's proposal: **on the day BEFORE expiry, the pre-flight has a row
+"roll probe PROCESS alive" — check the process (`pgrep -af probe_113_roll_cache`), not the log
+tail, because a tail cannot tell a probe that stopped a minute ago from one that stopped a day
+ago — and relaunch it if dead.** Next chance: the October expiry.
+
 ---
 
 ## Friday, at open — 1. Grade the roll probe (#113)
+
+(2026-09-18: no probe log to grade — see above. Today's step 1 is instead: re-run
+`resolve_contract` inside 08:45–09:05 and record the code; then W0's `sight:` line must name
+`41I1GA000` — a stale `41I1G9000` from the per-instance cache is the #113 hazard observed.)
 
 The probe prints its own verdict; grade from that, not from impressions.
 
