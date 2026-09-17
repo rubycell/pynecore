@@ -67,6 +67,25 @@ with the child id evidence — that result is worth the run.
 
 ## 3. Grading rules (formal)
 
+**Clock correction (Worker3, 2026-09-17 evening — stop-the-line):** `[BROKER]` log lines are
+stamped with the PINE BAR time (`lib/log.py:66-81`: `lib._time` once bar 1 exists), not the
+event arrival time — measured: PendingNew/New/Filled of one order all carry the identical bar
+stamp. So NO latency may be computed from log-line timestamps; at 5m it would measure where in
+the bar the fill landed, and the arm latency would read exactly 0 by construction. Therefore:
+- **T(venue fill)** comes from the VENUE record (`venue.py order <id>` createdDate/modifiedDate,
+  venue clock, ms) — never from our log.
+- **T(engine arrival)** comes from a WALL-CLOCK PREFIX the runner adds to the log stream as it
+  tees (a pipeline element, not code on the order path; pyne run under `PYTHONUNBUFFERED=1`),
+  caveat stated in every table: "when OUR PROCESS PRINTED the line — an upper bound on arrival
+  incl. the logging path". Proof before Friday: three status lines of one order carry three
+  DIFFERENT prefix stamps.
+- The grader (`f13_grade.py`, read-only, offline-testable) **REFUSES bar-stamped logs**: exit 2,
+  "no usable event clock" — never a 0. Two clocks (venue vs host) are compared with the host's
+  NTP state recorded in the evidence.
+- Prior figures derived from log stamps (e.g. `logs/fill_f9_latency_evidence.txt`) are
+  bar-quantised and marked UNVERIFIED on #121; not re-derived.
+
+
 - **Latency** = `T(event FILLED leg=entry)` − `T(venue fill)`; **arm latency** = `T(dispatched
   EXIT)` − `T(venue fill)`. Report per run; with n=2 report both values, never a mean.
 - ws arm splits: venue→frame (delivery) vs frame→event (our drain cost).
