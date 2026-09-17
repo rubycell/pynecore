@@ -42,15 +42,36 @@ DNSEPlugin           = "leader — review, adjudication, runbook"
 # Worker2 — #133
 "plugins/dnse/tools/refresh_token.py"        = "Worker2ForDNSEPlugin"
 "plugins/dnse/tools/token_status.py"         = "Worker2ForDNSEPlugin"
+"plugins/dnse/tools/probe_imap_headers.py"   = "Worker2ForDNSEPlugin"   # reads the operator's mailbox
 "plugins/dnse/tests/test_refresh_token.py"   = "Worker2ForDNSEPlugin"
 "plugins/dnse/tests/test_token_status.py"    = "Worker2ForDNSEPlugin"
 
 # Worker3 — #146 / #132
-"plugins/dnse/tools/venue.py"                = "Worker3ForDNSEPlugin"
+"plugins/dnse/tools/venue.py"                = "Worker3ForDNSEPlugin"   # shared toolkit: others PROPOSE (needs_consent below)
 "plugins/dnse/tools/naked_watch.py"          = "Worker3ForDNSEPlugin"
 "plugins/dnse/tools/naked_position.py"       = "Worker3ForDNSEPlugin"
 "plugins/dnse/tests/test_naked_watch.py"     = "Worker3ForDNSEPlugin"
+"plugins/dnse/tests/test_f13_grade.py"       = "Worker3ForDNSEPlugin"
+"plugins/dnse/tests/test_f13_guard.py"       = "Worker3ForDNSEPlugin"
 "plugins/dnse/testing/live_test/**"          = "Worker3ForDNSEPlugin"
+
+# Fable — #132 W1 (the detector and its pins)
+"plugins/dnse/tools/price_through.py"        = "DNSEPlugin"
+"plugins/dnse/tests/test_price_through.py"   = "DNSEPlugin"
+"plugins/dnse/tests/fixtures/f132_*.json"    = "DNSEPlugin"
+
+# THE LIVE ENGINE (fork code in src/): owned by the leader, edited by whichever
+# session holds the card, by consent. Measured 2026-09-17 at enabling time:
+# src/** had no owner, so the file every card touches — sync_engine.py, ~2000
+# fork lines of live-money logic — was open to every session at once. That is
+# not "unowned by design"; it is the file where a silent collision costs most
+# (#122: 28 findings in one week). The leader assigns a card, the assigned
+# session edits under it; anyone else proposes. The rest of src/** stays
+# unowned: upstream code we rarely touch, and a rebase must not be gated.
+"src/pynecore/core/broker/**"                = "DNSEPlugin"
+"src/pynecore/core/live_runner.py"           = "DNSEPlugin"
+"src/pynecore/core/script_runner.py"         = "DNSEPlugin"
+"src/pynecore/cli/commands/run.py"           = "DNSEPlugin"
 
 # This session — #148
 "tools/new_worker_worktree.sh"               = "WorkerForDNSEPlugin"
@@ -83,6 +104,15 @@ DNSEPlugin           = "leader — review, adjudication, runbook"
 # Value is the owner who applies it.
 "plugins/dnse/testing/live_test/FRIDAY_2026-09-18_RUNBOOK.md" = "DNSEPlugin"
 "plugins/dnse/testing/live_test/run_*.sh"                     = "Worker3ForDNSEPlugin"
+# The shared venue toolkit: every session fixes it legitimately (#152 is queued
+# on it and may not land with Worker3). Owner applies; others propose.
+"plugins/dnse/tools/venue.py"                                 = "Worker3ForDNSEPlugin"
+# The live engine: the card's assignee edits with the leader's consent, which
+# the card assignment IS. The consent line on the card names the session.
+"src/pynecore/core/broker/**"                                 = "DNSEPlugin"
+"src/pynecore/core/live_runner.py"                            = "DNSEPlugin"
+"src/pynecore/core/script_runner.py"                          = "DNSEPlugin"
+"src/pynecore/cli/commands/run.py"                            = "DNSEPlugin"
 
 [machine_state]
 # MACHINE-LEVEL STATE HAS NO REPO OWNER, and that is the gap ownership-by-path
