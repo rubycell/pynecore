@@ -15,8 +15,15 @@ WHY OUT OF PROCESS. An in-engine check shares its subject's fate and its
 subject's beliefs. #120's aftermath is an engine that DIED holding a position;
 #135 was an engine whose own position belief went to 2.0 against a venue
 holding 1. A watchdog reading ``self._position.size`` would have concurred with
-both. This one reads the VENUE for position and the durable JOURNAL for
-ownership, so it is independent of the belief it audits.
+both. This one reads the VENUE for position, so its view of WHETHER A
+POSITION EXISTS is independent of the belief it audits.
+
+Its view of WHOSE the position is, is NOT — and an earlier draft of this
+docstring wrongly claimed otherwise (review finding F1). Ownership comes
+entirely from the engine's journalled ``filled_qty``, so a fill the engine
+never journalled reads as foreign. That is why a venue position with no
+journalled exposure is UNATTRIBUTED rather than OK: the honest answer is that
+this tool cannot tell the operator's position from our own unjournalled one.
 
 WHAT IT CANNOT DO, stated plainly: it cannot see a protective exit the engine
 never journaled, it cannot price-check a level (that is W1), and its session
@@ -25,7 +32,15 @@ alarm ladder bounds what that costs.
 
     naked_watch.py                    # loop until stopped
     naked_watch.py --once             # one cycle, exit 0/1/2
-    naked_watch.py --interval 5       # poll cadence (default 5s)
+    naked_watch.py --interval 15      # poll cadence (default 15s)
+
+EXPECT A CONTINUOUS EXIT 2 BESIDE A MANUAL POSITION. If the operator holds a
+position this bot never journalled, the verdict is UNATTRIBUTED (exit 2) every
+cycle: on a shared netting account "the venue holds a position our journal
+never claimed" genuinely IS could-not-determine — it may be the operator's, or
+it may be our own fill with the engine down between a stop trigger and the
+child's adoption (#39/#120). That is the honest answer, not noise, and it is
+deliberately not OK.
 
 EXIT CODES — ``venue.py``'s meanings exactly (0 affirmative / 1 negative /
 2 could-not-determine). In loop mode the precedence differs deliberately:
@@ -154,8 +169,8 @@ def journal_attribution(store_path, account_id: str):
                       f"account in {path.name}")
                 return None, None, None
             rows = conn.execute(
-                "SELECT o.exchange_order_id, o.side, o.filled_qty, o.from_entry,"
-                "       o.extras,"
+                "SELECT o.exchange_order_id, o.side, o.qty, o.filled_qty,"
+                "       o.from_entry, o.extras,"
                 "       MAX(COALESCE(o.created_ts_ms,0), COALESCE(o.updated_ts_ms,0))"
                 " FROM orders o JOIN runs r"
                 "   ON r.run_instance_id = o.run_instance_id"
@@ -170,7 +185,7 @@ def journal_attribution(store_path, account_id: str):
     owned: set[str] = set()
     per_id: dict[str, dict] = {}
     exposure = 0.0
-    for venue_id, side, filled_qty, from_entry, extras_json, last_ms in rows:
+    for venue_id, side, qty, filled_qty, from_entry, extras_json, last_ms in rows:
         extras = {}
         if extras_json:
             try:
@@ -188,11 +203,19 @@ def journal_attribution(store_path, account_id: str):
         vid = str(venue_id or "")
         if not vid:
             continue
-        if vid.isdigit() and (last_ms or 0) < day_start_ms:
-            continue                     # the #96 cross-day id-reuse trap
-        owned.add(vid)
+        # N1: a PRIOR-DAY numeric id is not dropped outright any more. Dropping
+        # it made a real OVERNIGHT bracket stop counting as cover, so a
+        # protected position graded NAKED and re-warned all morning; keeping it
+        # unconditionally would let an id the venue REISSUED today (the #96
+        # trap) pass as our cover. It is kept but FLAGGED, and `read_resting`
+        # corroborates it against the venue record before believing it.
+        stale_numeric = bool(vid.isdigit() and (last_ms or 0) < day_start_ms)
         per_id[vid] = {"from_entry": from_entry,
-                       "leg_kind": extras.get("leg_kind") or None}
+                       "leg_kind": extras.get("leg_kind") or None,
+                       "side": side, "qty": qty,
+                       "stale_numeric": stale_numeric}
+        if not stale_numeric:
+            owned.add(vid)
     return owned, exposure, per_id
 
 
@@ -250,11 +273,36 @@ def read_resting(broker, symbol, owned, per_id, phantoms):
             continue
         oid = str(order.id)
         attribution = per_id.get(oid) or {}
+        venue_side = str(getattr(order, "side", "") or "")
+        venue_qty = float(getattr(order, "qty", 0.0) or 0.0)
+        is_owned = oid in owned
+        if attribution.get("stale_numeric"):
+            # N1: our journal claims this id from a PRIOR day. Believe it only
+            # if the resting order still looks like the one we journalled.
+            if core.stale_numeric_id_verdict(
+                    attribution.get("side"), attribution.get("qty"),
+                    venue_side, venue_qty) == "owned":
+                is_owned = True
+            else:
+                print(f"   id {oid}: prior-day journal row does not match the "
+                      f"resting order (ours: {attribution.get('side')} "
+                      f"{attribution.get('qty')}, venue: {venue_side} "
+                      f"{venue_qty}) — the venue may have REISSUED this id "
+                      f"(#96). Unclassifiable, not counted either way.")
+                # BOTH flags matter. `owned` stays TRUE because our journal DOES
+                # claim this id; `classifiable` goes False because we cannot
+                # corroborate it. The core's poison rule requires owned AND
+                # not-classifiable, so leaving owned False would drop it to a
+                # plain foreign order and the cycle would grade NAKED — a
+                # confident alarm built on evidence we just admitted we cannot
+                # read.
+                is_owned = True
+                classifiable = False
         resting.append(RestingOrder(
             venue_id=oid,
-            side=str(getattr(order, "side", "") or ""),
-            qty=float(getattr(order, "qty", 0.0) or 0.0),
-            owned=oid in owned,
+            side=venue_side,
+            qty=venue_qty,
+            owned=is_owned,
             from_entry=attribution.get("from_entry"),
             leg_kind=attribution.get("leg_kind"),
             classifiable=classifiable,
@@ -280,12 +328,18 @@ class Heartbeat:
     promptly.
     """
 
-    def __init__(self, interval_s: float, emit) -> None:
+    def __init__(self, interval_s: float, emit, stall_after_s: float = 0.0) -> None:
         self._interval = interval_s
         self._emit = emit
+        self._stall_after = stall_after_s
         self._stop = threading.Event()
         self._last_done = time.monotonic()
         self._seq = 0
+        #: Set once the age passes ``stall_after_s``. The LOOP's exit code
+        #: consults it: a heartbeat that only PRINTS a stall is a warning
+        #: nobody's wrapper can act on, and a hung cycle is precisely when the
+        #: operator needs a non-zero exit rather than a line in a log.
+        self.stalled = False
         self._thread = threading.Thread(
             target=self._run, name="naked-watch-heartbeat", daemon=True)
 
@@ -295,7 +349,10 @@ class Heartbeat:
     def _run(self) -> None:
         while not self._stop.wait(self._interval):
             self._seq += 1
-            self._emit(self._seq, time.monotonic() - self._last_done)
+            age = time.monotonic() - self._last_done
+            if self._stall_after and age >= self._stall_after and not self.stalled:
+                self.stalled = True
+            self._emit(self._seq, age)
 
     def start(self) -> None:
         if self._interval > 0.0:
@@ -313,7 +370,17 @@ def _stamp() -> str:
 
 def evaluate_once(broker, symbol, store_path, account_id, *,
                   bar_period_s=0.0, sight=None):
-    """One full cycle -> :class:`Assessment`. Every read failure degrades."""
+    """One full cycle -> :class:`Assessment`. Every read failure degrades.
+
+    ``sight`` is normally left None so sight is RE-PROVED every cycle (review
+    finding F3). Proving it once before the loop caught the #145 cached-alias
+    signature at startup but could never fire mid-run — and the catalogue-
+    membership arm exists precisely for the ROLL case (#113), which happens
+    while the process is already running: across the boundary the cached dated
+    code expires, ``get_position`` matches nothing, answers None, and the
+    sidecar would print OK forever. One cached-catalogue GET per cycle is the
+    price of the check being able to fire at all.
+    """
     proven, detail = sight if sight is not None else prove_sight(broker)
     if not proven:
         print(f"   sight: {detail}")
@@ -372,17 +439,23 @@ def run(args) -> int:
     sight = prove_sight(broker)
     print(f"sight: {'PROVEN' if sight[0] else 'NOT PROVEN'} — {sight[1]}")
 
-    heartbeat = Heartbeat(args.heartbeat, lambda seq, age: print(
-        f"[HEARTBEAT {seq}] {_stamp()} last evaluation {age:.0f}s ago",
-        flush=True))
+    def _beat(seq, age):
+        stalled = args.stall_after and age >= args.stall_after
+        print(f"[HEARTBEAT {seq}] {_stamp()} last evaluation {age:.0f}s ago"
+              + (f"  !! STALLED (>{args.stall_after:.0f}s): a cycle is hung; "
+                 f"this watchdog is NOT watching" if stalled else ""),
+              flush=True)
+
+    heartbeat = Heartbeat(args.heartbeat, _beat, stall_after_s=args.stall_after)
     if not args.once:
         heartbeat.start()
     try:
         while True:
+            # sight=None: re-proved every cycle (F3). The startup proof above is
+            # for the operator's launch line, not a value carried forward.
             assessment = evaluate_once(
                 broker, symbol, store_path, account_id,
-                bar_period_s=args.bar_period,
-                sight=sight if sight[0] else None)
+                bar_period_s=args.bar_period)
             seen.append(assessment.verdict)
             heartbeat.mark_evaluated()
             print(f"[{assessment.verdict.value}] {_stamp()} "
@@ -402,7 +475,16 @@ def run(args) -> int:
         print("\nstopped", flush=True)
     finally:
         heartbeat.stop()
-    return core.worst_exit_code(seen)
+    code = core.worst_exit_code(seen)
+    if heartbeat.stalled and code == core.EXIT_OK:
+        # A run whose cycles hung has not observed anything, whatever its
+        # verdicts said before the hang. Exit 0 would tell a wrapper the
+        # invariant held throughout.
+        print(f"!! a heartbeat STALL was observed (>{args.stall_after:.0f}s "
+              f"without a completed evaluation) — reporting could-not-determine",
+              flush=True)
+        return core.EXIT_UNKNOWN
+    return code
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -414,13 +496,18 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--symbol", default=venue.SYMBOL)
     parser.add_argument("--once", action="store_true",
                         help="one cycle, then exit with its verdict")
-    parser.add_argument("--interval", type=float, default=5.0,
-                        help="poll cadence in seconds (default 5)")
+    parser.add_argument("--interval", type=float, default=15.0,
+                        help="poll cadence in seconds (default 15 — 5s is ~50 "
+                             "prod REST calls/min alongside a live run)")
     parser.add_argument("--heartbeat", type=float, default=30.0,
                         help="heartbeat cadence in seconds (0 disables)")
     parser.add_argument("--bar-period", type=float, default=0.0,
                         help="the run's bar period in seconds; the naked-confirm "
                              "window is max(30s, this)")
+    parser.add_argument("--stall-after", type=float, default=120.0,
+                        help="seconds without a completed evaluation before the "
+                             "heartbeat reports a STALL and the run exits "
+                             "could-not-determine (0 disables)")
     parser.add_argument("--store", default=str(STORE))
     parser.add_argument("--alarm-log", default=str(ALARM_LOG))
     return run(parser.parse_args(argv))
