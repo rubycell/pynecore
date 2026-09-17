@@ -80,8 +80,11 @@ STOP_CLASS_LEG_KINDS = frozenset({
 #: a watchdog that gets muted.
 NAKED_CONFIRM_FLOOR_S = 30.0
 
-#: Session phases in which the invariant is evaluated at all.
-CONTINUOUS_PHASES = frozenset({"continuous"})
+#: Session phases in which the invariant IS evaluated. `lunch` and `atc` are
+#: here deliberately: a position held across them is exactly as naked as one
+#: held at 10:00, and the ATC in particular is when an unprotected position
+#: meets the auction print.
+EVALUATED_PHASES = frozenset({"continuous", "lunch", "atc"})
 
 #: Phases in which the population is FROZEN (HOLD) — off session an empty book
 #: is not evidence of a missing order. Matched on the FIRST WORD, because
@@ -94,7 +97,15 @@ CONTINUOUS_PHASES = frozenset({"continuous"})
 #: that FAILED READ to HOLD — exit 0, silent, for the whole session — which is
 #: this module's own law broken in its first gate. A phase we do not recognise
 #: is now UNDETERMINED.
-KNOWN_OFF_SESSION_PHASES = frozenset({"closed", "lunch", "atc"})
+#: ONLY `closed`. `lunch` and `atc` were here on the assumption that the books
+#: answer empty off-session — but that measurement was taken on a WEEKEND
+#: (live_test/README.md:387), and T9 (README:179) shows a PendingCancel row
+#: served THROUGH lunch, so the lunch books are populated. Holding there meant
+#: exit 0 and silence for 90 minutes at lunch and 15 at ATC, the latter being
+#: exactly when a naked position is live to the auction print. The confirm
+#: window already absorbs order-queueing noise, so evaluating those phases costs
+#: nothing and buys back 105 minutes of coverage per day.
+KNOWN_OFF_SESSION_PHASES = frozenset({"closed"})
 
 
 class Verdict(Enum):
@@ -231,7 +242,7 @@ def evaluate(obs: Observation) -> Assessment:
             "alias makes every position read answer FLAT, silently)")
 
     phase_token = (obs.phase or "").split()[0] if (obs.phase or "").strip() else ""
-    if phase_token not in CONTINUOUS_PHASES:
+    if phase_token not in EVALUATED_PHASES:
         if phase_token in KNOWN_OFF_SESSION_PHASES:
             return Assessment(
                 Verdict.HOLD,
@@ -269,15 +280,6 @@ def evaluate(obs: Observation) -> Assessment:
     # sidecar exists for) `filled_qty` stays 0 while the account holds a real
     # position. Collapsing that into exposure==0 printed [OK] every cycle over
     # a naked position. It gets its own token, and the string OK never appears.
-    if obs.position_signed != 0.0 and obs.owned_exposure == 0.0:
-        return Assessment(
-            Verdict.UNATTRIBUTED,
-            f"the venue holds {obs.position_signed:+g} but our journal claims "
-            f"NO exposure — cannot tell an operator position from our own "
-            f"UNJOURNALLED fill (engine down between a stop trigger and the "
-            f"child's adoption, #39/#120). NOT a clean account.",
-            exposure=obs.position_signed)
-
     exposure, determinate = owned_exposure_at_venue(
         obs.position_signed, obs.owned_exposure)
     if not determinate:
@@ -286,6 +288,25 @@ def evaluate(obs: Observation) -> Assessment:
             f"journal and venue disagree about the SIGN "
             f"(venue={obs.position_signed:+g}, journal={obs.owned_exposure:+g}) "
             f"— exposure unattributable; refusing to read that as 'own nothing'")
+
+    # The venue holds MORE than our journal can account for. At owned == 0 this
+    # is the #39/#120 shape — a stop entry whose normal-book child the engine
+    # never adopted because it died between trigger and adoption — but the same
+    # mechanism produces a NONZERO remainder whenever only part of the position
+    # is journalled: a pyramiding stop entry, or the #105 frozen-2 flip, with
+    # the engine down for one of the legs. The first cut tested `owned == 0.0`
+    # exactly and so graded "venue +2, journal +1 covered" as a clean [OK],
+    # silently carrying an unaccounted contract.
+    unaccounted = abs(obs.position_signed) - abs(obs.owned_exposure)
+    if unaccounted > 1e-9:
+        return Assessment(
+            Verdict.UNATTRIBUTED,
+            f"the venue holds {obs.position_signed:+g} but our journal accounts "
+            f"for only {obs.owned_exposure:+g} — {unaccounted:g} contract(s) "
+            f"unattributed. Cannot tell an operator position from our own "
+            f"UNJOURNALLED fill (engine down between a stop trigger and the "
+            f"child's adoption, #39/#120). NOT a clean account.",
+            exposure=obs.position_signed)
 
     if exposure == 0.0:
         return Assessment(
@@ -417,6 +438,8 @@ class AlarmLadder:
 def stale_numeric_id_verdict(
         journal_side: str | None, journal_qty: float | None,
         venue_side: str | None, venue_qty: float | None,
+        venue_created_ms: float | None = None,
+        day_start_ms: float | None = None,
 ) -> str:
     """-> "owned" | "unclassifiable". Corroborates a PRIOR-DAY numeric id.
 
@@ -441,7 +464,19 @@ def stale_numeric_id_verdict(
     Deliberately NOT compared: price/stop level. A trailing stop legitimately
     moves, so a level mismatch would condemn exactly the leg type that protects
     a held position best.
+
+    ``venue_created_ms`` is the decisive one and closes the coincidence side+qty
+    alone cannot: derivative quantity is almost always 1, so on an id hit the
+    corroboration degrades to side-only, and "our overnight ``501 sell 1`` was
+    cancelled with the engine down, then the venue reissued ``501`` to the
+    operator's ``sell 1``" would read as our cover over a naked position. A
+    venue record CREATED TODAY under an id our journal recorded on a PRIOR day
+    is a reissue by definition — the order we journalled cannot have been
+    created after we wrote it down.
     """
+    if (venue_created_ms is not None and day_start_ms is not None
+            and float(venue_created_ms) >= float(day_start_ms)):
+        return "unclassifiable"
     if journal_side is None or venue_side is None:
         return "unclassifiable"
     if str(journal_side).lower() != str(venue_side).lower():
@@ -467,6 +502,11 @@ def worst_exit_code(seen: "list[Verdict] | tuple[Verdict, ...]") -> int:
     """
     if any(v is Verdict.NAKED for v in seen):
         return EXIT_NEGATIVE
-    if any(v in (Verdict.UNDETERMINED, Verdict.BLIND) for v in seen):
+    # UNATTRIBUTED belongs here for the same reason it is exit 2 per-cycle, and
+    # leaving it out made LOOP MODE — the mode Friday actually runs — exit 0
+    # after an unattributed cycle while `--once` correctly answered 2. The
+    # policy was encoded in two places and only one of them was updated; they
+    # are now derived from one source.
+    if any(v.exit_code == EXIT_UNKNOWN for v in seen):
         return EXIT_UNKNOWN
     return EXIT_OK
