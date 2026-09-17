@@ -40,6 +40,7 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 EXIT_OK, EXIT_NEGATIVE, EXIT_UNKNOWN = 0, 1, 2
@@ -184,12 +185,58 @@ def venue_fill_epoch(venue: dict, entry_id: str | None) -> tuple[float | None, s
     stamp = record.get("modifiedDate") or record.get("createdDate")
     if stamp is None:
         return None, f"venue record for {entry_id} carries no date field"
-    try:
-        value = float(stamp)
-    except (TypeError, ValueError):
+    epoch = parse_venue_date(stamp)
+    if epoch is None:
         return None, f"unparsable venue date {stamp!r}"
-    # DNSE serves epoch MILLISECONDS; a seconds value would be ~1e9.
-    return (value / 1000.0 if value > 1e11 else value), note
+    return epoch, note
+
+
+def parse_venue_date(stamp) -> float | None:
+    """DNSE order dates -> epoch seconds, or None. ISO-8601 FIRST.
+
+    The first cut did `float(stamp)` on the premise that these are epoch
+    milliseconds. They are not, and the premise was never measured: the docs
+    type them ``string(date-time)`` and show
+    ``"2026-03-23T04:07:45.683977124Z"`` (NINE fractional digits,
+    dnse-get-order-detail.md:173-174, :208-209), and the prod capture in
+    logs/sep16_evidence.txt carries ``"2026-09-16T04:22:43.958Z"`` (three).
+    ``venue.py order --json`` copies the raw value through, so every real
+    Friday run would have graded the one number this test exists to produce as
+    COULD-NOT-DETERMINE — the same failure as the invented log fixture, one
+    layer down: a shape the venue never emits, assumed rather than read.
+
+    The numeric branch stays as a fallback rather than being deleted: it costs
+    one line, and a venue that ever did serve epoch ms would otherwise become
+    an unparsable-date refusal on a Friday morning.
+    """
+    if stamp is None:
+        return None
+    text = str(stamp).strip()
+    if not text:
+        return None
+    try:
+        # 3.13's fromisoformat handles both the 3- and 9-digit fractions this
+        # venue serves, once the trailing Z is spelled as an offset.
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        if parsed.tzinfo is None:
+            # A NAIVE ISO string is REFUSED, not assumed to be UTC. `.timestamp()`
+            # would read it in the HOST's zone — measured here: the same instant
+            # parses 25200 s (7 h) earlier on this +07 host than it does with an
+            # explicit offset. That is a silently wrong NUMBER rather than a
+            # refusal, and it is the shape that bit refresh_token.py tonight.
+            # Both forms this venue has ever been measured to serve carry `Z`,
+            # so a naive one is a shape we have never seen — and the contract
+            # here is could-not-determine over a guess.
+            return None
+        return parsed.timestamp()
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        return None
+    return value / 1000.0 if value > 1e11 else value
 
 
 def entry_child_id(run: dict, venue: dict) -> tuple[str | None, str]:

@@ -316,3 +316,76 @@ def __test_missing_venue_record_is_undetermined_not_zero__(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "COULD-NOT-DETERMINE" in out and "no venue record supplied" in out
     assert rc == grader.EXIT_UNKNOWN, f"graded {rc} with no venue times at all"
+
+
+def __test_venue_dates_are_ISO_8601_strings_not_epoch_ms__():
+    """R3-F1. The venue serves ISO-8601, and the epoch-ms premise was never
+    measured — it was mine, and wrong.
+
+    Both fixtures are copied VERBATIM from sources, not invented:
+      * `2026-03-23T04:07:45.683977124Z` — the docs' own example, NINE
+        fractional digits (dnse-get-order-detail.md:173-174, typed
+        `string(date-time)` at :208-209);
+      * `2026-09-16T04:22:43.958Z` — the prod capture in
+        logs/sep16_evidence.txt, three digits.
+
+    `venue.py order --json` copies the raw value through, so on 5455ef45
+    `float(stamp)` raised and every real run graded fill latency as
+    COULD-NOT-DETERMINE — the one number the whole test exists to produce.
+    Same failure as the invented log fixture, one layer down: a shape the venue
+    never emits, assumed rather than read.
+
+    Catches: the float-only parser. Red on 5455ef45.
+    """
+    nine = grader.parse_venue_date("2026-03-23T04:07:45.683977124Z")
+    three = grader.parse_venue_date("2026-09-16T04:22:43.958Z")
+    assert nine is not None and abs(nine - 1774238865.683977) < 1e-3, (
+        f"the docs' own 9-fractional-digit example did not parse: {nine}")
+    assert three is not None and abs(three - 1789532563.958) < 1e-3, (
+        f"the prod-captured 3-digit form did not parse: {three}")
+
+    # The numeric fallback stays: a venue that ever served epoch ms must not
+    # become an unparsable-date refusal on a Friday morning.
+    assert grader.parse_venue_date(1789456800500) == 1789456800.5
+    # And an unreadable value is still None, never 0 — a date we cannot read
+    # must not become a number.
+    assert grader.parse_venue_date("not-a-date") is None
+    assert grader.parse_venue_date(None) is None
+
+
+def __test_a_NAIVE_iso_date_is_refused_not_assumed_UTC__():
+    """A date without a zone is could-not-determine, never a guess.
+
+    `.timestamp()` reads a naive datetime in the HOST's zone. Measured on this
+    +07 host: the same instant comes out 25200 s — seven hours — earlier than
+    with an explicit offset. That is a silently wrong NUMBER in the field the
+    whole test exists to produce, and it is the shape that bit refresh_token.py
+    the same evening.
+
+    Both forms this venue has been measured to serve carry `Z`, so a naive one
+    is a shape we have never seen; assuming UTC would be a guess about
+    something measurable. Refusing is loud and consistent with every other
+    unreadable input here.
+
+    Catches: `datetime.fromisoformat(...).timestamp()` with no tzinfo check.
+    """
+    assert grader.parse_venue_date("2026-09-16T04:22:43.958") is None, (
+        "a naive ISO date was accepted — on this host that is a silent "
+        "7-hour skew in the fill latency")
+    # The control: the SAME instant with a zone still parses, so the refusal
+    # cannot be satisfied by rejecting ISO dates generally.
+    assert grader.parse_venue_date("2026-09-16T04:22:43.958Z") is not None
+
+
+def __test_fill_latency_resolves_with_ISO_venue_dates__(tmp_path, capsys):
+    """The end-to-end half: with the venue record in its REAL documented shape,
+    the grade must produce a number rather than refuse. Catches a parser fixed
+    in isolation but not wired into venue_fill_epoch."""
+    iso_venue = {"214806": {"orderStatus": "Filled",
+                            "modifiedDate": "2026-09-15T07:17:00.500Z"}}
+    rc = grader.main([str(_log(tmp_path, PREFIXED)), "--arm", "ws",
+                      "--venue-json", _venue_json(tmp_path, iso_venue)])
+    out = capsys.readouterr().out
+    assert "COULD-NOT-DETERMINE" not in out.split("fill latency")[1][:80], (
+        f"fill latency still refused with a correctly-shaped venue date:\n{out}")
+    assert "fill latency" in out and "s  (venue->our print" in out
