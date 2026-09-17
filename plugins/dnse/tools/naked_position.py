@@ -474,9 +474,21 @@ def stale_numeric_id_verdict(
     is a reissue by definition — the order we journalled cannot have been
     created after we wrote it down.
     """
-    if (venue_created_ms is not None and day_start_ms is not None
-            and float(venue_created_ms) >= float(day_start_ms)):
-        return "unclassifiable"
+    if day_start_ms is not None:
+        if venue_created_ms is None:
+            # ABSENT or UNPARSABLE createdDate is could-not-determine, not a
+            # pass. The first cut ran this clause only `if venue_created_ms is
+            # not None`, so a record without the field fell through to side+qty
+            # — which on derivatives is effectively side-only, since quantity is
+            # almost always 1. The doc marks createdDate OPTIONAL
+            # (dnse-get-order-detail.md:208, required=false), so the harm state
+            # is reachable without anything going wrong: our overnight
+            # `501 sell 1` cancelled with the engine down, DNSE reissues 501 to
+            # the operator's `sell 1` (#96), the detail record omits the date,
+            # and the reissued order reads as OUR cover over a naked position.
+            return "unclassifiable"
+        if float(venue_created_ms) >= float(day_start_ms):
+            return "unclassifiable"
     if journal_side is None or venue_side is None:
         return "unclassifiable"
     if str(journal_side).lower() != str(venue_side).lower():

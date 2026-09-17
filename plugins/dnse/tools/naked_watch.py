@@ -42,8 +42,19 @@ it may be our own fill with the engine down between a stop trigger and the
 child's adoption (#39/#120). That is the honest answer, not noise, and it is
 deliberately not OK.
 
+ONE STORE PER SYMBOL, or expect UNDETERMINED. Journal attribution is scoped by
+ACCOUNT, not by symbol, so a stock run's open rows in the same store are summed
+into the owned exposure of a futures run — a protected futures short beside an
+open HPG position grades UNDETERMINED every cycle. A symbol filter is the fix
+and is a follow-up on #132; until then, point ``--store`` at a store whose runs
+share this symbol.
+
 EXIT CODES — ``venue.py``'s meanings exactly (0 affirmative / 1 negative /
-2 could-not-determine). In loop mode the precedence differs deliberately:
+2 could-not-determine). NOTE on loop mode: exit 1 means SOME CYCLE GRADED
+NAKED, which is not the same as "an alarm fired" — a single sub-window naked
+cycle that recovered (the healthy post-entry gap) still sets it, while the
+alarm ladder deliberately stayed quiet. Read the ALARM LINE for whether the
+operator was paged; read the exit code for whether any cycle was ever naked. In loop mode the precedence differs deliberately:
 ALARM outranks could-not-determine, so a run that ever alarmed can never
 report as merely inconclusive because a later read failed.
 """
@@ -605,7 +616,18 @@ def main(argv: "list[str] | None" = None) -> int:
                              "could-not-determine (0 disables)")
     parser.add_argument("--store", default=str(STORE))
     parser.add_argument("--alarm-log", default=str(ALARM_LOG))
-    return run(parser.parse_args(argv))
+    args = parser.parse_args(argv)
+    # (1) A stall threshold with no heartbeat thread is a GATE THAT CANNOT
+    # FIRE: `--heartbeat 0` never starts the ticker, so `--stall-after` would
+    # be silently inert — the operator would believe a hung cycle exits and it
+    # would not. REFUSED rather than warned, because a warning in a long
+    # transcript is how a disarmed guard survives; disabling the stall must be
+    # said out loud.
+    if args.heartbeat <= 0.0 and args.stall_after > 0.0:
+        parser.error("--heartbeat 0 disables the heartbeat thread, which is "
+                     "what enforces --stall-after; pass --stall-after 0 too if "
+                     "you really want no stall detection")
+    return run(args)
 
 
 if __name__ == "__main__":
