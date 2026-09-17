@@ -11,6 +11,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import refresh_token as rt  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _no_real_imap(monkeypatch):
+    """Hermeticity guard — no test here may open a real IMAP socket.
+
+    This file's docstring promises "no live network, no real Gmail", and that
+    promise was BROKEN silently: `preflight_gmail()` was added to the auto-mode
+    path (so a misconfiguration could not burn an OTP), but
+    `__test_auto_mode_sends_then_scrapes_gmail__` only stubs
+    `read_otp_from_gmail`. The auto leg therefore reached `_imap_login` by a
+    route the stub did not cover, and every full-suite run performed a REAL TLS
+    login to Gmail with the operator's app password from `.env`. It passed only
+    because that credential happened to be present — so the suite was not
+    hermetic, and it failed on any machine without the secret.
+
+    A per-test stub would fix the one test. This fixture fixes the CLASS: any
+    future test that reaches the socket layer fails with a message naming the
+    problem, instead of quietly authenticating to someone's mailbox.
+    """
+    def _forbidden(*args, **kwargs):
+        raise AssertionError(
+            "REAL NETWORK CALL: a test constructed imaplib.IMAP4_SSL. This "
+            "suite must be hermetic — it must pass with no .env and no "
+            "network, and must never authenticate to the operator's Gmail. "
+            "Stub preflight_gmail (or _imap_login) in the test instead.")
+    monkeypatch.setattr(rt.imaplib, "IMAP4_SSL", _forbidden)
+
+
 def _config(tmp_path):
     cfg = tmp_path / "dnse.toml"
     cfg.write_text('api_key = "k"\napi_secret = "s"\n')
@@ -76,6 +103,10 @@ def __test_auto_mode_sends_then_scrapes_gmail__(tmp_path, monkeypatch):
     fake = _FakeClient()
     monkeypatch.setattr(rt, "DNSEClient", lambda *a, **k: fake)
     monkeypatch.setattr(rt, "read_otp_from_gmail", lambda after_ts, **k: "777888")
+    # The auto leg proves the mailbox is readable BEFORE requesting an OTP, so
+    # it must be stubbed too — stubbing only the reader leaves a live IMAP
+    # login on the path (the defect this test used to hide).
+    monkeypatch.setattr(rt, "preflight_gmail", lambda: ("nobody@example.test", "x" * 16))
     state = tmp_path / "s.json"
 
     rc = rt.main(["--config", str(_config(tmp_path)), "--state", str(state)])
