@@ -52,7 +52,7 @@ conditional-book writes die after the first app trade of the day).
 
 | # | When | Who | Command / action | Gate |
 |---|---|---|---|---|
-| 1 | ~08:20 | operator | mint the trading token (`tools/refresh_token.py`, OTP by hand) | `token_status.py` → GOOD |
+| 1 | 08:00 cron (TEST) then ~08:20 | cron / operator | #133: the 08:00 cron attempts the auto mint (OTP read from the dedicated mailbox) and logs GOOD/FAIL; if it did NOT log GOOD by 08:20 the operator mints manually (`refresh_token.py`, OTP by hand) | `token_status.py` → GOOD (exit 0) |
 | 2 | ~08:25 | executor | `venue.py status` · `venue.py flat` | flat exit **0**; exit 2 = stop, could-not-determine |
 | 3 | 08:45–09:05 | executor | **roll grade** per runbook §1 (probe log bracketing the repoint) | new venue fact recorded |
 | 4 | 09:15–11:10 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm ws --fills 2` — **every run costs the full 45 min unless the #146 terminator lands** (no vehicle self-terminates; `timeout` is the only stop). The runner (post-#146 fixes) REFUSES to start a run whose timeout would cross 11:25 / 14:25 or outside `continuous` | token exit read (not grep'd), flat 0, L0 0, session continuous |
