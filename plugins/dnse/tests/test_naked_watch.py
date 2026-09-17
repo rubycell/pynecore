@@ -51,7 +51,16 @@ def _load(name):
     return module
 
 
-core = _load("naked_position")
+# ORDER MATTERS, and getting it wrong cost a non-discriminating pin.
+# `naked_watch.py` puts tools/ on sys.path and does `import naked_position as
+# core`, registering it in sys.modules under the PLAIN name. If the test also
+# path-loaded it as "dnse_naked_position" there would be TWO distinct module
+# objects with the same source: patching one (a mutant, a monkeypatch) would
+# leave the shell running the other, and `RestingOrder` would be two different
+# classes that only happen to duck-type alike. So load the SHELL first and take
+# the core object it actually uses.
+watch = _load("naked_watch")
+core = sys.modules["naked_position"]
 Verdict = core.Verdict
 
 
@@ -298,9 +307,6 @@ def __test_exit_codes_match_the_venue_toolkit__():
 
 # === the shell: sight, journal, phantoms, heartbeat ========================
 
-watch = _load("naked_watch")
-
-
 def _broker(fake_client, tmp_path, **responses):
     base = {"get_security_definition": (200, [{"ceilingPrice": "2100",
                                                "floorPrice": "1800",
@@ -464,3 +470,168 @@ def __test_heartbeat_reports_AGE_of_last_evaluation_not_mere_liveness__():
         "the heartbeat's age did not RISE while no evaluation completed — it "
         "is reporting liveness, which a hung loop also reports right up until "
         "it stops")
+
+
+# === review findings F1/F2/F3/N1 (Fable's round on 9bb50003) ===============
+
+def __test_venue_position_with_no_journalled_exposure_is_UNATTRIBUTED__():
+    """F1 — the review's most serious finding, and the one my docstring's
+    "independent of the belief it audits" claim hid.
+
+    Ownership is 100% the engine's journalled `filled_qty`, so an UNJOURNALLED
+    fill reads as foreign. The measured shape: a STOP entry journals the
+    umbrella id and its normal-book child is adopted only at the Activated poll
+    — so if the engine DIES between trigger and adoption (#39/#120, the exact
+    case this sidecar exists for) `filled_qty` stays 0 while the account holds
+    a real position.
+
+    Catches: collapsing (venue != 0, owned == 0) into exposure == 0 and
+    printing [OK] every cycle over a live naked position — which is what the
+    shipped 9bb50003 did.
+
+    Mutation: return the OK assessment for exposure == 0 before this branch ->
+    verdict becomes OK and this reddens.
+    """
+    assessment = core.evaluate(_obs(position_signed=1.0, owned_exposure=0.0,
+                                    resting=()))
+    assert assessment.verdict is Verdict.UNATTRIBUTED, assessment.reason
+    assert assessment.verdict.exit_code == core.EXIT_UNKNOWN, (
+        "UNATTRIBUTED must be could-not-determine: on a shared netting account "
+        "we cannot tell the operator's position from our own unjournalled one")
+    assert assessment.verdict.value != "OK", (
+        "an operator grepping [OK] must never be reassured by this state")
+
+
+def __test_unrecognised_session_phase_is_UNDETERMINED_not_HOLD__():
+    """F2 — my own law, broken in my own first gate.
+
+    `venue.session_phase` answers "UNKNOWN (ImportError)" when the L0 import
+    fails (venue.py:81-82). A `not in CONTINUOUS_PHASES` test routed that FAILED
+    READ to HOLD: exit 0, silent, for an entire session.
+
+    Catches: any "everything that is not continuous is off-session" test.
+    Mutation: `if obs.phase not in CONTINUOUS_PHASES: return HOLD` -> reddens.
+    """
+    assessment = core.evaluate(_obs(phase="UNKNOWN (ImportError)"))
+    assert assessment.verdict is Verdict.UNDETERMINED, assessment.reason
+    assert assessment.verdict.exit_code == core.EXIT_UNKNOWN
+
+
+def __test_known_off_session_phases_still_HOLD__():
+    """The over-block control for F2: if every non-continuous phase became
+    UNDETERMINED, the tool would report could-not-determine all night and the
+    F2 pin above would still pass. Catches a fix that forgot the allowlist —
+    including the holiday ANNOTATION form venue.py appends."""
+    for phase in ("lunch", "atc", "closed", "closed (exchange holiday)"):
+        assessment = core.evaluate(_obs(phase=phase))
+        assert assessment.verdict is Verdict.HOLD, (
+            f"phase {phase!r} graded {assessment.verdict} — a known "
+            f"off-session window must FREEZE, not alarm and not puzzle")
+
+
+def __test_stale_numeric_id_matching_the_journal_row_is_still_ours__():
+    """N1, face 1 — the OVERNIGHT bracket.
+
+    A position held overnight keeps its protective order resting with a NUMERIC
+    id whose journal row is from yesterday. Day-scoping that id out of the
+    owned set made real cover stop counting, so a PROTECTED position graded
+    NAKED and re-warned all morning until a live run refreshed updated_ts_ms.
+
+    Catches: dropping prior-day numeric ids outright (the shipped behaviour).
+    """
+    assert core.stale_numeric_id_verdict("sell", 1.0, "sell", 1.0) == "owned"
+
+
+def __test_stale_numeric_id_with_mismatched_side_or_qty_is_unclassifiable__():
+    """N1, face 2 — the REISSUED id (#96).
+
+    DNSE reuses NORMAL ids across days, so a prior-day row's id may belong to
+    the operator's order today. Counting it as our cover is false SILENCE.
+
+    Catches: the blunt fix (day-scope ownership IN unconditionally), which
+    trades the morning false alarm for a silent naked position. Note the
+    verdict is UNCLASSIFIABLE, not "foreign": calling it foreign would quietly
+    restore the false alarm instead of admitting we cannot tell.
+    """
+    assert core.stale_numeric_id_verdict("sell", 1.0, "buy", 1.0) == "unclassifiable"
+    assert core.stale_numeric_id_verdict("sell", 1.0, "sell", 3.0) == "unclassifiable"
+    assert core.stale_numeric_id_verdict(None, 1.0, "sell", 1.0) == "unclassifiable"
+
+
+def __test_stale_id_mismatch_poisons_the_cycle_rather_than_alarming__(
+        fake_client, tmp_path):
+    """N1 wiring, through `read_resting` — which had ZERO test references
+    before this round, and that absence is why F1 and F3 shipped.
+
+    A mismatched prior-day id must come back owned=True, classifiable=False so
+    the core's poison rule fires (UNDETERMINED). Catches leaving owned=False,
+    which drops it to a plain foreign order and grades NAKED — a confident
+    alarm built on evidence we just admitted we cannot read.
+    """
+    rows = {"501": {"orderStatus": "New"}}
+
+    def _detail(_acct, oid, _mkt, order_category=None):
+        return (200, rows.get(str(oid), {}))
+
+    def _orders(_acct, _mkt, order_category=None, **_k):
+        if order_category != "NORMAL":
+            return (200, {"orders": [], "totalPages": 1})
+        return (200, {"orders": [{"id": "501", "symbol": "VN30F1M", "side": "NB",
+                                  "quantity": 3, "fillQuantity": 0,
+                                  "orderStatus": "New"}], "totalPages": 1})
+
+    broker = _broker(fake_client, tmp_path, get_orders=_orders,
+                     get_order_detail=_detail)
+    per_id = {"501": {"from_entry": "E", "leg_kind": "STOP_LOSS",
+                      "side": "sell", "qty": 1.0, "stale_numeric": True}}
+    resting = watch.read_resting(broker, "VN30F1M", set(), per_id,
+                                 watch._PhantomCache())
+
+    assert resting and len(resting) == 1
+    order = resting[0]
+    assert order.owned is True and order.classifiable is False, (
+        f"a mismatched prior-day id came back owned={order.owned} "
+        f"classifiable={order.classifiable}; it must poison the verdict, not "
+        f"fall through to a NAKED alarm")
+    assert core.evaluate(_obs(resting=resting)).verdict is Verdict.UNDETERMINED
+
+
+def __test_sight_is_reproved_every_cycle__(fake_client, tmp_path, monkeypatch):
+    """F3 — `prove_sight` ran ONCE before the loop and was passed in forever,
+    so the catalogue-membership arm (the #113 ROLL case) could never fire: a
+    process running across the roll boundary reads an expired dated code, gets
+    None, and prints OK for the rest of the day.
+
+    Catches: hoisting the sight proof out of the cycle. Pinned through
+    `evaluate_once`, which had zero test references before this round.
+    """
+    monkeypatch.setattr(watch, "_read_position_size_confirmed",
+                        lambda *_a, **_k: 0.0)
+    broker = _broker(fake_client, tmp_path, get_instruments=_CATALOGUE)
+
+    watch.evaluate_once(broker, "VN30F1M", tmp_path / "none.sqlite", "ACC001")
+    after_first = broker._client.count("get_instruments")
+    watch.evaluate_once(broker, "VN30F1M", tmp_path / "none.sqlite", "ACC001")
+    after_second = broker._client.count("get_instruments")
+
+    assert after_first >= 1, "sight was never proved at all"
+    assert after_second > after_first, (
+        "the instruments catalogue was not re-read on the second cycle — a "
+        "stale cache across the roll (#113) could never be detected mid-run")
+
+
+def __test_heartbeat_stall_sets_a_flag_the_exit_code_can_use__():
+    """A stall that only PRINTS is a warning no wrapper can act on, and a hung
+    cycle is exactly when the operator needs a non-zero exit.
+
+    Catches: a print-only stall notice (the shipped behaviour).
+    """
+    beat = watch.Heartbeat(0.01, lambda seq, age: None, stall_after_s=0.02)
+    beat.start()
+    deadline = time.time() + 2.0
+    while not beat.stalled and time.time() < deadline:
+        time.sleep(0.01)
+    beat.stop()
+    assert beat.stalled, (
+        "no completed evaluation for well past the threshold and the heartbeat "
+        "never flagged a stall")

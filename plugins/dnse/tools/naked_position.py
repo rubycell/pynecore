@@ -80,16 +80,28 @@ STOP_CLASS_LEG_KINDS = frozenset({
 #: a watchdog that gets muted.
 NAKED_CONFIRM_FLOOR_S = 30.0
 
-#: Session phases in which the invariant is evaluated at all. Any other
-#: phase FREEZES the population (HOLD) rather than muting the alarm: off
-#: session an empty book is not evidence of a missing order.
+#: Session phases in which the invariant is evaluated at all.
 CONTINUOUS_PHASES = frozenset({"continuous"})
+
+#: Phases in which the population is FROZEN (HOLD) — off session an empty book
+#: is not evidence of a missing order. Matched on the FIRST WORD, because
+#: ``venue.session_phase`` appends a display annotation for holidays
+#: ("closed (exchange holiday)") while keeping the token stable.
+#:
+#: Why an allowlist and not "anything that is not continuous" (review finding
+#: F2): ``venue.session_phase`` returns ``"UNKNOWN (ImportError)"`` when the L0
+#: import fails (venue.py:81-82). A ``not in CONTINUOUS_PHASES`` test routed
+#: that FAILED READ to HOLD — exit 0, silent, for the whole session — which is
+#: this module's own law broken in its first gate. A phase we do not recognise
+#: is now UNDETERMINED.
+KNOWN_OFF_SESSION_PHASES = frozenset({"closed", "lunch", "atc"})
 
 
 class Verdict(Enum):
     OK = "OK"
     UNSTOPPED = "UNSTOPPED"
     NAKED = "NAKED"
+    UNATTRIBUTED = "UNATTRIBUTED"
     UNDETERMINED = "UNDETERMINED"
     BLIND = "BLIND"
     HOLD = "HOLD"
@@ -98,7 +110,7 @@ class Verdict(Enum):
     def exit_code(self) -> int:
         if self is Verdict.NAKED:
             return EXIT_NEGATIVE
-        if self in (Verdict.UNDETERMINED, Verdict.BLIND):
+        if self in (Verdict.UNDETERMINED, Verdict.BLIND, Verdict.UNATTRIBUTED):
             return EXIT_UNKNOWN
         return EXIT_OK
 
@@ -218,11 +230,23 @@ def evaluate(obs: Observation) -> Assessment:
             "resolved from a successful instruments read (#145 — a cached "
             "alias makes every position read answer FLAT, silently)")
 
-    if obs.phase not in CONTINUOUS_PHASES:
+    phase_token = (obs.phase or "").split()[0] if (obs.phase or "").strip() else ""
+    if phase_token not in CONTINUOUS_PHASES:
+        if phase_token in KNOWN_OFF_SESSION_PHASES:
+            return Assessment(
+                Verdict.HOLD,
+                f"phase={obs.phase!r} — population FROZEN (off session the "
+                f"books answer 200 with zero rows, so an absent order is not "
+                f"evidence)")
+        # F2: an UNRECOGNISED phase is a FAILED READ, not an off-session one.
+        # `venue.session_phase` answers "UNKNOWN (ImportError)" when the L0
+        # import fails, and routing that to HOLD would mean exit 0 and silence
+        # for an entire session.
         return Assessment(
-            Verdict.HOLD,
-            f"phase={obs.phase!r} — population FROZEN (off session the books "
-            f"answer 200 with zero rows, so an absent order is not evidence)")
+            Verdict.UNDETERMINED,
+            f"session phase is UNRECOGNISED ({obs.phase!r}) — that is a FAILED "
+            f"READ, not an off-session window, and it must not be read as a "
+            f"reason to stop looking")
 
     if obs.position_signed is None:
         return Assessment(
@@ -235,6 +259,24 @@ def evaluate(obs: Observation) -> Assessment:
             Verdict.UNDETERMINED,
             "attribution UNAVAILABLE: the run journal could not be read, so "
             "ownership of any open position is unproven (never a clean pass)")
+
+    # F1 (review finding, and the docstring above used to overstate this): the
+    # POSITION read is independent of engine belief; OWNERSHIP is not — it is
+    # 100% the engine's journalled `filled_qty`. So an UNJOURNALLED fill reads
+    # as foreign. The measured shape: a STOP entry journals the umbrella id and
+    # its normal-book child is adopted only at the Activated poll, so if the
+    # engine DIES between trigger and adoption (#39/#120 — the very case this
+    # sidecar exists for) `filled_qty` stays 0 while the account holds a real
+    # position. Collapsing that into exposure==0 printed [OK] every cycle over
+    # a naked position. It gets its own token, and the string OK never appears.
+    if obs.position_signed != 0.0 and obs.owned_exposure == 0.0:
+        return Assessment(
+            Verdict.UNATTRIBUTED,
+            f"the venue holds {obs.position_signed:+g} but our journal claims "
+            f"NO exposure — cannot tell an operator position from our own "
+            f"UNJOURNALLED fill (engine down between a stop trigger and the "
+            f"child's adoption, #39/#120). NOT a clean account.",
+            exposure=obs.position_signed)
 
     exposure, determinate = owned_exposure_at_venue(
         obs.position_signed, obs.owned_exposure)
@@ -370,6 +412,45 @@ class AlarmLadder:
             self._cycles_since_warn = 0
             return f"STILL naked after {held_for:.0f}s", None
         return None, None
+
+
+def stale_numeric_id_verdict(
+        journal_side: str | None, journal_qty: float | None,
+        venue_side: str | None, venue_qty: float | None,
+) -> str:
+    """-> "owned" | "unclassifiable". Corroborates a PRIOR-DAY numeric id.
+
+    The problem (review finding N1) is a genuine fork, and both branches are
+    silent in one direction:
+
+    * Day-scope numeric ids OUT of the owned set (the #96 guard against DNSE
+      REUSING NORMAL ids across days) and an OVERNIGHT bracket — real cover,
+      resting, with yesterday's journal row — stops counting, so a protected
+      position grades NAKED and re-warns all morning.
+    * Day-scope them IN and a prior-day id the venue REISSUED today to the
+      operator's order is read as OUR cover: false SILENCE over a naked
+      position, the direction this tool must never have.
+
+    The id alone cannot separate them, so corroborate with a record we have
+    already fetched: OUR order, still resting, still has the side and quantity
+    the journal recorded for it. A reissued id belongs to a different order and
+    will generally differ in at least one. A mismatch is NOT reclassified as
+    foreign (that would quietly restore the false alarm) — it is
+    ``unclassifiable``, which poisons the cycle to UNDETERMINED.
+
+    Deliberately NOT compared: price/stop level. A trailing stop legitimately
+    moves, so a level mismatch would condemn exactly the leg type that protects
+    a held position best.
+    """
+    if journal_side is None or venue_side is None:
+        return "unclassifiable"
+    if str(journal_side).lower() != str(venue_side).lower():
+        return "unclassifiable"
+    if journal_qty is None or venue_qty is None:
+        return "unclassifiable"
+    if abs(float(journal_qty) - float(venue_qty)) > 1e-9:
+        return "unclassifiable"
+    return "owned"
 
 
 def confirm_window_s(bar_period_s: float) -> float:
