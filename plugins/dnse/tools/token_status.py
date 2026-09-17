@@ -4,7 +4,8 @@
 Meant to be run manually at ~08:05 (just after the 08:00 cron) to answer one question:
 **did the job leave us with a token that actually works?** It shows:
 
-  * mint time + age vs the 8h TTL, and whether it was minted after 08:00 today,
+  * mint time + age vs the 8h TTL, and whether it was minted TODAY (no hour
+    threshold — the schedule's time is not this check's business),
   * the tail of the cron log (what the morning job actually did),
   * a LIVE liveness probe — a harmless cancel of a bogus order id. DNSE checks the
     trading-token header before it looks the order up, so an ``INVALID_TRADING_TOKEN``
@@ -195,10 +196,19 @@ def main() -> int:
             # each other is how an operator learns to stop reading both.
             # Whether the schedule ran is show_cron_log's answer, and it now
             # reaches the verdict.
-            minted_today = minted.date() == now.date() and minted.hour >= 8
+            # NO hour threshold. This used to be ``and minted.hour >= 8``,
+            # which hard-coded an assumption about WHEN the schedule runs —
+            # and the schedule moved three times in one day (07:55 -> 08:00 ->
+            # 06:20). At 06:20 a perfectly successful mint would have printed
+            # "NO — not minted after 08:00 today", i.e. the tool calling a
+            # working morning a failure, at the exact moment the operator
+            # reads it. A status line must not encode the caller's timetable:
+            # whether the SCHEDULE ran is the cron log's answer, below.
+            minted_today = minted.date() == now.date()
             print(f"minted:      {minted:%Y-%m-%d %H:%M %Z}  (age {age_h:.1f}h; "
                   f"TTL {TTL_HOURS}h -> {'within' if within_ttl else 'EXPIRED'})")
-            print(f"minted today: {'yes — today, after 08:00' if minted_today else 'NO — not minted after 08:00 today'}"
+            print(f"minted today: "
+                  f"{'yes — ' + minted.strftime('%H:%M') if minted_today else 'NO — the last mint was not today'}"
                   f"  (token age only; whether the SCHEDULE ran is the cron log below)")
         else:
             within_ttl = False
