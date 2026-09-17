@@ -37,3 +37,4 @@ eea681cc2fe9cfff7a2db0130c684b1712743e6a59d6335d675139f796ecddb3  plugins/dnse/p
 d17c10e7663e20c8fbf00413437253691196b05205233ea466ce7092990b3c3b  plugins/dnse/tools/naked_position.py
 ee314ba1bdc83f64328e18b1e5d9532135f5882763233a0176d1ed39e9eeb9be  plugins/dnse/tools/naked_watch.py
 fdac63f89f7528fbcb1eafd98fb166f13c626cf5267fdd5fc4cf982df7ba4440  plugins/dnse/tests/test_naked_watch.py
+0c358ae965409295686c765024cb2d7fdc58170e802c6eabe6af186ffc5622b4  plugins/dnse/tests/test_naked_watch.py  # re-approved: orphaned round-1 pin re-pointed to phase=closed (F4 contract inversion)
