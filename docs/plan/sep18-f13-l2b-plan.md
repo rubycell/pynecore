@@ -37,7 +37,8 @@ Grading additions (per run, per arm), all read from the venue record + `[BROKER]
   never read that as triggered; the TP child on the normal book is the visible cover).
 - ws arm only: whether an `order frame via WS` line names the **child id** (answers #130-for-stops);
   the existing `WS ORDER SOURCE FIRST LIVE FRAME` milestone stays the delivery gate (#134).
-- Timeframe stays **5m** (live-test rule: 5m+, never 1m). `timeout` per run = window + 3 bars.
+- Timeframe **5m** (the runner was on `@1` before #146 — corrected). `timeout` per run = (window + 3) × 300 s = 2700 s at the default window.
+- NO-SAMPLE cancel uses the entry id from OUR OWN log's `dispatched ENTRY … -> ['id']` line, passed to `venue.py cancel`; if that id cannot be read the runner says so and does NOT cancel — never a sweep, never an inferred id.
 
 Definition of done for the prep: `bash -n` clean; `--help` never constructs a broker; a dry run
 against the fake seam prints the grading table with NO-SAMPLE rows; `.venv/bin/python -m pytest
@@ -53,10 +54,10 @@ conditional-book writes die after the first app trade of the day).
 | 1 | ~08:20 | operator | mint the trading token (`tools/refresh_token.py`, OTP by hand) | `token_status.py` → GOOD |
 | 2 | ~08:25 | executor | `venue.py status` · `venue.py flat` | flat exit **0**; exit 2 = stop, could-not-determine |
 | 3 | 08:45–09:05 | executor | **roll grade** per runbook §1 (probe log bracketing the repoint) | new venue fact recorded |
-| 4 | 09:15–10:15 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm ws --fills 2` | L0 exit 0 inside the runner; executor watches the named log |
-| 5 | 10:15–11:15 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm poll --fills 2` | same |
+| 4 | 09:15–11:10 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm ws --fills 2` — **each run can take up to 45 min** (5m × (6-bar window + 3); typical 15–20 min on a breakout) | L0 exit 0 inside the runner; executor watches the named log |
+| 5 | 13:00–14:15 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm poll --fills 2` (moved to the afternoon: two 45-min worst cases do not fit one morning) | same; flat by 14:25 |
 | 6 | ≤11:20 | executor | `venue.py flat` — must exit 0 before lunch; cancel OUR leftovers with `venue.py cancel <id>` | never `sweep` |
-| 7 | 13:00–14:00 | executor | `probe_116_same_day_cancel.py <filled entry id from step 4/5>` (refuses working orders) | record http/code/message verbatim |
+| 7 | 13:00 (before step 5) | executor | `probe_116_same_day_cancel.py <filled entry id from step 4>` (refuses working orders; takes seconds) | record http/code/message verbatim |
 | 8 | any run | executor | passive captures: one `venue.py status` while a position is open (prod `/positions` frame); first venue order id of the day vs Thursday's range (#135 id-reuse) | evidence file |
 | 9 | ≤14:25 | executor | `venue.py flat` exit 0 — **never hold into 14:30 ATC** | |
 
