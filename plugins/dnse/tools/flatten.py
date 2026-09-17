@@ -127,7 +127,27 @@ def _read_position_size(broker, symbol: str) -> "float | None":
         return None
     if pos is None:
         return 0.0
-    return float(pos.size or 0.0)
+    # ``ExchangePosition.size`` is a MAGNITUDE — the sign lives in ``.side``
+    # (broker.py builds it as ``size=abs(net)`` with
+    # ``side="long" if net > 0 else "short"``). Reading ``.size`` alone drops
+    # the sign, and the sign is the whole decision here: the caller branches
+    # on it to choose BUY or SELL. Unsigned, ``size > 0`` is true for every
+    # non-flat position, so the "buy" arm was unreachable and flattening a
+    # SHORT sold into it — short 1 -> short 2 (the 2026-09-16 incident).
+    # The engine re-derives the sign from ``.side`` at three separate places
+    # (sync_engine.py ~3849, ~4763, ~5098); this mirrors them, including the
+    # refusal to guess an unrecognised label.
+    magnitude = abs(float(pos.size or 0.0))
+    side = str(pos.side or "").lower()
+    if magnitude == 0.0 or side == "flat":
+        return 0.0
+    if side == "long":
+        return magnitude
+    if side == "short":
+        return -magnitude
+    print(f"COULD NOT READ position: unrecognised side {pos.side!r} with "
+          f"size {pos.size!r} — refusing to guess the sign")
+    return None
 
 
 def _read_position_size_confirmed(broker, symbol: str,
@@ -187,10 +207,20 @@ def flatten(broker, symbol: str, owned_ids: "set[str] | None",
         flat = False
         while time.time() < deadline:
             time.sleep(2)
-            size_now = _read_position_size(broker, symbol)
+            # CONFIRMED read, not a bare one. This verdict authorises the
+            # protection SWEEP below, so it decides an IRREVERSIBLE action on
+            # the position's EMPTINESS — the other half of the rule that
+            # covers its sign. A bare read here is worse than elsewhere, not
+            # better: the loop polls ~12 times and breaks on the FIRST flat,
+            # so it actively samples FOR a stale empty page. One lagging
+            # response mid-poll declared "FLAT confirmed", cancelled the
+            # protective conditionals over a still-open position and returned
+            # 0. Disagreement resolves to None (could-not-determine), which is
+            # not 0.0 and therefore keeps polling rather than sweeping.
+            size_now = _read_position_size_confirmed(broker, symbol)
             if size_now == 0.0:
                 flat = True
-                break               # FIRST flat observation -> proceed
+                break
         if not flat:
             # Unconfirmed close: NEVER sweep (cancelling protection over a
             # possibly-open position is the naked-open the panel rejected).

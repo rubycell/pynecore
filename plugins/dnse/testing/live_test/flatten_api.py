@@ -29,9 +29,16 @@ def main() -> int:
     # STRICT parsing, and it happens BEFORE anything touches the venue.
     # This used to be `dry = "--dry-run" in sys.argv`, which silently IGNORED
     # every other argument — so `--help`, typed expecting usage text, fell
-    # straight through and FLATTENED A LIVE ACCOUNT (2026-09-16: it read a
-    # stale position and sold, taking short 1 to short 2). An execution-capable
-    # tool must never treat an unrecognised argument as "proceed".
+    # straight through and FLATTENED A LIVE ACCOUNT (2026-09-16: it sold into
+    # an account that was already SHORT, taking short 1 to short 2). An
+    # execution-capable tool must never treat an unrecognised argument as
+    # "proceed".
+    #
+    # Correction (2026-09-17): that sell was NOT a stale read, as this comment
+    # originally said. `ExchangePosition.size` is unsigned — the sign lives in
+    # `.side` — so `flatten.py` read the short as +1 and took the "sell" arm
+    # every time. Fixed at the reader; the two-agreeing-reads rule is for
+    # replica LAG and could never have caught it (both reads agreed).
     parser = argparse.ArgumentParser(
         description="API flatten for the FILL tier (#91). Closes the position, "
                     "then sweeps the bot's OWN protection. Foreign orders are "

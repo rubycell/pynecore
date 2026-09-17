@@ -131,6 +131,49 @@ def __test_get_position_long_alias_treated_as_positive__(fake_client):
     assert position.entry_price == 10.0, "averagePrice must be used when costPrice is absent"
 
 
+@pytest.mark.parametrize("bad_side", ["BUY", "SELL", "", None, "unknown"])
+def __test_get_position_refuses_to_guess_an_unrecognised_side__(
+        fake_client, bad_side):
+    """An unrecognised side label is a READ FAILURE, never a guessed sign.
+
+    This test used to be impossible to write, because the sign came from a
+    ONE-SIDED whitelist: `size if side in ("NB","LONG") else -size`. Every
+    label it did not recognise — missing, empty, "BUY", a different spelling —
+    silently became SHORT. A real LONG then reported as short, and
+    `tools/flatten.py` closes a short by BUYING, so a mislabelled long 1
+    becomes long 2 (the 2026-09-16 incident's class, from the other side).
+
+    Guessing a position's sign is unsafe in BOTH directions, so an
+    unrecognised label raises, exactly like the truncated-page guard a few
+    lines above it: callers already treat a read failure as
+    could-not-determine and fail closed.
+    """
+    row = {"symbol": "VN30F1M", "openQuantity": 1, "costPrice": 50.0}
+    if bad_side is not None:
+        row["side"] = bad_side
+    b = _broker(fake_client, get_positions=(200, {"positions": [row]}))
+
+    with pytest.raises(ExchangeConnectionError):
+        asyncio.run(b.get_position("VN30F1M"))
+
+
+def __test_get_position_side_label_is_whitespace_tolerant__(fake_client):
+    """A padded label must still resolve, not fall through to the refusal.
+
+    `"nb "` is the same side as `"NB"`. Before the two-sided whitelist it
+    silently became SHORT; a refusal here would be safe but needlessly
+    brittle, so the label is stripped before it is matched.
+    """
+    b = _broker(fake_client, get_positions=(200, {"positions": [
+        {"symbol": "VN30F1M", "side": "nb ", "openQuantity": 1,
+         "costPrice": 50.0},
+    ]}))
+    position = asyncio.run(b.get_position("VN30F1M"))
+    assert position.side == "long", (
+        "a whitespace-padded NB must resolve to long, not be mis-signed"
+    )
+
+
 def __test_get_position_net_to_zero_returns_none__(fake_client):
     b = _broker(fake_client, get_positions=(200, {"positions": [
         {"symbol": "VN30F1M", "side": "NB", "openQuantity": 3, "costPrice": 100.0},
