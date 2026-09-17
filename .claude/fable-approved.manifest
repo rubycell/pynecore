@@ -2,3 +2,7 @@
 # Written ONLY by the leader session on review approval. Editing an approved
 # file changes its hash and re-blocks it. Committed-clean files need no entry.
 cb06cf89c028702204007ff96e46363e9bf9e7ade6b678be806493422332e484  .claude/card.sh
+# 2026-09-17 #132-W0 sidecar (Worker3) — pre-test approval; full adversarial review at commit
+fa6cd2a94df6590721aa583335308d6c5d935ed1138fae1abdc8c51017749ec5  plugins/dnse/tools/naked_position.py
+7012e6a1f696355acdbbbcf56504b75f7fd07ae94db3ac741a428d480b184bfd  plugins/dnse/tools/naked_watch.py
+a69a1a61f56d4d8cc2deed37cc3f006c0598a18e5638a1d1739ac46e4e5978cd  plugins/dnse/tests/test_naked_watch.py
