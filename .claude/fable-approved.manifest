@@ -57,3 +57,6 @@ c6e63cb22e1f1625bc54ae3ecc47c81ae38703c20b58709a28b5b3c66fce3248  plugins/dnse/t
 # 2026-09-17 #145 stage 1b final: direct lookup only on a partial page; cost pinned both sides
 bbf8b161ff6ebcaf1c0d488b1fc7dc7f06349c724c6fffa6c71b778fcd1bd2af  plugins/dnse/tests/test_provider.py
 eef6cbca5ab1c7ac8ac82224033458dbc7a603b21d744e64a9ab70a534c1a62e  plugins/dnse/pynecore_dnse/provider.py
+# 2026-09-17 #132-W0 round 2 final: require_contract as first consumer; public-method stub in pins
+12cd462a6959099f6254c9ef66f01efd12effd293724e0cd42f954a1f7473d73  plugins/dnse/tools/naked_watch.py
+6a32750291de6fc73670f5672df7abe8b624f72f1d1c96d0acc9cc3805ed9aa0  plugins/dnse/tests/test_naked_watch.py
