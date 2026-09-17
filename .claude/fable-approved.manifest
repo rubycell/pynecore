@@ -52,3 +52,4 @@ ce3e0d82bd4dfc60322c53b9691031891f7775b98af05bfd8ab5dd52acad8613  plugins/dnse/t
 # 2026-09-17 #145 stage 1b: completeness vs total + direct symbol lookup for passthrough; empty-symbol row unresolved
 b5b236102c8696813496b3c85b94af7d719ef9e194dd0f64aa226343e7bc22c7  plugins/dnse/tests/test_provider.py
 b06312755f9b710c56b9645479ab6114a5074d424d97500023f4ea0781ff1ea8  plugins/dnse/pynecore_dnse/provider.py
+8c5a939ecc8d9ba4c9b6df410a113c8c29c89eeb045911346f5a40391a1c1558  plugins/dnse/pynecore_dnse/provider.py  # #145 stage 1b: empty-body arm actually applied (prior edit eaten by a PreToolUse block)
