@@ -1,0 +1,164 @@
+{
+ "captured_at": "2026-09-17T07:43:26.392136+00:00",
+ "source": "REAL venue reads (order detail) + /price/ohlc resolution=1, 2026-09-17 expiry day; run log l2b_broker_live_1m_140734 (bar 501 = 14:07 entry+fill+bracket, bar 503 = 14:09 close)",
+ "orders": {
+  "dalp3kivfqkc7397meg0": {
+   "orderCategory": "STOP",
+   "orderStatus": "Activated",
+   "side": "NB",
+   "quantity": 1,
+   "price": 1969.4,
+   "stopPrice": 1969.2,
+   "externalOrderId": "291756",
+   "_book": "STOP",
+   "role": "entry stop (pine E)"
+  },
+  "291756": {
+   "orderCategory": "NORMAL",
+   "orderStatus": "Filled",
+   "side": "NB",
+   "quantity": 1,
+   "fillQuantity": 1,
+   "price": 1969.4,
+   "averagePrice": 1969.4,
+   "createdDate": "2026-09-17T07:08:05.715573523Z",
+   "modifiedDate": "2026-09-17T07:08:05.744342067Z",
+   "_book": "NORMAL",
+   "role": "entry child, FILLED"
+  },
+  "dalp3livfqkc7397megg": {
+   "orderCategory": "OCO",
+   "orderStatus": "Activated",
+   "side": "NS",
+   "quantity": 1,
+   "price": 1973.2,
+   "stopPrice": 1965.2,
+   "externalOrderId": "291996",
+   "createdDate": "2026-09-17T07:08:06.852074Z",
+   "_book": "OCO",
+   "role": "protective bracket umbrella (pine X): TP 1973.2 / SL 1965.2"
+  },
+  "291996": {
+   "orderCategory": "NORMAL",
+   "orderStatus": "Canceled",
+   "side": "NS",
+   "quantity": 1,
+   "fillQuantity": 0,
+   "price": 1973.2,
+   "createdDate": "2026-09-17T07:08:06.87179943Z",
+   "_book": "NORMAL",
+   "role": "TP child, cancelled by the vehicle's flatten at bar 503"
+  },
+  "294346": {
+   "orderCategory": "NORMAL",
+   "orderStatus": "Filled",
+   "side": "NS",
+   "quantity": 1,
+   "fillQuantity": 1,
+   "price": 1816.3,
+   "averagePrice": 1968.5,
+   "_book": "NORMAL",
+   "role": "close (marketable LO at the floor), filled 1968.5"
+  }
+ },
+ "bars_1m": [
+  {
+   "t": 1789628460,
+   "ict": "14:01",
+   "o": 1967.3,
+   "h": 1968.3,
+   "l": 1967.2,
+   "c": 1968
+  },
+  {
+   "t": 1789628520,
+   "ict": "14:02",
+   "o": 1968.1,
+   "h": 1968.8,
+   "l": 1966.1,
+   "c": 1967.9
+  },
+  {
+   "t": 1789628580,
+   "ict": "14:03",
+   "o": 1967.6,
+   "h": 1968,
+   "l": 1967.3,
+   "c": 1968
+  },
+  {
+   "t": 1789628640,
+   "ict": "14:04",
+   "o": 1968,
+   "h": 1970.5,
+   "l": 1967.7,
+   "c": 1968
+  },
+  {
+   "t": 1789628700,
+   "ict": "14:05",
+   "o": 1968.1,
+   "h": 1969.1,
+   "l": 1967,
+   "c": 1968
+  },
+  {
+   "t": 1789628760,
+   "ict": "14:06",
+   "o": 1968.2,
+   "h": 1968.9,
+   "l": 1968,
+   "c": 1968.1
+  },
+  {
+   "t": 1789628820,
+   "ict": "14:07",
+   "o": 1968.2,
+   "h": 1969.2,
+   "l": 1967.4,
+   "c": 1969
+  },
+  {
+   "t": 1789628880,
+   "ict": "14:08",
+   "o": 1969,
+   "h": 1970.4,
+   "l": 1968.8,
+   "c": 1969.1
+  },
+  {
+   "t": 1789628940,
+   "ict": "14:09",
+   "o": 1969.5,
+   "h": 1969.7,
+   "l": 1968.1,
+   "c": 1968.5
+  },
+  {
+   "t": 1789629000,
+   "ict": "14:10",
+   "o": 1968.6,
+   "h": 1970.6,
+   "l": 1968.3,
+   "c": 1969.5
+  },
+  {
+   "t": 1789629060,
+   "ict": "14:11",
+   "o": 1969.5,
+   "h": 1970,
+   "l": 1968.5,
+   "c": 1969.2
+  },
+  {
+   "t": 1789629120,
+   "ict": "14:12",
+   "o": 1969.3,
+   "h": 1970,
+   "l": 1968.5,
+   "c": 1968.9
+  }
+ ],
+ "bars_note": "1m OHLC bars, NOT per-print trades: a bar's [l,h] proves the level lay inside the bar's range, never the order of prints within it",
+ "http": 200
+}
