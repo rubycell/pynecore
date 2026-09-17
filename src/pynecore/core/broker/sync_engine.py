@@ -16068,17 +16068,28 @@ class OrderSyncEngine:
             # complete there is no remainder and the obligation is moot.
             # Entry parks only: exit-key obligations are released solely by
             # a proven cancel (an exit that filled is handled by its own
-            # fill path, never by this ledger). And ONLY against a LIVE
-            # EntryIntent with a known qty: a park rebuilt from the journal
-            # after a restart carries a qty=0.0 placeholder (see
-            # `_rebuild_forced_cancel_intent`), and an empty ledger would
-            # read "complete" against it — releasing a REAL obligation
-            # without ever dispatching (measured: the restart-reissue pin
-            # went red on exactly that). No live intent -> not moot -> retry.
+            # fill path, never by this ledger).
+            #
+            # The qty comes from the LIVE intent when one is still around,
+            # else from the PARKED intent itself — finding 27. Keying this
+            # on a live ``_active_intents`` row alone never fires in the
+            # real sequence: the cleanup that takes the park also pops the
+            # entry's Pine slot unconditionally, so the very next diff sees
+            # the key missing from ``new_map`` and removes the live intent
+            # (and ``_reconcile_short_gate_after_fill`` pops it before
+            # parking at all). The park's own intent is the durable
+            # discriminator, and it still separates the two cases: taken
+            # from a live intent it carries the REAL qty, rebuilt from the
+            # journal after a restart it carries the qty=0.0 placeholder
+            # (see `_rebuild_forced_cancel_intent`) — which an empty ledger
+            # would read as "complete", releasing a REAL obligation without
+            # ever dispatching. Hence the ``qty > 0.0`` guard, which is what
+            # keeps the restart case safe (measured: the restart-reissue pin
+            # goes red the moment it is removed).
             if isinstance(old, EntryIntent):
-                moot_intent = self._active_intents.get(key)
-                if (isinstance(moot_intent, EntryIntent)
-                        and moot_intent.qty > 0.0
+                live = self._active_intents.get(key)
+                moot_intent = live if isinstance(live, EntryIntent) else old
+                if (moot_intent.qty > 0.0
                         and self._active_entry_filled_qty.get(key, 0.0)
                         >= moot_intent.qty - 1e-9):
                     self._forced_cancel_pending.pop(key, None)
