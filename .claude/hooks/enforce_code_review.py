@@ -47,7 +47,10 @@ _EXEC_PATTERNS = [
     re.compile(r"(?:^|[;&|]\s*)((?:/|[A-Za-z0-9_./-]*/)?plugins/[^\s;&|]+\.(?:sh|py))(?=\s|$|[;&|])"),
     # pytest executes the named test file (and whatever it imports): every .py
     # path argument in a pytest / py.test / -m pytest invocation is an execution.
-    # Known limit: an APPROVED test importing an unapproved tool is not visible here.
+    # Known limit (MEASURED 2026-09-17: happened within the hour): an APPROVED test
+    # importing an unapproved tool is not visible to a path matcher — the tool ran once
+    # before re-approval. Workers must re-submit an edited tool's hash BEFORE running
+    # any test that imports it.
     re.compile(r"(?:pytest|py\.test)\b[^;&|]*?\s([^\s;&|]+\.py)(?=\s|$|[;&|:])"),
 ]
 
