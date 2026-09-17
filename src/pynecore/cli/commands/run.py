@@ -42,7 +42,8 @@ from pynecore.core.script_runner import ScriptRunner, DataRequirements, Security
 from pynecore.pynesys.compiler import PyneComp
 from pynecore.core.provider_string import ProviderString, is_provider_string, parse_provider_string
 from pynecore.core.session import is_in_session
-from pynecore.core.live_runner import live_ohlcv_generator
+from pynecore.core.live_runner import live_ohlcv_generator, FeedLivenessHaltError
+from pynecore.core.broker.models import ExitIntent
 from ...cli.utils.api_error_handler import APIErrorHandler
 
 __all__ = []
@@ -1685,6 +1686,12 @@ def run(
                 broker_store.close()
                 raise
 
+        # #84: set when the live feed delivered a HALT (blind mid-session
+        # while we hold exposure). Declared at this scope because the
+        # non-zero exit it drives is raised after the teardown ``finally``
+        # below, beside the #120 quarantine exit.
+        feed_liveness_halt = False
+
         # The broker run is now open; every subsequent startup step
         # (security parsing, live iterator chaining, ScriptRunner import)
         # must run under the same try/finally that also wraps runner.run(),
@@ -1869,6 +1876,49 @@ def run(
                 # for the next bar close. None in data-only (non-broker) runs.
                 _engine = getattr(runner, '_order_sync_engine', None)
                 _wake_event = getattr(_engine, '_wake_event', None)
+
+                # #84: the deliverable feed-liveness HALT bounds the
+                # reconnect loop by DANGER, never by an attempt count — so it
+                # needs to know whether WE currently hold exposure. Broker
+                # runs only: a data-only run passes None, which disables
+                # halting outright and preserves the documented
+                # ride-out-any-outage reconnect behaviour (there is nothing
+                # to protect, so a halt would only end a healthy session).
+                _exposure_probe = None
+                if broker_plugin is not None and _engine is not None:
+                    def _exposure_probe() -> bool:     # noqa: F811
+                        """True while we hold exposure OR could acquire it.
+
+                        NOT just ``position.size != 0`` — that is the
+                        engine's BELIEF, and under ``--broker`` the data
+                        provider IS the broker (one plugin serves both), so a
+                        plugin-level outage takes data and orders down
+                        together. A resting ENTRY that triggers at the venue
+                        during the blackout leaves the belief reading flat
+                        while we genuinely hold a position, and the
+                        arm-on-fill wake that would protect it cannot run
+                        while we are blind. That is the #121 window with no
+                        cure, reached through the very gate meant to catch
+                        it — so a working entry counts as exposure.
+
+                        A genuinely idle bot (flat, nothing resting) still
+                        answers False and still rides out any outage, which
+                        is the property the flat-book case exists to protect.
+
+                        Raising is SAFE and meaningful: the halt gate treats
+                        a probe failure as exposed (could-not-determine is
+                        never "flat"), so a broken read fails closed. That
+                        also covers this running on the PRODUCER thread — if
+                        the intent dict is mutated under the iteration it
+                        raises, and raising means halt.
+                        """
+                        if _engine._position.size != 0.0:
+                            return True
+                        return any(
+                            not isinstance(_intent, ExitIntent)
+                            for _intent in _engine.active_intents.values()
+                        )
+
                 live_iter = live_ohlcv_generator(
                     provider=provider_data.provider_instance,
                     symbol=provider_data.parsed_string.symbol,
@@ -1882,6 +1932,7 @@ def run(
                     # reconcile ("live connection not established").
                     raise_on_connect_failure=broker_plugin is not None,
                     wake_event=_wake_event,
+                    exposure_probe=_exposure_probe,
                 )
                 runner.ohlcv_iter = itertools.chain(runner.ohlcv_iter, live_iter)
 
@@ -2066,6 +2117,18 @@ def run(
                         progress.stop()
                         stop_reason = "interrupted"
                         broker_warning("live streaming stopped (interrupted)")
+                    except FeedLivenessHaltError as feed_halt:
+                        # #84: the ONLY escalation a dead feed can deliver.
+                        # ``raise_if_halted`` runs per DELIVERED bar, so with
+                        # no bars arriving nothing else can surface this; the
+                        # live iterator raises it out of the bar loop instead.
+                        progress.stop()
+                        stop_reason = "feed liveness halt"
+                        feed_liveness_halt = True
+                        broker_error(
+                            "live streaming stopped — FEED LIVENESS HALT: %s",
+                            feed_halt,
+                        )
                     except BrokerManualInterventionError:
                         # The ``[BROKER] ERROR sync engine halted by …`` line
                         # logged from ``OrderSyncEngine._record_halt`` already
@@ -2214,6 +2277,20 @@ def run(
         # unprotected position and report success. Raised AFTER the teardown
         # ``finally`` above, so storage is closed and the event loop is stopped
         # exactly as on the happy path — only the exit status differs.
+        # #84: a run that went blind mid-session while holding a position must
+        # not report success. Same shape and the same reason as the #120 exit
+        # below: raised AFTER the teardown ``finally``, so storage is closed
+        # and the event loop stopped exactly as on the happy path, and the run
+        # summary above still prints — only the exit status differs.
+        if feed_liveness_halt:
+            broker_error(
+                "run ended after a FEED LIVENESS HALT — the feed went blind "
+                "mid-session while the book held exposure and reconnect could "
+                "not restore it. The position is UNMONITORED: check the venue "
+                "and flatten or restart; exiting non-zero."
+            )
+            raise Exit(1)
+
         if broker_plugin is not None and runner.broker_unprotected_position_quarantine:
             broker_error(
                 "run ended QUARANTINED with an UNPROTECTED position — the "

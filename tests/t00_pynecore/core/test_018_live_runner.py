@@ -2140,3 +2140,345 @@ def __test_startup_gap_skipped_when_no_full_bar_could_have_closed__():
     _drain(provider, "BTC/USDT", "1D", last_historical_timestamp=now_ms)
 
     assert provider.backfill_calls == []
+
+
+# --- #84: the deliverable feed-liveness HALT ---
+#
+# Budget under test: feed_halt_after = feed_stale_after
+#                                      + min(2 * feed_stale_after, CEILING)
+# Every behavioural pin below shrinks those constants for speed. That is
+# exactly why __test_84_budget_is_reachable_at_production_constants__ exists:
+# shrinking a constant stops testing it, and the panel on #84 established that
+# the whole behavioural set can be green while the feature is mathematically
+# incapable of firing in production.
+
+class _BlindAfterFlowProvider(MockLiveProvider):
+    """One real bar, then a persistent outage — the flow-then-stop shape.
+
+    Models the hazard #84 exists for: bars WERE flowing (so the venue is
+    demonstrably open and this is not holiday silence), then the feed dies
+    and stays dead while we still hold exposure.
+
+    ``flow_first=False`` inverts it into the holiday shape: the outage
+    starts before any real bar ever lands.
+
+    NOTE ``connect()`` SUCCEEDS here. That is not incidental — it is what
+    makes these pins discriminate the wrong-clock implementation. A
+    successful reconnect rebases ``last_real_update``, so an implementation
+    that measured blindness from it would reset its budget every cycle and
+    never halt. Only a clock that accumulates ACROSS reconnects can pass.
+    """
+
+    def __init__(self, fail_count: int, flow_first: bool = True):
+        super().__init__([_make_ohlcv(1000, is_closed=True, close=100.0),
+                          _make_ohlcv(2000, is_closed=True, close=200.0)])
+        self.reconnect_delay = 0.001
+        self.max_reconnect_delay = 0.002
+        self.connect_calls = 0
+        self.feed_timeout_bars = 0.05
+        self._remaining_failures = fail_count
+        self._flow_first = flow_first
+
+    async def connect(self):
+        self.connect_calls += 1
+        self._connected = True
+
+    async def watch_ohlcv(self, symbol: str, timeframe: str) -> OHLCV:
+        if self._index >= (1 if self._flow_first else 0) \
+                and self._remaining_failures > 0:
+            self._remaining_failures -= 1
+            await asyncio.sleep(0.01)
+            raise ConnectionError("simulated persistent feed outage")
+        return await super().watch_ohlcv(symbol, timeframe)
+
+
+def _halt_budget_shrunk(floor: float = 0.2, ceiling: float = 0.4,
+                        grace: float = 2.0):
+    """Shrink the #84 budget for test speed: 0.2 + min(0.4, 0.4) = 0.6 s.
+
+    The budget MUST stay far larger than one reconnect cycle (~0.01 s here)
+    or the pins prove nothing: a budget smaller than a cycle is met by every
+    implementation, including the wrong-clock one, and the halt then fires
+    for the wrong reason.
+    """
+    import contextlib
+    from pynecore.core import live_runner as _lr
+
+    @contextlib.contextmanager
+    def _cm():
+        saved = (_lr._FEED_STALE_FLOOR_S, _lr._FEED_HALT_CEILING_S,
+                 _lr._FEED_HALT_GRACE_MULTIPLIER)
+        _lr._FEED_STALE_FLOOR_S = floor
+        _lr._FEED_HALT_CEILING_S = ceiling
+        _lr._FEED_HALT_GRACE_MULTIPLIER = grace
+        try:
+            yield
+        finally:
+            (_lr._FEED_STALE_FLOOR_S, _lr._FEED_HALT_CEILING_S,
+             _lr._FEED_HALT_GRACE_MULTIPLIER) = saved
+    return _cm()
+
+
+def __test_84_budget_is_reachable_at_production_constants__():
+    """The halt budget must be REACHABLE, and must never precede staleness.
+
+    Pure arithmetic over the REAL provider constants — no clock, no threads.
+    This is the pin the #84 panel demanded, because every behavioural pin
+    below shrinks the constants and therefore stops testing them.
+
+    Two independent invariants:
+
+    1. ``budget > feed_stale_after`` on every timeframe. The halt is defined
+       as "staleness tripped, reconnect had its chances, still blind". A bare
+       wall-clock budget (e.g. ``min(3 * stale, 600)``) inverts that: at 5m
+       with DNSE's ``feed_timeout_bars = 17`` staleness is 5100 s, so a 600 s
+       budget would halt 4500 s BEFORE the reconnect machinery ever ran.
+    2. The grace is capped in ABSOLUTE wall clock. ``feed_stale_after`` is
+       ``feed_timeout_bars x tf`` and ``feed_timeout_bars`` is a
+       false-positive-RECONNECT knob, not a risk budget — DNSE declares 17 to
+       clear its measured 16-minute ATC gap. Uncapped, a multiple of it puts
+       the halt beyond any trading session (3x at 15m is 12h45m against a
+       2h30m session), which is how this feature was nearly shipped dead.
+    """
+    from pynecore.core import live_runner as _lr
+    from pynecore.core.live_runner import _feed_halt_budget
+
+    def _budget(feed_timeout_bars: float, tf_seconds: float) -> tuple[float, float]:
+        # Calls the PRODUCTION formula. Re-implementing it here would make
+        # this pin test its own copy: measured, a ``min(3 x stale, ceiling)``
+        # mutant passed a self-implementing version of this very test.
+        stale = max(feed_timeout_bars * tf_seconds, _lr._FEED_STALE_FLOOR_S)
+        return stale, _feed_halt_budget(stale)
+
+    # (label, feed_timeout_bars, tf_seconds) — real declared values:
+    # DNSE 17 (plugins/dnse/pynecore_dnse/provider.py), ccxt 30
+    # (src/pynecore/providers/ccxt.py), base default 3
+    # (src/pynecore/core/plugin/live_provider.py).
+    cases = [
+        ("dnse 1m", 17, 60), ("dnse 5m", 17, 300), ("dnse 15m", 17, 900),
+        ("dnse 1D", 17, 86400), ("ccxt 1m", 30, 60), ("ccxt 15m", 30, 900),
+        ("default 1m", 3, 60), ("default 1D", 3, 86400),
+    ]
+    for label, ftb, tf in cases:
+        stale, budget = _budget(ftb, tf)
+        assert budget > stale, (
+            f"{label}: halt budget {budget:.0f}s must exceed staleness "
+            f"{stale:.0f}s — otherwise the halt fires before the reconnect "
+            f"machinery has run at all"
+        )
+        assert budget - stale <= _lr._FEED_HALT_CEILING_S, (
+            f"{label}: grace {budget - stale:.0f}s exceeds the absolute "
+            f"ceiling {_lr._FEED_HALT_CEILING_S:.0f}s — an uncapped multiple "
+            f"of feed_timeout_bars puts the halt beyond a trading session"
+        )
+
+
+def __test_84_blind_feed_with_exposure_halts_deliverably__():
+    """Sustained mid-flow blindness WITH exposure must reach the consumer.
+
+    The whole point of #84: ``raise_if_halted`` runs per DELIVERED bar, so a
+    dead feed can never surface a halt through the bar loop. The generator
+    must put the error on the bar queue itself — the only channel that can
+    unblock a consumer parked in ``bar_queue.get()``.
+
+    Also the wrong-clock discriminator (mutant M1): ``connect()`` succeeds
+    here, so ``last_real_update`` is rebased on every cycle. An
+    implementation that measured blindness from it would never accumulate
+    past one cycle and this pin would hang, then fail.
+    """
+    import pytest
+    from pynecore.core.live_runner import FeedLivenessHaltError
+
+    provider = _BlindAfterFlowProvider(fail_count=4000)
+    with _halt_budget_shrunk():
+        with pytest.raises(FeedLivenessHaltError) as excinfo:
+            _drain(provider, "TEST", "1S", exposure_probe=lambda: True)
+
+    assert "exposed" in str(excinfo.value), (
+        "the halt must say WHY it fired — blind while we hold or could "
+        "acquire exposure"
+    )
+
+
+def __test_84_halt_fires_while_stuck_inside_the_reconnect_retry_loop__():
+    """The halt must also fire when RECONNECT itself keeps failing.
+
+    Discriminates the sampling point INSIDE the retry loop (mutant M5).
+    When ``connect()`` succeeds the handler returns after each cycle, so a
+    check anywhere in the caller's path would also see the next error. When
+    ``connect()`` also fails — a real outage, where the socket cannot be
+    re-established at all — the handler NEVER returns to its caller, and the
+    in-loop sampling point is then the only thing that can still deliver.
+    Removing it does not make this pin fail; it makes it HANG.
+    """
+    import pytest
+    from pynecore.core.live_runner import FeedLivenessHaltError
+
+    class _TotalOutageProvider(_BlindAfterFlowProvider):
+        """After the first real bar, BOTH watch and reconnect stay dead."""
+
+        def __init__(self):
+            super().__init__(fail_count=100_000)
+            self._bar_seen = False
+
+        async def connect(self):
+            self.connect_calls += 1
+            if self._bar_seen:
+                raise ConnectionError("socket refused during total outage")
+            self._connected = True
+
+        async def watch_ohlcv(self, symbol: str, timeframe: str) -> OHLCV:
+            bar = await super().watch_ohlcv(symbol, timeframe)
+            self._bar_seen = True
+            return bar
+
+    provider = _TotalOutageProvider()
+    with _halt_budget_shrunk():
+        with pytest.raises(FeedLivenessHaltError):
+            _drain(provider, "TEST", "1S", exposure_probe=lambda: True)
+
+
+def __test_84_blind_feed_with_nothing_at_risk_rides_the_outage_out__():
+    """Flat and nothing resting: the documented reconnect-forever behaviour.
+
+    An idle bot has nothing to protect, so an arbitrarily long outage must
+    still be ridden out and the stream must resume. #84 bounds reconnect by
+    DANGER, never by a mechanical attempt count — a count cap would end
+    healthy sessions and is the fix this card explicitly rejected.
+    """
+    provider = _BlindAfterFlowProvider(fail_count=30)
+    with _halt_budget_shrunk():
+        _, bars = _drain(provider, "TEST", "1S", exposure_probe=lambda: False)
+
+    assert any(b.close == 200.0 for b in bars), (
+        "an idle book must ride out the outage and resume streaming"
+    )
+
+
+def __test_84_silence_before_the_first_bar_never_halts__():
+    """Holiday immunity: with no real bar today, silence is legitimate.
+
+    The flow-then-stop precondition exists so a venue that simply never
+    opens (holiday, late open, a symbol that does not trade today) is not
+    mistaken for a feed that died mid-session.
+    """
+    provider = _BlindAfterFlowProvider(fail_count=30, flow_first=False)
+    with _halt_budget_shrunk():
+        _, bars = _drain(provider, "TEST", "1S", exposure_probe=lambda: True)
+
+    assert any(b.close == 100.0 for b in bars), (
+        "pre-first-bar silence must never halt — it must reconnect and, when "
+        "the venue finally speaks, stream normally"
+    )
+
+
+def __test_84_unreadable_exposure_is_treated_as_exposed__():
+    """A probe that RAISES means could-not-determine, which fails CLOSED.
+
+    Blind AND unable to read our own book is exactly the state that must not
+    keep running silent. This also covers the probe touching engine state
+    from the producer thread: a dict mutated under it raises, and raising
+    must mean halt.
+    """
+    import pytest
+    from pynecore.core.live_runner import FeedLivenessHaltError
+
+    def _broken_probe() -> bool:
+        raise RuntimeError("broker unreachable")
+
+    provider = _BlindAfterFlowProvider(fail_count=4000)
+    with _halt_budget_shrunk():
+        with pytest.raises(FeedLivenessHaltError):
+            _drain(provider, "TEST", "1S", exposure_probe=_broken_probe)
+
+
+def __test_84_halt_error_is_deliverable_through_the_bar_queue__():
+    """``FeedLivenessHaltError`` must be an ``Exception``, not a ``BaseException``.
+
+    The producer ships worker failures with ``except Exception as e:
+    bar_queue.put(e)``. A ``BaseException`` subclass would sail past that
+    handler and never be delivered — silently restoring the exact
+    undeliverable-halt bug this card exists to fix, with every behavioural
+    pin above still green because they drive the generator directly.
+    """
+    from pynecore.core.live_runner import FeedLivenessHaltError
+
+    assert issubclass(FeedLivenessHaltError, Exception)
+    assert not issubclass(FeedLivenessHaltError, (KeyboardInterrupt, SystemExit))
+
+
+def _scripted_session_drain(provider, closed_from: float, closed_until: float,
+                            **kwargs):
+    """Drive a run whose market opens/closes on a scripted wall clock.
+
+    Patches the session helper rather than waiting for a real boundary. A
+    non-empty calendar is required so ``_market_open_now`` consults it.
+    """
+    from pynecore.core import live_runner as _lr
+
+    calendar = [SymInfoInterval(day=d, start=datetime_time(0, 0, 0),
+                                end=datetime_time(23, 59, 0))
+                for d in range(7)]
+    syminfo = _make_syminfo(calendar, timezone="UTC")
+    started = time.monotonic()
+
+    def _scripted(_hours, _dt) -> bool:
+        return not (closed_from <= time.monotonic() - started < closed_until)
+
+    saved_helper = _lr.is_point_in_session
+    saved_sleep = _lr._CLOSED_WINDOW_SLEEP_S
+    _lr.is_point_in_session = _scripted
+    _lr._CLOSED_WINDOW_SLEEP_S = 0.02
+    try:
+        return _drain(provider, "TEST", "1S", syminfo=syminfo, **kwargs)
+    finally:
+        _lr.is_point_in_session = saved_helper
+        _lr._CLOSED_WINDOW_SLEEP_S = saved_sleep
+
+
+def __test_84_a_session_close_does_not_disarm_the_next_session__():
+    """Arming is per DAY, not per SESSION — the afternoon must stay armed.
+
+    DNSE trades 09:00-11:30 and 13:00-14:45. If the arming flag were reset
+    at every session CLOSE, a feed that died at 11:25 could never re-prove
+    flow (it is dead, so no bar arrives after the break) and the entire
+    afternoon would run blind while exposed — precisely the bug #84 exists
+    to fix, re-introduced by its own fix.
+
+    Discriminating: revert the flag to a per-session reset and this run
+    streams to completion instead of halting.
+    """
+    import pytest
+    from pynecore.core.live_runner import FeedLivenessHaltError
+
+    provider = _BlindAfterFlowProvider(fail_count=4000)
+    with _halt_budget_shrunk():
+        with pytest.raises(FeedLivenessHaltError):
+            _scripted_session_drain(provider, closed_from=0.3, closed_until=0.8,
+                                    exposure_probe=lambda: True)
+
+
+def __test_84_closed_window_time_does_not_count_as_blindness__():
+    """The blindness clock PAUSES while the market is closed.
+
+    The mirror defect of the one above. DNSE's lunch break is 90 minutes,
+    longer than the halt budget at 1m (51 min) — so a clock measuring raw
+    elapsed time would exceed its budget during EVERY lunch and halt a
+    perfectly healthy run at 13:00, daily.
+
+    Here the market is closed for 1.0 s against a 0.6 s budget, with only
+    ~0.2 s of open blindness before it and the feed recovering shortly after
+    reopen. A pausing clock never reaches the budget; a raw-elapsed clock is
+    already over it the moment the session reopens.
+    """
+    provider = _BlindAfterFlowProvider(fail_count=20)
+    with _halt_budget_shrunk():
+        _, bars = _scripted_session_drain(
+            provider, closed_from=0.2, closed_until=1.2,
+            exposure_probe=lambda: True,
+        )
+
+    assert any(b.close == 200.0 for b in bars), (
+        "closed-window time must not accumulate as blindness — a raw-elapsed "
+        "clock halts here, and would halt every lunch break in production"
+    )
