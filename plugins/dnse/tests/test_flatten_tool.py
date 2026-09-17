@@ -578,7 +578,6 @@ def __test_one_stale_flat_read_must_not_authorise_the_sweep__(
     b = _broker(fake_client, tmp_path, **responses)
     monkeypatch.setattr(tool.time, "sleep", lambda *_a: None)
 
-    cancels_before = len(getattr(b._client, "calls", []))
     rc = tool.flatten(b, "VN30F1M", {"prot-cond-1"}, close_wait_s=6)
 
     assert rc != 0, (
@@ -586,4 +585,7 @@ def __test_one_stale_flat_read_must_not_authorise_the_sweep__(
         "while the close had not filled — the protection sweep that follows "
         "cancels the conditionals over a still-open position"
     )
-    assert cancels_before is not None
+    assert state["pos"] == 1, (
+        "sanity: the fixture must still be holding the position, or this pin "
+        "is measuring a genuine flatten rather than a stale read"
+    )
