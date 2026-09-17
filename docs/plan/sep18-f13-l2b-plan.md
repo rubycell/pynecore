@@ -61,6 +61,7 @@ conditional-book writes die after the first app trade of the day).
 | 7 | 13:00 (before step 5) | executor | `probe_116_same_day_cancel.py <filled entry id from step 4>` (refuses working orders; takes seconds) | record http/code/message verbatim |
 | 8 | any run | executor | passive captures: one `venue.py status` while a position is open (prod `/positions` frame); first venue order id of the day vs Thursday's range (#135 id-reuse) | evidence file |
 | 9 | ≤14:25 | executor | `venue.py flat` exit 0 — **never hold into 14:30 ATC** | |
+| 10 | only if #132-W0 re-reviews CLEAN tonight | executor | shadow sidecar: `naked_watch.py --interval 15 --bar-period 300` started AFTER the roll repoint (confirm the `sight:` line shows the NEW dated code — a stale cached code reads as "nothing bot-owned", #132 F3); alarm-only, exit 2 = could-not-determine incl. UNATTRIBUTED (a venue position our journal never claimed — expected beside the operator's own position) | never a decision input on Friday; evidence only |
 
 **Operator duties the runner cannot perform** (from the #146 review): on `NOT FLAT … STOPPING the
 ladder` or after Ctrl-C, the runner STOPS — it does not flatten; **flatten in the app immediately**,
