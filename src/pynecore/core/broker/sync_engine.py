@@ -19950,14 +19950,22 @@ class OrderSyncEngine:
         # under a guard-below mutant the ``envelopes`` and
         # ``pending_verifications`` rows are byte-identical.
         #
-        # The REACHABLE damage is one line earlier: ``_build_envelope``
-        # consumes the key's restart COID anchor unconditionally on every full
-        # build (``_persisted_envelope_anchors.pop``). A guard below it lets a
-        # modify that reports itself DEFERRED — dispatching nothing — still
-        # destroy the parked key's restart identity, so after a crash the
-        # park's re-dispatch mints a different ``client_order_id`` and the
-        # venue's idempotency cache no longer recognises the order the park
-        # exists to cancel. Pinned by
+        # What is REACHABLE, and what the pin actually proves: a DEFERRED
+        # modify must not run the envelope build AT ALL. ``_build_envelope``
+        # consumes the key's restart anchor (``_persisted_envelope_anchors
+        # .pop``) and creates in-memory envelope state — for a dispatch that
+        # never happens. The guard above keeps that side effect from running.
+        #
+        # A STRONGER consequence was claimed here and is REFUTED, recorded so
+        # nobody re-derives it: "after a crash the re-dispatch mints a
+        # different ``client_order_id``" is FALSE. The anchor branch stores the
+        # same identity into ``self._envelopes[key]`` (a transfer, not a loss),
+        # ``sync()`` re-seeds ``_persisted_envelope_anchors`` wholesale from the
+        # journal on every bar (:2661-2663), and the park's re-dispatch never
+        # reads the anchor at all — ``_build_cancel_envelope`` mints
+        # ``bar_ts_ms=self._current_bar_ts_ms, retry_seq=0`` and
+        # ``execute_cancel`` targets by exchange-side id. So this is an
+        # ORDER/STATE invariant, not an idempotency one. Pinned by
         # ``__test_122_park_guard_precedes_the_envelope_build__``, which needs
         # a RESTART to reach it (on a live engine ``_build_envelope`` returns
         # at its first line).

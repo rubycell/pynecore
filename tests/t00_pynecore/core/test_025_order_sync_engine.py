@@ -17695,14 +17695,23 @@ def __test_122_park_guard_precedes_the_envelope_build__(tmp_path):
     (:2679-2694), so it is not reachable in a driven engine. The durable rows
     are byte-identical under the mutant.
 
-    The REACHABLE damage is one line up: ``_build_envelope`` consumes the
-    key's restart COID anchor unconditionally on every full build
-    (``_persisted_envelope_anchors.pop(intent.intent_key, None)``). A guard
-    placed below it lets a modify that reports itself DEFERRED — dispatching
-    nothing — still destroy the parked key's restart identity. After a crash
-    there, the park's re-dispatch mints a different ``client_order_id`` and the
-    venue's idempotency cache no longer recognises the order the park exists
-    to cancel.
+    What this pin PROVES is an order/state invariant: a DEFERRED modify must
+    not run the envelope build at all. ``_build_envelope`` consumes the key's
+    restart anchor (``_persisted_envelope_anchors.pop``) and creates in-memory
+    envelope state — for a dispatch that never happens.
+
+    A STRONGER consequence was claimed for it and is REFUTED by probe, noted
+    here so it is not re-derived: the re-dispatch does NOT mint a different
+    ``client_order_id``. The anchor branch stores the same identity into
+    ``_envelopes`` (a transfer, not a loss), ``sync()`` re-seeds the anchors
+    wholesale from the journal every bar, and the park's re-dispatch never
+    reads the anchor — ``_build_cancel_envelope`` mints its own
+    ``bar_ts_ms`` / ``retry_seq=0`` and the cancel targets an exchange-side id.
+
+    NOTE ON THE SHAPE: post-restart nothing rehydrates ``_active_intents``, so
+    a Pine re-emission of a parked key routes to ``_dispatch_new``. The
+    ``_dispatch_modify`` call below is therefore a DIRECT invocation of the
+    unit under test, not a driven engine state.
 
     THE RESTART is what makes ``_build_envelope`` run its full body at all: it
     clears ``_envelopes`` so the early return cannot fire, while the journal
@@ -17751,7 +17760,7 @@ def __test_122_park_guard_precedes_the_envelope_build__(tmp_path):
         )
         anchor_before = engine2._persisted_envelope_anchors.get("L")
         assert anchor_before is not None, (
-            "precondition: the restart COID anchor is what _build_envelope "
+            "precondition: the restart anchor is what _build_envelope "
             "consumes; without it there is nothing for the mutant to destroy"
         )
 
@@ -17775,9 +17784,9 @@ def __test_122_park_guard_precedes_the_envelope_build__(tmp_path):
             )
 
         assert engine2._persisted_envelope_anchors.get("L") == anchor_before, (
-            "a DEFERRED modify consumed the parked key's restart COID anchor — "
-            "the guard is sitting below _build_envelope, so a modify that "
-            "never dispatched still destroyed the park's restart identity"
+            "a DEFERRED modify consumed the parked key's restart anchor — the "
+            "guard is sitting below _build_envelope, so a modify that never "
+            "dispatched still ran the envelope build and its side effects"
         )
         assert _durable_rows() == rows_before, (
             "a DEFERRED modify mutated the parked key's durable journal rows"
