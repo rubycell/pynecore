@@ -769,14 +769,48 @@ def __test_a_venue_record_created_TODAY_under_a_prior_day_id_is_a_reissue__():
         day_start_ms=day_start) == "owned"
 
 
-def __test_unparsable_venue_date_does_not_silently_pass_the_reissue_check__():
-    """A date we cannot read must not become a number. Catches defaulting an
-    unparsable createdDate to 0 (which reads as 'created long ago' and passes
-    the reissue check) — the empty-is-not-an-answer rule applied to a field."""
+def __test_unparsable_or_absent_venue_date_does_not_pass_the_reissue_check__():
+    """R3 finding: this pin's NAME claimed a guarantee it never tested.
+
+    It asserted only that `_epoch_ms` returns None — which was true and
+    irrelevant, because `stale_numeric_id_verdict` then ran its date clause
+    only `if venue_created_ms is not None` and fell through to side+qty,
+    returning "owned". So an ABSENT or UNPARSABLE createdDate passed the
+    reissue check while a pin named `does_not_silently_pass_the_reissue_check`
+    stood over it. A pin that asserts a PRECONDITION and names a CONSEQUENCE is
+    worse than no pin: its name is what the next reader trusts.
+
+    The harm state needs nothing to go wrong — the doc marks createdDate
+    OPTIONAL (dnse-get-order-detail.md:208, required=false). Our overnight
+    `501 sell 1` journalled yesterday, cancelled with the engine down, DNSE
+    reissues 501 to the operator's `sell 1` (#96), the record omits the date,
+    and that order reads as OUR cover over a naked long: [OK], exit 0.
+
+    Now asserts the VERDICT for both shapes. Red against 48f7ee42's body.
+    """
+    day_start = 1_789_400_000_000
+    for absent_or_unparsable in (None,):
+        assert core.stale_numeric_id_verdict(
+            "sell", 1.0, "sell", 1.0,
+            venue_created_ms=absent_or_unparsable,
+            day_start_ms=day_start) == "unclassifiable", (
+            "a prior-day id whose venue record carries NO usable createdDate "
+            "was accepted as our cover — side+qty is effectively side-only on "
+            "derivatives, where quantity is almost always 1")
+
+    # The parsing half, still worth pinning: a date we cannot read must become
+    # None, never 0 (which would read as 'created long ago' and pass).
     assert watch._epoch_ms(None) is None
     assert watch._epoch_ms("not-a-date") is None
     assert watch._epoch_ms(1789456800000) == 1789456800000.0
     assert watch._epoch_ms(1789456800) == 1789456800000.0
+
+    # The over-block control: a genuine prior-day record still counts as ours,
+    # so the refusal cannot be satisfied by rejecting every stale id.
+    assert core.stale_numeric_id_verdict(
+        "sell", 1.0, "sell", 1.0,
+        venue_created_ms=day_start - 86_400_000,
+        day_start_ms=day_start) == "owned"
 
 
 def __test_sight_fails_when_the_alias_has_repointed_across_the_roll__(
