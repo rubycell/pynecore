@@ -2273,6 +2273,15 @@ def __test_84_budget_is_reachable_at_production_constants__():
     for label, ftb, tf, expected in (
         ("dnse 1m", 17, 60, 1620.0),     # 17m staleness + 10m capped grace
         ("dnse 5m", 17, 300, 5700.0),    # 1h25m staleness + 10m capped grace
+        # UNCAPPED regime, and it is the only row here that pins the
+        # MULTIPLIER. Both DNSE rows above sit above the ceiling
+        # (min(2*1020, 600) == min(1.5*1020, 600) == 600), so they are
+        # identical under any grace >= 0.59 and a changed multiplier slips
+        # straight through them — measured: with the constants assert
+        # neutralised, grace 1.5 PASSED on those two rows alone. At
+        # feed_timeout_bars=3 on 1m the grace is what decides:
+        # 180 + 2.0*180 = 540, versus 450 at 1.5.
+        ("default 1m (uncapped)", 3, 60, 540.0),
     ):
         _stale, got = _budget(ftb, tf)
         assert got == expected, (
@@ -2602,3 +2611,42 @@ def __test_84_closed_window_waited_out_while_CONNECTED_does_not_count__():
         "proves nothing about the clock"
     )
     assert bars, "the run must have produced bars, not died early"
+
+
+
+def __test_84_terminal_exit_emits_quarantine_before_feed_halt__():
+    """#120's message must precede #84's, under ONE exit.
+
+    Both terminal conditions can hold at once. #120's carries the stricter
+    runbook — "flatten manually before restarting" versus "restart" — so an
+    exit taken on the #84 branch alone would send the operator the weaker
+    instruction for a state that needs the stronger one.
+
+    Pins ``run.py``'s exit contract, which had NO coverage: nothing
+    referenced ``feed_liveness_halt`` or either message. Lives beside the
+    other #84 pins rather than in a cli test module because it is part of
+    this feature's contract, and the project organises by feature.
+    """
+    from pynecore.cli.commands.run import _terminal_exit_report
+
+    assert _terminal_exit_report(quarantined=False, feed_halt=False) == (), (
+        "neither condition must produce no lines — the caller then exits 0"
+    )
+
+    halt_only = _terminal_exit_report(quarantined=False, feed_halt=True)
+    assert len(halt_only) == 1 and "FEED LIVENESS HALT" in halt_only[0]
+    assert "UNMONITORED" in halt_only[0], "the halt line must say what is at risk"
+
+    quarantine_only = _terminal_exit_report(quarantined=True, feed_halt=False)
+    assert len(quarantine_only) == 1 and "QUARANTINED" in quarantine_only[0]
+
+    both = _terminal_exit_report(quarantined=True, feed_halt=True)
+    assert len(both) == 2, "both conditions must BOTH be reported, not one"
+    assert "QUARANTINED" in both[0], (
+        "the quarantine line must come FIRST — it carries the stricter "
+        "runbook, and the operator acts on what they read first"
+    )
+    assert "FEED LIVENESS HALT" in both[1]
+    assert "flatten manually" in both[0], (
+        "the stricter runbook must actually be in the first line"
+    )

@@ -168,6 +168,40 @@ console = Console()
 DEFAULT_HEARTBEAT_INTERVAL_S = 30.0
 
 
+def _terminal_exit_report(*, quarantined: bool, feed_halt: bool) -> tuple[str, ...]:
+    """The ``broker_error`` lines a terminal non-zero exit must emit, in order.
+
+    Extracted from the exit path so the ORDER is pinned by a test rather than
+    merely asserted in a comment. Both conditions can hold at once, and
+    #120's quarantine message must come FIRST because it carries the stricter
+    runbook ("flatten manually before restarting" vs "restart"); exiting on
+    the #84 branch alone would have swallowed it entirely.
+
+    Returns empty when neither holds — the caller then exits 0 as usual.
+    """
+    lines: list[str] = []
+    if quarantined:
+        lines.append(
+            "run ended QUARANTINED with an UNPROTECTED position — the broker "
+            "refused the protective exit for the whole wall-clock budget. "
+            "Check the venue and flatten manually before restarting; exiting "
+            "non-zero."
+        )
+    if feed_halt:
+        lines.append(
+            "run ALSO ended after a FEED LIVENESS HALT — the feed went blind "
+            "mid-session. Resolve the quarantine above first; it carries the "
+            "stricter runbook." if quarantined else
+            "run ended after a FEED LIVENESS HALT — the feed went blind "
+            "mid-session while we held exposure (or a working entry that "
+            "could acquire it) and reconnect could not restore the feed. The "
+            "position is UNMONITORED and any resting entry is STILL LIVE at "
+            "the venue (see #143): check the venue and flatten or restart; "
+            "exiting non-zero."
+        )
+    return tuple(lines)
+
+
 def _resolve_heartbeat_interval(raw: str | None) -> float:
     """Parse the ``PYNE_HEARTBEAT_INTERVAL`` override.
 
@@ -2286,35 +2320,15 @@ def run(
         # exactly as on the happy path — only the exit status differs.
         # #84 shares this shape and this reason: a run that went blind
         # mid-session while exposed must not report success either, and it is
-        # raised from the same place for the same purpose.
-        #
-        # Both conditions can hold at once, so #120's message is emitted
-        # FIRST and #84's second, under a single ``Exit(1)``: exiting on the
-        # #84 branch alone would swallow the quarantine message, which
-        # carries the stricter runbook ("flatten manually before restarting"
-        # vs "restart").
-        if broker_plugin is not None and runner.broker_unprotected_position_quarantine:
-            broker_error(
-                "run ended QUARANTINED with an UNPROTECTED position — the "
-                "broker refused the protective exit for the whole wall-clock "
-                "budget. Check the venue and flatten manually before "
-                "restarting; exiting non-zero."
-            )
-            if feed_liveness_halt:
-                broker_error(
-                    "run ALSO ended after a FEED LIVENESS HALT — the feed "
-                    "went blind mid-session. Resolve the quarantine above "
-                    "first; it carries the stricter runbook."
-                )
-            raise Exit(1)
-
-        if feed_liveness_halt:
-            broker_error(
-                "run ended after a FEED LIVENESS HALT — the feed went blind "
-                "mid-session while we held exposure (or a working entry that "
-                "could acquire it) and reconnect could not restore the feed. "
-                "The position is UNMONITORED and any resting entry is STILL "
-                "LIVE at the venue (see #143): check the venue and flatten or "
-                "restart; exiting non-zero."
-            )
+        # raised from the same place for the same purpose. The message ORDER
+        # and the single exit live in ``_terminal_exit_report`` so a test pins
+        # them, instead of a comment claiming them.
+        _terminal_lines = _terminal_exit_report(
+            quarantined=bool(broker_plugin is not None
+                             and runner.broker_unprotected_position_quarantine),
+            feed_halt=feed_liveness_halt,
+        )
+        if _terminal_lines:
+            for _line in _terminal_lines:
+                broker_error(_line)
             raise Exit(1)
