@@ -33,3 +33,7 @@ bde1ea48ea4454a048d2662fa472ff8c8d809753e39fcad53167cddb48487d66  tests/t00_pyne
 f0285283bc84cdc96b876b821b8142760e7d0981dfd45ef029abd07825e422e7  .claude/hooks/enforce_code_review.py  # doc: approved-test-imports-unapproved-tool limit measured
 4426957f6ad92d04a227371c12b055002df1fce24df0b29df0e2792e77aebff6  plugins/dnse/tests/test_provider.py  # #145 stage-1 pins (six arms)
 eea681cc2fe9cfff7a2db0130c684b1712743e6a59d6335d675139f796ecddb3  plugins/dnse/pynecore_dnse/provider.py  # #145 stage-1 provider fix (provenance cache + negative TTL + require_contract)
+# 2026-09-17 #132-W0 round-2 fixes (F1 exit policy, abs gate, current-mapping sight, lunch/atc evaluated, createdDate reissue, os._exit stall) — pre-verification approval
+d17c10e7663e20c8fbf00413437253691196b05205233ea466ce7092990b3c3b  plugins/dnse/tools/naked_position.py
+ee314ba1bdc83f64328e18b1e5d9532135f5882763233a0176d1ed39e9eeb9be  plugins/dnse/tools/naked_watch.py
+fdac63f89f7528fbcb1eafd98fb166f13c626cf5267fdd5fc4cf982df7ba4440  plugins/dnse/tests/test_naked_watch.py
