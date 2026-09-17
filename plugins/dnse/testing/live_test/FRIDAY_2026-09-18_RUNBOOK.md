@@ -124,3 +124,19 @@ queue/drain cost — which says whose fault a disappointing number is.
   gating for this reason — add the gate in the same pass as #133's fix.
 - The toml carries a commented `#enable_ws_order_events = true` template line.
   It is inert; the runner's guard is line-start anchored and ignores it.
+
+## Added 2026-09-17 evening (from the day's reviews) — passive captures, no extra orders
+
+- **Capture one prod `/positions` payload** while a position is open (during any F13 run):
+  `venue.py status` output into the day's evidence — the #135 review found NO captured
+  prod positions frame under logs/; the `NB`/`NS` label evidence is docs + fixtures + a
+  prod ORDER frame only. One capture closes that.
+- **#135 flatten caveat**: `flatten.py` now derives the sign from `.side` (short 1 → BUY at
+  the ceiling). The BUY arm is newly reachable: a known ceiling reject answers 200-then-
+  `Rejected`, which flatten would misreport as "NOT FLAT after 25 s" (rc 1, protection left
+  armed — safe direction). If flatten says NOT FLAT, read the venue app before acting.
+- **#135 id-reuse measurement**: note the FIRST venue order id of the day against Thursday's
+  id range — reuse vs monotonic settles whether the fill watermark needs day-scoping (the
+  "ids are reused per day" premise is documented nowhere; it is a code comment).
+- **F13 vehicle reminder**: `l2_fill_flatten` flattens IN-SCRIPT (`strategy.close("E")`,
+  engine path); `flatten.py` is teardown only. `--fills N` = runs per arm (operator's n).
