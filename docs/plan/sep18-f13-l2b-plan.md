@@ -33,8 +33,8 @@ trade date". Fix under #118 (Worker2): ceiling = final-day end of the CONTINUOUS
 final trade date is genuinely past (stale secdef, #113). **Measured 13:36–13:46:** 07:45Z (14:45 ICT)
 was REFUSED too; VN30F2M (next month) PASSED all four conditional cases; then the operator's own app
 STOP on the expiring contract with expiry **14:30 today** was seen RESTING (`daloml2vfqkc7397mdk0`) —
-so the boundary is 14:30 ICT = 07:30Z, the ATC start. Clamp constant → 07:30Z; L0 rerun on VN30F1M is
-the confirmation. Until it passes, **Friday runs BOTH arms on the new front month** — ws arm 09:15–11:10 with
+so the boundary is 14:30 ICT = 07:30Z, the ATC start. Clamp constant → 07:30Z; **L0 rerun on VN30F1M at 13:52 PASSED** (four conditionals
+placed/rested/cancelled on the expiring contract on its final day). Boundary lies in (07:30Z, 07:45Z]. Until it passes, **Friday runs BOTH arms on the new front month** — ws arm 09:15–11:10 with
 the default `--window-bars 6` after the roll grade, poll arm 13:00–14:15. W0 shadow ran through the
 expiry-day session as evidence (graded on #132). The L0 gate did its job: the plan was wrong, the gate
 refused, nothing was placed.
