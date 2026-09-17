@@ -17,3 +17,10 @@ ec98c5b26c89e2c740a8ae098eb1d48b811cb89871b6f2302d92d270b23cb8ba  plugins/dnse/t
 ee9515104339d5e67868ed158129ba813cd8403ffb91f359c6669bdb076366b6  plugins/dnse/tools/naked_position.py
 3df4ec0e2885b426dac25969fd1f7104ec01117c8e472eb99b71ed367de069ea  plugins/dnse/tools/naked_watch.py
 a52d80ebcd4675dbde5f6c59ea134af5989267e3ab92104bebc2b2fdeeafa75c  plugins/dnse/tests/test_naked_watch.py
+# 2026-09-17 #146 fixes F1-F6 (Worker3): guard helper, venue.py --json, terminator — pre-verification approval; Fable review at commit
+227f0647ea6beee7787e6cc8df6024ae0da86bd4a5c16f024e991d02d7a3a4be  plugins/dnse/testing/live_test/run_f13_latency.sh
+92447d52019b14a55464b9dbaae66cf7e4eedfacecf3b36ecf1b2877d5eb5e49  plugins/dnse/testing/live_test/f13_guard.py
+ac2f599cedfae471e473ccc3c28ac59e1ae712c0a7b9925abb0939e79a530c09  plugins/dnse/testing/live_test/f13_grade.py
+7e30c88de2cf170405c2773c5453992e2102d241ca5663edfb80588870b04f05  plugins/dnse/tools/venue.py
+d1254e2c24d5dffde990f888688598c81ebc3808e72db4fddee8eee1ac9a1cb7  plugins/dnse/tests/test_f13_guard.py
+d851c63f79bd89d2a0d947f89ec86d61d0f8a92dedcc6defd08555b414361f0f  plugins/dnse/tests/test_f13_grade.py
