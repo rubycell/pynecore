@@ -383,13 +383,24 @@ async def run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global SYMBOL
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true",
                         help="print what would be sent; touch nothing")
     parser.add_argument("--allow-market-in-session", action="store_true",
                         help="DANGEROUS: run the market-order part during an open "
                              "session, where it WILL fill and open a real position")
+    parser.add_argument("--symbol", default=SYMBOL, metavar="SYM",
+                        help="contract to probe (default: %(default)s). On its FINAL "
+                             "TRADE DATE the front month refuses every new conditional "
+                             "with CO-ORD-006 regardless of GTD (measured 2026-09-17, "
+                             "twice) — probe the next month instead, VN30F2M / the "
+                             "dated 41I1GA000 (#118)")
     args = parser.parse_args(argv)
+    # Rebind the module global rather than threading the value through: SYMBOL
+    # is read at three call sites (broker construction, get_open_orders,
+    # get_position) and this keeps the change to one place.
+    SYMBOL = args.symbol
     return asyncio.run(run(args))
 
 

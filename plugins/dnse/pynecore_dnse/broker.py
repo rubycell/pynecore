@@ -1243,9 +1243,19 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
           took over and emitted the next day, and DNSE refused every conditional with
           CO-ORD-006 (measured on prod, four placements). 07:45Z keeps the ceiling
           inside the final date in ICT while staying ahead of any in-session order.
-          NOTE 07:45Z itself is UNMEASURED at the venue — 04:00Z is the largest value
-          known to be accepted; if the venue refuses 07:45Z the next steps are 07:30Z
-          then 06:00Z.
+          MEASURED 2026-09-17, and the answer is bigger than this clamp: 07:45Z was
+          REFUSED on the final trade date, as was the floored next-day value. On a
+          contract's FINAL TRADING DAY the venue refuses every NEW conditional on THAT
+          contract regardless of the GTD — there is no time-of-day that works, so do
+          not go looking for one. The same L0 gate passed on the NEXT month minutes
+          later (VN30F2M / 41I1GA000: four conditionals placed, rested, cancelled), and
+          a plain NORMAL LO on the expiring contract rests fine, so the restriction is
+          specific to new conditionals on the expiring contract.
+
+          This ceiling is still correct and still required: without it the floor emitted
+          a GTD one day PAST the final trade date, which the venue refuses on ANY day,
+          not just the last one. The remedy for the final day itself is SCHEDULING —
+          run conditional work on the next-month contract (#118).
         * **Floor** — the next open day. Without it a stale/past expiry (an alias-keyed
           secdef cache serving a rolled-away contract, #113) produced a GTD **in the
           past**, which the venue refuses just as hard. The floor winning is itself an
