@@ -12,3 +12,4 @@ fa6cd2a94df6590721aa583335308d6c5d935ed1138fae1abdc8c51017749ec5  plugins/dnse/t
 ec98c5b26c89e2c740a8ae098eb1d48b811cb89871b6f2302d92d270b23cb8ba  plugins/dnse/tests/test_f13_grade.py
 3e8e25a38c9caa68471fe7bc5a0d832cc6db11fbeafc9de4361d0aa8eae865e5  .claude/hooks/enforce_code_review.py  # hook self-approval after the pytest-bypass patch (re-blocks on any later edit)
 436f4fe766f5865afff4238ba8825f168442c0587be9918126e40d2d6b18e34d  .claude/hooks/enforce_code_review.py  # docstring: --deselect still imports; use --ignore or -k
+4ba84e036a944d9bb7df61a7aef0a885803158d97f1e883b7230753d084a08b4  tests/t00_pynecore/core/test_025_order_sync_engine.py  # #147 placement pin (restart COID anchor), pre-mutant approval
