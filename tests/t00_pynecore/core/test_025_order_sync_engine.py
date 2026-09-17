@@ -17682,3 +17682,103 @@ def __test_122_fill_path_callers_never_receive_the_park_deferral__():
     assert engine2._active_entry_filled_qty.get("L", 0.0) > 0.0, (
         "fill routing did not complete over a parked key"
     )
+
+
+def __test_122_park_guard_precedes_the_envelope_build__(tmp_path):
+    """The park guard must run ABOVE ``_build_envelope``.
+
+    Finding 28's placement, pinned at last — and NOT by the mechanism that
+    commit's comment originally claimed. The stated rationale was a
+    ``record_complete`` inside ``_build_envelope`` purging the park's durable
+    row; that branch needs a persisted anchor plus a reject anchor whose bar
+    has advanced, and ``sync()`` prunes exactly that at the top of every bar
+    (:2679-2694), so it is not reachable in a driven engine. The durable rows
+    are byte-identical under the mutant.
+
+    The REACHABLE damage is one line up: ``_build_envelope`` consumes the
+    key's restart COID anchor unconditionally on every full build
+    (``_persisted_envelope_anchors.pop(intent.intent_key, None)``). A guard
+    placed below it lets a modify that reports itself DEFERRED — dispatching
+    nothing — still destroy the parked key's restart identity. After a crash
+    there, the park's re-dispatch mints a different ``client_order_id`` and the
+    venue's idempotency cache no longer recognises the order the park exists
+    to cancel.
+
+    THE RESTART is what makes ``_build_envelope`` run its full body at all: it
+    clears ``_envelopes`` so the early return cannot fire, while the journal
+    replay seeds ``_persisted_envelope_anchors`` and re-arms the park. Both are
+    asserted as preconditions — without either this pin proves nothing, which
+    is how its first version came to pass in both worlds.
+    """
+    import sqlite3
+    from pynecore.core.broker import sync_engine as _se
+    from pynecore.core.broker.storage import BrokerStore
+    from pynecore.core.broker.run_identity import RunIdentity
+
+    identity = RunIdentity(
+        strategy_id="t025", symbol=SYMBOL, timeframe="60",
+        account_id="testbroker-demo", label=None,
+    )
+    with BrokerStore(tmp_path / "broker.sqlite", plugin_name="testbroker") as store:
+        ctx = store.open_run(identity, script_source="src",
+                             script_path="t025.py")
+        b = MockBroker()
+        pos = BrokerPosition()
+        engine = OrderSyncEngine(
+            broker=b,  # type: ignore[arg-type]
+            position=pos, symbol=SYMBOL, run_tag=RUN_TAG,
+            mintick=1.0, store_ctx=ctx,
+        )
+        pos.entry_orders["L"] = _entry_order("L", 2.0, limit=50_000.0)
+        engine.sync(BAR_TS)
+        engine._park_forced_cancel("L", engine._active_intents["L"])
+        ctx.close()
+
+        # RESTART — the only state in which `_build_envelope` runs its full body.
+        ctx2 = store.open_run(identity, script_source="src",
+                              script_path="t025.py")
+        engine2 = OrderSyncEngine(
+            broker=MockBroker(),  # type: ignore[arg-type]
+            position=BrokerPosition(), symbol=SYMBOL, run_tag=RUN_TAG,
+            mintick=1.0, store_ctx=ctx2,
+        )
+        assert "L" in engine2._forced_cancel_pending, (
+            "precondition: the journal replay must re-arm the park"
+        )
+        assert "L" not in engine2._envelopes, (
+            "precondition: no in-memory envelope, so _build_envelope runs its "
+            "full body instead of returning early"
+        )
+        anchor_before = engine2._persisted_envelope_anchors.get("L")
+        assert anchor_before is not None, (
+            "precondition: the restart COID anchor is what _build_envelope "
+            "consumes; without it there is nothing for the mutant to destroy"
+        )
+
+        def _durable_rows():
+            con = sqlite3.connect(str(tmp_path / "broker.sqlite"))
+            try:
+                return {
+                    table: sorted(map(repr, con.execute(
+                        f"select * from {table} where intent_key = 'L'")))
+                    for table in ("envelopes", "pending_verifications")
+                }
+            finally:
+                con.close()
+
+        rows_before = _durable_rows()
+        old = engine2._forced_cancel_pending["L"]
+        with pytest.raises(_se._PartialBracketModifyDeferred):
+            engine2._dispatch_modify(
+                old, replace(old, limit=49_000.0),
+                defer_if_forced_cancel_parked=True,
+            )
+
+        assert engine2._persisted_envelope_anchors.get("L") == anchor_before, (
+            "a DEFERRED modify consumed the parked key's restart COID anchor — "
+            "the guard is sitting below _build_envelope, so a modify that "
+            "never dispatched still destroyed the park's restart identity"
+        )
+        assert _durable_rows() == rows_before, (
+            "a DEFERRED modify mutated the parked key's durable journal rows"
+        )

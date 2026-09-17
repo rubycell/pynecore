@@ -19939,10 +19939,30 @@ class OrderSyncEngine:
                          defer_if_forced_cancel_parked: bool = False) -> None:
         # #122 finding 28: refuse-and-defer BEFORE anything else happens —
         # above the kind dispatch, above every early return that cancels and
-        # re-dispatches, and above ``_build_envelope`` (which carries a
-        # ``record_complete`` that can purge this key's durable park row, so a
-        # guard placed below it would let a "deferred" modify still do durable
-        # damage). Opt-in per caller: see the helper's docstring for why the
+        # re-dispatches, and above ``_build_envelope``.
+        #
+        # WHY above ``_build_envelope``, corrected (#147). This comment used to
+        # say it was because ``_build_envelope`` carries a ``record_complete``
+        # that can purge this key's durable park row. That branch is NOT
+        # reachable in a driven engine: it needs a persisted anchor plus a
+        # reject anchor whose bar has advanced, and ``sync()`` prunes exactly
+        # that combination at the top of every bar (see :2679-2694). Measured —
+        # under a guard-below mutant the ``envelopes`` and
+        # ``pending_verifications`` rows are byte-identical.
+        #
+        # The REACHABLE damage is one line earlier: ``_build_envelope``
+        # consumes the key's restart COID anchor unconditionally on every full
+        # build (``_persisted_envelope_anchors.pop``). A guard below it lets a
+        # modify that reports itself DEFERRED — dispatching nothing — still
+        # destroy the parked key's restart identity, so after a crash the
+        # park's re-dispatch mints a different ``client_order_id`` and the
+        # venue's idempotency cache no longer recognises the order the park
+        # exists to cancel. Pinned by
+        # ``__test_122_park_guard_precedes_the_envelope_build__``, which needs
+        # a RESTART to reach it (on a live engine ``_build_envelope`` returns
+        # at its first line).
+        #
+        # Opt-in per caller: see the helper's docstring for why the
         # fill-driven callers must NOT receive this raise.
         if defer_if_forced_cancel_parked:
             self._defer_modify_while_forced_cancel_parked(old, new)
