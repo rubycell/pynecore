@@ -36,6 +36,41 @@ likely merge WITHOUT a conflict marker: the dangerous case. **Must be re-derived
 rebase** — the restart caller should route through the fork's `flat_evidence_unconfirmed=True` /
 `_unconfirmed_flat_pending` path (preserve, confirm later), never `venue_flattened_externally=True`.
 
+### Resolution plan for 45bc8103 (agreed with PyneCoreUpstreamUpdate, 09-17 13:20)
+
+1. Take upstream's signature (`journal_only: bool = False`) and the restart call site byte-identical.
+2. Add a fork-side kw with a PRESERVE default, `venue_confirmed: bool = False`: the existing close-fill
+   caller (~:6375, our own closing fill = confirmed flat) passes `venue_confirmed=True` → keeps
+   `venue_flattened_externally=True` (cancel); the restart caller passes only `journal_only=True` →
+   `_cleanup_position_tracking(pid, flat_evidence_unconfirmed=True)` → preserve, confirm later.
+3. The existing close-fill caller ALSO passes `journal_only=True` — otherwise upstream's new in-memory
+   pass starts running on our measured close-fill path.
+4. Red-first pins, two-sided: (i) restart + journal protective leg + clamped-to-0 adoption → ZERO venue
+   cancel requests counted on the fake client (not a log line), leg preserved as unconfirmed — RED on
+   the naive merge; (ii) close-fill flat → cancel still issued (#122 tests keep passing).
+5. Verify by reading that a bare `_cleanup_position_tracking(pid)` on the fork defaults to the PRESERVE
+   path; grep every call site in the merged tree.
+
+Trial rebase (scratch worktree, throwaway branch, no landing, no tests) runs first to show which of the
+two silent outcomes git actually produces: signature + in-memory pass + our cancel tail merged
+markerless (the hazard), or the signature hunk failing → `TypeError` at the first size==0 restart.
+
+## Second silent merge — `_build_envelope` (45bc8103, live DISPATCH path)
+
+No fork commit touches `_build_envelope`, so upstream's rename
+`_persisted_entry_anchor_is_spent_reversal → _persisted_entry_anchor_is_spent` lands with no marker
+AND the predicate is extended: an anchor is also "spent" when its row is already CLOSED → a fresh
+order id is minted instead of reusing the persisted anchor. DNSE is the software-idempotency venue
+(deterministic coid + broker dedup for no-double-open; #77 "clear stale terminal markers when a
+deterministic coid row is reopened", ebddde60). A fresh id after a closed position is probably RIGHT
+for DNSE (a reused coid names an ORDER_IS_DONE order), but it may make the #77 reopen path dead or
+double-handled. Decision at the rebase, with a pin: re-entry after own-position-closed → which coid is
+sent, and is the #77 reopen path still exercised (or declared dead on purpose).
+
+Pristine v6.9.4 control (PyneCoreUpstreamUpdate, full gates, PIPESTATUS): 2755 passed, 5 failed —
+four fork fix-detector pins for #83/#84 (fixed upstream in 6.9.3, expected to flip) and
+test_014's dist-name assertion (fork's test_014 differs); test_130 passes.
+
 ## Clean applies
 
 - f8c6a1ca (duplicate reversal closes): fork region byte-identical to 6.9.2; reads only reversal
