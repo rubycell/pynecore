@@ -187,10 +187,19 @@ def main() -> int:
             minted = datetime.fromtimestamp(minted_at, ICT)
             age_h = (time.time() - minted_at) / 3600
             within_ttl = age_h < TTL_HOURS
-            after_8_today = minted.date() == now.date() and minted.hour >= 8
+            # NOT "fresh cron". This measures the TOKEN's mint time and knows
+            # nothing about whether a schedule ran — the old label claimed the
+            # latter while computing the former, so it printed "fresh cron:
+            # yes" three lines above "NO LOG FILE — the scheduled refresh has
+            # never written here". Two lines of the same output contradicting
+            # each other is how an operator learns to stop reading both.
+            # Whether the schedule ran is show_cron_log's answer, and it now
+            # reaches the verdict.
+            minted_today = minted.date() == now.date() and minted.hour >= 8
             print(f"minted:      {minted:%Y-%m-%d %H:%M %Z}  (age {age_h:.1f}h; "
                   f"TTL {TTL_HOURS}h -> {'within' if within_ttl else 'EXPIRED'})")
-            print(f"fresh cron:  {'yes — minted after 08:00 today' if after_8_today else 'NO — not minted after 08:00 today'}")
+            print(f"minted today: {'yes — today, after 08:00' if minted_today else 'NO — not minted after 08:00 today'}"
+                  f"  (token age only; whether the SCHEDULE ran is the cron log below)")
         else:
             within_ttl = False
             print("minted:      (unknown — file has no minted_at)")
