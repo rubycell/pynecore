@@ -23,14 +23,18 @@ The runner started 13:26:43 (`--window-bars 2`), passed config/token/window/flat
 refused**: all four conditionals (STOP buy/sell, STOP-LIMIT buy/sell) rejected `CO-ORD-006 "Validate
 Order Failed"`, each preceded by the engine's `GTD floored: final trade date 2026-09-17 is not in the
 future — using 2026-09-18 … may still be refused (#118)`. Nothing reached the book; config restored
-byte-identical; account flat ×2. **New venue fact (first observation of #118's prediction):** on the
-final trade date a conditional order cannot be placed on the expiring contract, because every GTD the
-clamp can produce is past the final trade date. l2b (STOP entry) is therefore impossible on expiry day;
-the Thursday plan below was wrong on that point and the mandatory L0 gate is what caught it.
-Decision: stand down; **Friday runs BOTH arms on the new front month** — ws arm 09:15–11:10 with the
-default `--window-bars 6` after the roll grade, poll arm 13:00–14:15. W0 shadow ran through the
-expiry-day session as evidence (graded on #132). Rule for the registry: never schedule a
-conditional-order live test on the 3rd Thursday (or the preceding trading day when it is a holiday).
+byte-identical; account flat ×2. **Cause (operator-corrected 13:37: "it can — just use the right date
+time"): OUR clamp, not the venue.** `_clamp_gtd_to_expiry` (broker.py:1212) ceilings the GTD to
+MIDNIGHT UTC of the final trade date (00:00Z = 07:00 ICT), which at 13:26 was already in the past, so the
+"next open day" floor won and produced a GTD past the contract's life → CO-ORD-006. The venue reads a
+GTD as a date-TIME: a GTD later the same day (end of session, 07:45Z = 14:45 ICT; the 08-14 measurement
+already showed 04:00Z on the final date accepted) satisfies both "in the future" and "not past the final
+trade date". Fix under #118 (Worker2): ceiling = final-day end-of-session, floor only when the final
+trade date is genuinely past (stale secdef, #113); the L0 gate rerun today measures whether 07:45Z is
+accepted. Until it passes, **Friday runs BOTH arms on the new front month** — ws arm 09:15–11:10 with
+the default `--window-bars 6` after the roll grade, poll arm 13:00–14:15. W0 shadow ran through the
+expiry-day session as evidence (graded on #132). The L0 gate did its job: the plan was wrong, the gate
+refused, nothing was placed.
 
 ## 0b. Thursday 09-17 afternoon (operator decision 12:05): ws arm runs TODAY, expiry day — SUPERSEDED by 0c
 
