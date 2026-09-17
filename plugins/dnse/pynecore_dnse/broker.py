@@ -83,6 +83,25 @@ def _midnight_utc(day: _date) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
 
 
+#: End of the VN trading session, in UTC: 14:45 ICT (UTC+7) is 07:45Z.
+_SESSION_CLOSE_UTC_H, _SESSION_CLOSE_UTC_M = 7, 45
+
+
+def _session_close_utc(day: _date) -> datetime:
+    """The LAST instant of ``day`` that DNSE still reads as ``day`` (#118).
+
+    The venue reads a GTD's date in ICT, so the usable ceiling is the session
+    close — 14:45 ICT = 07:45Z — not midnight UTC. Midnight UTC of the final
+    trade date is 07:00 ICT *on that date*, i.e. before the session even
+    opens: perfectly valid as a date, and already in the PAST for any order
+    placed during the day. That is what made every conditional unplaceable on
+    2026-09-17 (measured, four refusals).
+    """
+    return datetime(day.year, day.month, day.day,
+                    _SESSION_CLOSE_UTC_H, _SESSION_CLOSE_UTC_M,
+                    tzinfo=timezone.utc)
+
+
 def _order_metadata(detail: object) -> dict:
     """The ``metadata`` of an order detail as a dict — ``{}`` when there is none.
 
@@ -1214,10 +1233,19 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
 
         Two bounds, both of which the old code lacked (#118):
 
-        * **Ceiling** — midnight UTC of the final trade date, which is how DNSE itself
-          reports it. Not 23:59Z: the venue reads the date in ICT (UTC+7), so 23:59Z on
-          the final date is already 07:00 the NEXT day there and is refused. Measured
-          2026-08-14 — GTD 2026-08-20T04:00Z was accepted, 2026-08-20T23:59Z was not.
+        * **Ceiling** — the SESSION CLOSE on the final trade date, 14:45 ICT = 07:45Z.
+          The venue reads the date in ICT (UTC+7), so 23:59Z on the final date is
+          already 07:00 the NEXT day there and is refused (measured 2026-08-14:
+          2026-08-20T04:00Z accepted, 2026-08-20T23:59Z not). It was MIDNIGHT UTC
+          until 2026-09-17, which is 07:00 ICT *on* the final date — a valid date but
+          an instant that has already passed for anything placed during the session.
+          On the final trade date the ceiling was therefore behind ``now``, the floor
+          took over and emitted the next day, and DNSE refused every conditional with
+          CO-ORD-006 (measured on prod, four placements). 07:45Z keeps the ceiling
+          inside the final date in ICT while staying ahead of any in-session order.
+          NOTE 07:45Z itself is UNMEASURED at the venue — 04:00Z is the largest value
+          known to be accepted; if the venue refuses 07:45Z the next steps are 07:30Z
+          then 06:00Z.
         * **Floor** — the next open day. Without it a stale/past expiry (an alias-keyed
           secdef cache serving a rolled-away contract, #113) produced a GTD **in the
           past**, which the venue refuses just as hard. The floor winning is itself an
@@ -1226,7 +1254,22 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         floor = _midnight_utc(expiry.next_open_day_after(now.date()))
         final = self._final_trade_date(now.date())
         if final is not None:
-            target = min(target, _midnight_utc(final))
+            ceiling = _session_close_utc(final)
+            if ceiling > now:
+                # The contract still trades. The ceiling is therefore a
+                # PLACEABLE GTD and wins outright — the floor must never push
+                # past it, which is the bug this branch exists to end: on the
+                # final trade date the old midnight-UTC ceiling (07:00 ICT)
+                # was already behind ``now``, so the floor took over and
+                # emitted the NEXT day, which the venue refuses with
+                # CO-ORD-006. Measured on prod 2026-09-17: four conditional
+                # placements refused, each preceded by the floor warning.
+                return min(target, ceiling)
+            # Ceiling not in the future: either a stale secdef serving a
+            # rolled-away contract (#113), or we are past the close on the
+            # final trade date itself. Both are genuinely unplaceable, and
+            # the floor + warning below says so.
+            target = min(target, ceiling)
         if target < floor:
             log.broker_warning(
                 "GTD floored: final trade date %s is not in the future (now %s) — "

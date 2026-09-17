@@ -38,7 +38,11 @@ FROZEN_NOW = datetime(2026, 9, 14, 3, 0, 0, tzinfo=timezone.utc)
 
 #: The contract's REAL final trade date: 3rd Thursday of September 2026.
 #: (2026-08-20, the value the venue served on 2026-08-14, was also a 3rd Thursday.)
-FINAL_TRADE_DATE = datetime(2026, 9, 17, 0, 0, 0, tzinfo=timezone.utc)
+#: The usable CEILING is that date's session close (14:45 ICT = 07:45Z), not
+#: midnight UTC. Midnight UTC is 07:00 ICT *on* the final date — before the
+#: session opens — so it is already past for any in-session order, which is
+#: what made every conditional unplaceable on 2026-09-17 (#118, measured).
+FINAL_TRADE_DATE = datetime(2026, 9, 17, 7, 45, 0, tzinfo=timezone.utc)
 
 #: The dated VN30F1M contract for September 2026 (measured live 2026-09-14).
 FRONT_CONTRACT = "41I1G9000"
