@@ -132,3 +132,8 @@ ff90b410ecb3d2b506c40d9636b0793d493ef4104c6b75082a7e6c8f900ae770  tools/test_new
 36d45f636f0e16aa10251f311c6f31ae01c6f986c18e4a99a80281ef8aacfe69  plugins/dnse/tests/test_refresh_token.py
 # 2026-09-17 #148 step 5 TEMPORARY: enforce_ownership.py with an invocation log line (remove after the measurement)
 50ae6591e1991cd243a5c478054c5380861fa14c514bb0b34552ac60d43edf02  .claude/hooks/enforce_ownership.py
+# 2026-09-17 #148: quoted-literal redirect targets detected on the raw command; variable targets allowed with a visible warning; pins
+c22cf4a06f94df4cb3d0ac0378119173d20775bb7ec2c9d52e44b09d588fc4f6  .claude/hooks/enforce_ownership.py
+372c5095e0165eb5b63426c1a13c2653344f7ddb3344a004fb2f5449782c5621  .claude/hooks/test_enforce_ownership.py
+# 2026-09-17 #148: variable-target check shared by the quoted and unquoted scans
+f2f062ba03b78269353fdf07ba3cdc8bec1516390270d21bff2dea4d417985af  .claude/hooks/enforce_ownership.py

@@ -75,6 +75,14 @@ OWNERSHIP = REPO / ".claude" / "ownership.toml"
 SESSION_NAMES = REPO / ".claude" / "session-names.json"
 
 # Bash shapes that WRITE a path (group 1 = the target).
+#: A redirect whose target is a QUOTED literal — matched on the RAW command,
+#: before quoted spans are stripped (see _targets). The quote must follow the
+#: operator directly; a `>` inside prose is followed by a space and bare text.
+_QUOTED_REDIRECT_PATTERNS = [
+    re.compile(r">>?\s*\"([^\"]+)\""),
+    re.compile(r">>?\s*'([^']+)'"),
+]
+
 _WRITE_PATTERNS = [
     re.compile(r">>?\s*([^\s;&|>]+)"),
     re.compile(r"\btee\s+(?:-a\s+)?([^\s;&|]+)"),
@@ -148,10 +156,37 @@ def _targets(payload: dict) -> list[Path]:
         # `'s/a/b/'` as the target instead of `path` — so the sed shapes stop
         # matching entirely. Removing this line does not merely re-admit a
         # false positive; it silently disables sed detection too.
+        #
+        # BUT A QUOTED TARGET IS NOT EXOTIC. Measured at enabling (2026-09-17):
+        # `echo x > "plugins/dnse/tools/venue.py"` — a plainly quoted literal,
+        # one keystroke from the unquoted form — produced NO target at all, so a
+        # habit-quoted path bypassed the hook entirely. The disclosure above
+        # picked the flattering example (a path with spaces). So, BEFORE the
+        # strip, capture a redirect whose target is a quoted string: the quote
+        # must immediately follow the operator, which is exactly what the
+        # prose false positive (`--body "… -> path"`) never has.
+        def _take(target: str) -> None:
+            target = target.strip("'\"")
+            if target.startswith("$") or "$(" in target or "`" in target:
+                # A variable or computed target cannot be resolved without
+                # evaluating the shell, which a PreToolUse hook must not do.
+                # Not blocked — `> "$LOG"` to scratch is ordinary — but never
+                # silent either: this is a documented blind spot (measured: two
+                # sessions read the silent allow as "the hook is not loaded").
+                _warn(f"Bash redirect target {target!r} is a variable or "
+                      f"computed value the ownership hook cannot resolve; if "
+                      f"it names another session's file this write is NOT "
+                      f"gated (use the Edit tool or a literal path)")
+                return
+            raw.append(target)
+
+        for pattern in _QUOTED_REDIRECT_PATTERNS:
+            for match in pattern.finditer(command):
+                _take(match.group(1))
         command = re.sub(r"'[^']*'|\"[^\"]*\"", " ", command)
         for pattern in _WRITE_PATTERNS:
             for match in pattern.finditer(command):
-                raw.append(match.group(1).strip("'\""))
+                _take(match.group(1))
 
     out: list[Path] = []
     for item in raw:

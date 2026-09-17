@@ -167,6 +167,33 @@ def __test_a_quoted_redirect_is_not_a_write__(wired):
 
 
 @pytest.mark.parametrize("command", [
+    'echo x > "plugins/dnse/tools/venue.py"',
+    "echo x >> 'plugins/dnse/tools/venue.py'",
+    'cat <<EOF > "plugins/dnse/tools/venue.py"\nx\nEOF',
+])
+def __test_a_QUOTED_literal_redirect_target_is_blocked__(wired, command):
+    """Measured at enabling (2026-09-17): `echo x > "plugins/dnse/tools/venue.py"`
+    produced NO target — the quote-strip removed the path before the redirect
+    pattern saw it — so a habit-quoted literal path bypassed the hook with one
+    keystroke. The disclosure comment had called that case exotic. The wrong
+    implementation this pins against is exactly the shipped one: strip quotes
+    first, scan second, with no quoted-target pattern on the raw command."""
+    assert hook.main(_bash(command)) == 2
+
+
+def __test_a_variable_redirect_target_is_allowed_but_WARNED__(wired, capsys):
+    """`F=plugins/dnse/tools/venue.py; echo x >> "$F"` cannot be resolved without
+    evaluating the shell, which a PreToolUse hook must not do. It is allowed
+    (`> "$LOG"` to scratch is ordinary) but NEVER silent: a systemMessage on
+    stdout names the unresolved target. The wrong implementation is the silent
+    allow, which is what let two sessions believe the hook was not loaded."""
+    rc = hook.main(_bash('F=plugins/dnse/tools/venue.py; echo x >> "$F"'))
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "systemMessage" in out and "cannot resolve" in out and "$F" in out
+
+
+@pytest.mark.parametrize("command", [
     "sed -i 's/a/b/' plugins/dnse/tools/venue.py && echo done",
     "git checkout -- plugins/dnse/tools/venue.py",
     "git restore plugins/dnse/tools/venue.py",
