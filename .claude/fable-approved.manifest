@@ -48,3 +48,4 @@ e6d4f683a06e45b2dd5575fb81b93d794c7a218bf1050ae3df35b6a7724f589e  plugins/dnse/t
 0a2ea8355b174e442deabdd4f6275016de458b13a8bc9b13707bf51eb7ffe671  plugins/dnse/testing/live_test/run_f13_latency.sh
 37e7530ac9fa9944ab51a818f499b90d95c7a25749f95f1446d74143b1ded6c9  plugins/dnse/tests/test_f13_grade.py
 4cc971fb27523c41a9b607ef7234190c841c2d39bed2b89d0c08a84e679b7c0b  plugins/dnse/tests/test_f13_guard.py
+ce3e0d82bd4dfc60322c53b9691031891f7775b98af05bfd8ab5dd52acad8613  plugins/dnse/tests/test_f13_grade.py  # re-approved: _edit() asserts the needle exists (no silent no-op fixture mutations)
