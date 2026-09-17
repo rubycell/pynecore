@@ -17,7 +17,7 @@ Either answer is a measurement we need before trusting WS as the primary fill tr
 Costs accepted: a stop entry fills only on a breakout (mitigated by the per-run window + fallback
 below); the contract is held ~2 bars at 5m; worst case 6 contract round-trips, typical 4.
 
-## 0c. RESULT of the Thursday attempt (13:26): L0 gate FAIL on #118 — no conditional order is possible on expiry day
+## 0c. RESULT of the Thursday attempt (13:26): L0 gate FAIL on #118 — the GTD clamp, fixed and confirmed the same day
 
 The runner started 13:26:43 (`--window-bars 2`), passed config/token/window/flat, and the **L0 gate
 refused**: all four conditionals (STOP buy/sell, STOP-LIMIT buy/sell) rejected `CO-ORD-006 "Validate
@@ -34,7 +34,8 @@ final trade date is genuinely past (stale secdef, #113). **Measured 13:36–13:4
 was REFUSED too; VN30F2M (next month) PASSED all four conditional cases; then the operator's own app
 STOP on the expiring contract with expiry **14:30 today** was seen RESTING (`daloml2vfqkc7397mdk0`) —
 so the boundary is 14:30 ICT = 07:30Z, the ATC start. Clamp constant → 07:30Z; **L0 rerun on VN30F1M at 13:52 PASSED** (four conditionals
-placed/rested/cancelled on the expiring contract on its final day). Boundary lies in (07:30Z, 07:45Z]. Until it passes, **Friday runs BOTH arms on the new front month** — ws arm 09:15–11:10 with
+placed/rested/cancelled on the expiring contract on its final day). Boundary lies in (07:30Z, 07:45Z]. F13 itself stays Friday (the runner is single-symbol and
+the afternoon window had closed): **Friday runs BOTH arms on the new front month** — ws arm 09:15–11:10 with
 the default `--window-bars 6` after the roll grade, poll arm 13:00–14:15. W0 shadow ran through the
 expiry-day session as evidence (graded on #132). The L0 gate did its job: the plan was wrong, the gate
 refused, nothing was placed.
