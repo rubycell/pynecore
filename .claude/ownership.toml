@@ -73,11 +73,16 @@ DNSEPlugin           = "leader — review, adjudication, runbook"
 "src/pynecore/core/script_runner.py"         = "DNSEPlugin"
 "src/pynecore/cli/commands/run.py"           = "DNSEPlugin"
 
-# This session — #148
+# Worker1 — #148 (the script, its tests, the template)
 "tools/new_worker_worktree.sh"               = "WorkerForDNSEPlugin"
-".claude/hooks/enforce_ownership.py"         = "WorkerForDNSEPlugin"
+"tools/test_new_worker_worktree.py"          = "WorkerForDNSEPlugin"
 ".claude/hooks/test_enforce_ownership.py"    = "WorkerForDNSEPlugin"
 "docs/plan/worker-handoff-template.md"       = "WorkerForDNSEPlugin"
+# The ownership hook ITSELF is enforcement surface and belongs to the leader
+# (measured at enabling: with it owned by its author, the leader was refused
+# while restoring the file after a temporary instrumentation — the same
+# "advice the leader could not take" shape as the map, one file over).
+".claude/hooks/enforce_ownership.py"         = "DNSEPlugin"
 
 # Leader — INCLUDING THE ENFORCEMENT SURFACE ITSELF.
 #

@@ -128,3 +128,7 @@ ff90b410ecb3d2b506c40d9636b0793d493ef4104c6b75082a7e6c8f900ae770  tools/test_new
 909c591b4014b1e61487efa505b15207b4646aee62d365cc25f7dfed470c44a1  tools/test_new_worker_worktree.py
 # 2026-09-17 #148 step 4: TEMPORARY non-blocking session_id logger hook (remove after the measurement)
 747a1ef5417cb8f2d839688c84d9732ae36cc51107f3ca73065c6be02d897313  .claude/hooks/tmp_session_id_logger.py
+# 2026-09-17 #133: hermetic test — autouse fixture makes any imaplib.IMAP4_SSL construction fail loudly; auto-mode test stubs preflight_gmail
+36d45f636f0e16aa10251f311c6f31ae01c6f986c18e4a99a80281ef8aacfe69  plugins/dnse/tests/test_refresh_token.py
+# 2026-09-17 #148 step 5 TEMPORARY: enforce_ownership.py with an invocation log line (remove after the measurement)
+50ae6591e1991cd243a5c478054c5380861fa14c514bb0b34552ac60d43edf02  .claude/hooks/enforce_ownership.py
