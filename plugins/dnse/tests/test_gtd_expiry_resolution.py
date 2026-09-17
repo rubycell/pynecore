@@ -204,9 +204,10 @@ def __test_on_the_final_trade_date_the_gtd_is_that_days_session_close__(
         "the GTD must stay ON the final trade date — emitting the next day is "
         "exactly what DNSE refuses with CO-ORD-006"
     )
-    assert b._gtd(days=7) == "2026-09-14T07:45:00Z", (
-        "and at the session close, not midnight UTC (07:00 ICT), which is "
-        "already behind any order placed during the session"
+    assert b._gtd(days=7) == "2026-09-14T07:30:00Z", (
+        "and at the END OF THE CONTINUOUS SESSION (14:30 ICT), not the "
+        "14:45 close and not midnight UTC — 07:45Z was REFUSED four times "
+        "on prod, while the operator's 14:30-expiry order was accepted"
     )
     assert not any("GTD floored" in line for line in warnings), (
         "the final trade date is USABLE, so nothing was floored and there is "
@@ -225,12 +226,13 @@ def __test_the_day_before_expiry_also_uses_the_session_close__(
     Frozen now is 2026-09-14; a final trade date of 2026-09-17 is three days
     out, so the ceiling is comfortably in the future either way and the DATE
     is unchanged. What changes is the time-of-day, and pinning it here stops
-    a future edit from quietly reverting the ceiling to midnight while the
-    date-only assertions elsewhere stay green.
+    a future edit from quietly reverting the ceiling while the date-only
+    assertions elsewhere stay green. 07:30Z is the end of the CONTINUOUS
+    session (14:30 ICT); 07:45Z (the close) was measured REFUSED.
     """
     b = _broker_with_expiry(fake_client, tmp_path, "2026-09-17")
 
-    assert b._gtd(days=7) == "2026-09-17T07:45:00Z"
+    assert b._gtd(days=7) == "2026-09-17T07:30:00Z"
     assert not any("GTD floored" in line for line in warnings)
 
 
