@@ -9591,8 +9591,14 @@ class OrderSyncEngine:
             return None
         if not self._order_mapping.get(closed_entry_id):
             return None
+        # Tolerant compare, matching the file's three sibling reads of this
+        # ledger (finding 26a): the ledger accumulates incrementally in float
+        # with an over-clamp only, so a fully filled fractional entry can read
+        # 0.7999... < 0.8. An epsilon-free compare here dispatched a cancel
+        # against a DONE order — which the venue refuses forever, turning the
+        # park into a permanent, restart-surviving lock on the pine id.
         entry_filled = self._active_entry_filled_qty.get(closed_entry_id, 0.0)
-        if entry_filled >= entry_intent.qty:
+        if entry_filled >= entry_intent.qty - 1e-9:
             return None
         self._park_forced_cancel(closed_entry_id, entry_intent)
         try:
@@ -9688,16 +9694,22 @@ class OrderSyncEngine:
         )
         # Entry intent + its mapping/envelope.
         entry_blocked = self._tracking_is_still_needed(closed_entry_id)
-        if entry_blocked is None and venue_flattened_externally:
+        if entry_blocked is None:
             # #122 finding 25: a PARTIALLY FILLED entry still has a WORKING
             # REMAINDER resting at the venue. The exits loop below earned the
             # park-first strict-cancel discipline across five findings; the
             # entry's own order never did — its tracking was popped without a
             # cancel, leaving the remainder unowned (a later fill reopens
-            # exposure with no handle and no protection). Scoped to external
-            # flattens: on every our-fill path the entry is terminal by
-            # construction, and the fill ledger discriminates (filled >= qty
-            # dispatches nothing).
+            # exposure with no handle and no protection).
+            # UNSCOPED (finding 26b): the first version consulted only on
+            # external flattens, claiming "on every our-fill path the entry
+            # is terminal by construction" — FALSE: `_cleanup_closed_position`
+            # reaches here after a TP/SL fill closes the FILLED slice while
+            # the remainder still rests. The helper's own discrimination
+            # (fill ledger, tolerant compare) makes it a no-op on genuinely
+            # terminal entries, so it is safe — and required — on every
+            # retiring path. (The unconfirmed early-return above still keeps
+            # it off belief-only evidence.)
             entry_blocked = self._cancel_working_entry_remainder(
                 closed_entry_id)
         if entry_blocked is None:
@@ -16045,6 +16057,41 @@ class OrderSyncEngine:
         if not self._forced_cancel_pending:
             return
         for key, old in list(self._forced_cancel_pending.items()):
+            # #122 finding 26: MOOT-PARK release — the retry loop's fixed
+            # point for an ENTRY park whose order completed AFTER the park
+            # was taken (the remainder's fill raced the cancel). A cancel of
+            # a done order is refused by the venue forever, so without this
+            # the park is a permanent, restart-surviving lock on the pine id
+            # (`_tracking_is_still_needed` blocks every future teardown and
+            # re-dispatch of the key). The obligation exists to kill a
+            # WORKING remainder; once the fill ledger shows the entry
+            # complete there is no remainder and the obligation is moot.
+            # Entry parks only: exit-key obligations are released solely by
+            # a proven cancel (an exit that filled is handled by its own
+            # fill path, never by this ledger). And ONLY against a LIVE
+            # EntryIntent with a known qty: a park rebuilt from the journal
+            # after a restart carries a qty=0.0 placeholder (see
+            # `_rebuild_forced_cancel_intent`), and an empty ledger would
+            # read "complete" against it — releasing a REAL obligation
+            # without ever dispatching (measured: the restart-reissue pin
+            # went red on exactly that). No live intent -> not moot -> retry.
+            if isinstance(old, EntryIntent):
+                moot_intent = self._active_intents.get(key)
+                if (isinstance(moot_intent, EntryIntent)
+                        and moot_intent.qty > 0.0
+                        and self._active_entry_filled_qty.get(key, 0.0)
+                        >= moot_intent.qty - 1e-9):
+                    self._forced_cancel_pending.pop(key, None)
+                    # Purge the durable row too, or the moot obligation
+                    # re-arms on every restart (`_absorb_journal_retry_rows`).
+                    if self._store_ctx is not None:
+                        self._store_ctx.record_complete(key)
+                    _blog_info(
+                        "parked forced cancel for %r released as MOOT — the "
+                        "entry filled completely before the cancel could "
+                        "land; no working remainder exists", key,
+                    )
+                    continue
             try:
                 landed = self._dispatch_cancel_strict(old)
             except (ExchangeConnectionError, OrderDispositionUnknownError) as e:
