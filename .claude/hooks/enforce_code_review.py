@@ -20,6 +20,11 @@ pass untouched. Fail-open ONLY on hook-internal errors (never block the whole
 session on our own bug) — but parse problems in the COMMAND fall through to
 allow, since the harness's own permission layer still applies.
 
+pytest note (2026-09-17): any .py path in a pytest invocation is treated as an
+execution — INCLUDING `--deselect path::name`, because pytest still IMPORTS a
+deselected file at collection (module-level code runs). To exclude a foreign,
+unapproved test file use `--ignore=path` (not imported) or `-k "not <name>"`.
+
 Exit codes per the hooks contract: 0 allow; 2 block (stderr shown to the model).
 """
 from __future__ import annotations
