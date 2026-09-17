@@ -27,35 +27,77 @@ sys.modules[spec.name] = grader
 spec.loader.exec_module(grader)
 
 
-# Verbatim shape from a real run: bar-stamped, no wall-clock prefix.
+# FIXTURES REBUILT FROM THREE REAL l2b RUNS (l2b_orig_141527, l2b_fill_133954,
+# f11_retry), ids masked. The first cut invented a plausible shape instead —
+# `event FILLED id=<the umbrella>` — and the engine does not produce it. That
+# made the #130 gate look verified while it answered COULD-NOT-DETERMINE on
+# every real run: a fixture that pins a shape the engine never emits is worse
+# than no fixture, because it converts an untested path into a green one.
+#
+# The real sequence for a chased STOP entry, which every pin below now uses:
+#   dispatched ENTRY … -> ['dakf1rav…']            the first conditional
+#   event CREATED id=dakf1rav… leg=entry
+#   cancel -> wire | order=dakf1rav… book=STOP     the chase cancels it
+#   event CREATED id=dakf2aav… leg=entry           the REPLACEMENT — no dispatch line
+#   conditional ACTIVATED … parent=dakf2aav… child=214806
+#   event FILLED id=214806 … leg=entry             the CHILD fills, not the umbrella
+
+# Bar-stamped (no wall-clock prefix): what the runner produced before #146.
 BAR_STAMPED = """\
-[2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] [BROKER] order frame via WS: id=**2376 status=PendingNew fillQty=0 avgPx=0.0
-[2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] [BROKER] order frame via WS: id=**2376 status=New fillQty=0 avgPx=0.0
-[2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] [BROKER] order frame via WS: id=**2376 status=Filled fillQty=1 avgPx=1964.6
-[2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] [BROKER] WS ORDER SOURCE FIRST LIVE FRAME id=**2376
-[2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] event FILLED id=215286 side=buy qty=1.0 filled=1.0 price=1964.6 pine='E' leg=entry
-[2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] dispatched EXIT id='X' from='E' qty=1.0 tp=1948.4 sl=1940.6 -> ['159736']
+[2026-09-15 14:16:00+0700] bar:    501 INFO     [BROKER] dispatched ENTRY BUY id='E' qty=1.0 type=stop stop=1953.0 -> ['dakf1ravfqkc7397iko0']
+[2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] conditional ACTIVATED -> tracking child | parent=dakf2aavfqkc7397ikqg child=214806 pine=E polls=1
+[2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] [BROKER] order frame via WS: id=**4806 status=Filled fillQty=1 avgPx=1952.9
+[2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] [BROKER] WS ORDER SOURCE FIRST LIVE FRAME id=**4806
+[2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] event FILLED id=214806 side=buy qty=1.0 filled=1.0 price=1952.9 pine='E' leg=entry
+[2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] dispatched EXIT id='X' from='E' qty=1.0 tp=1956.8 sl=1948.4 -> ['215286']
 """
 
-# The same run as the runner will capture it from now on: wall-clock prefixed.
+# The same run as the runner captures it now: wall-clock prefixed.
 PREFIXED = """\
-1789456800.100 [2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] [BROKER] order frame via WS: id=**2376 status=PendingNew fillQty=0
-1789456800.400 [2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] [BROKER] order frame via WS: id=**2376 status=New fillQty=0
-1789456800.850 [2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] [BROKER] WS ORDER SOURCE FIRST LIVE FRAME id=**2376
-1789456800.900 [2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] [BROKER] order frame via WS: id=159736 status=Filled fillQty=1
-1789456801.250 [2026-09-16 13:41:00+0700] bar:    501 INFO     [BROKER] event FILLED id=215286 side=buy qty=1.0 filled=1.0 price=1964.6 pine='E' leg=entry
-1789456802.500 [2026-09-16 13:41:00+0700] bar:    502 INFO     [BROKER] dispatched EXIT id='X' from='E' qty=1.0 tp=1948.4 sl=1940.6 -> ['159736']
+1789456800.100 [2026-09-15 14:16:00+0700] bar:    501 INFO     [BROKER] dispatched ENTRY BUY id='E' qty=1.0 type=stop stop=1953.0 -> ['dakf1ravfqkc7397iko0']
+1789456800.150 [2026-09-15 14:16:00+0700] bar:    501 INFO     [BROKER] event CREATED id=dakf1ravfqkc7397iko0 side=buy qty=1.0 filled=0.0 pine='E' leg=entry
+1789456800.400 [2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] cancel -> wire | order=dakf1ravfqkc7397iko0 book=STOP pine=E from_entry=None leg=ENTRY
+1789456800.450 [2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] event CREATED id=dakf2aavfqkc7397ikqg side=buy qty=1.0 filled=0.0 pine='E' leg=entry
+1789456800.800 [2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] conditional ACTIVATED -> tracking child | parent=dakf2aavfqkc7397ikqg child=214806 pine=E polls=1
+1789456800.850 [2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] [BROKER] WS ORDER SOURCE FIRST LIVE FRAME id=**4806
+1789456800.900 [2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] [BROKER] order frame via WS: id=**4806 status=Filled fillQty=1 avgPx=1952.9
+1789456801.250 [2026-09-15 14:17:00+0700] bar:    502 INFO     [BROKER] event FILLED id=214806 side=buy qty=1.0 filled=1.0 price=1952.9 pine='E' leg=entry
+1789456802.500 [2026-09-15 14:18:00+0700] bar:    503 INFO     [BROKER] dispatched EXIT id='X' from='E' qty=1.0 tp=1956.8 sl=1948.4 -> ['215286']
 """
 
-#: 215286 is an ACTIVATED conditional whose child 159736 did the filling (#41).
-#: The child's fill time is deliberately chosen so the two latencies come out
-#: DIFFERENT (+0.750s venue->print, +1.250s print->arm): with one shared value a
-#: grader that swapped the two computations would pass the pin unnoticed.
+#: The venue record of the CHILD — the id that actually filled. `venue.py order
+#: --json` captures it because the runner now collects `child=` ids too.
 VENUE = {
-    "215286": {"orderStatus": "Activated", "externalOrderId": "159736",
-               "createdDate": 1789456799000},
-    "159736": {"orderStatus": "Filled", "modifiedDate": 1789456800500},
+    "214806": {"orderStatus": "Filled", "modifiedDate": 1789456800500,
+               "createdDate": 1789456800200},
 }
+
+
+#: The other real venue shape: the CONDITIONAL's record, which is Activated and
+#: names its child. Used by the venue-hop pins — both shapes occur, depending on
+#: which id `venue.py order --json` was given.
+UMBRELLA_VENUE = {
+    "dakf2aavfqkc7397ikqg": {"orderStatus": "Activated",
+                             "externalOrderId": "214806",
+                             "createdDate": 1789456800200},
+    "214806": {"orderStatus": "Filled", "modifiedDate": 1789456800500},
+}
+
+
+def _edit(text, needle, replacement):
+    """`str.replace` that REFUSES to be a no-op.
+
+    A fixture mutated with a needle that no longer occurs changes nothing,
+    raises nothing, and leaves the pin quietly testing the unmutated case —
+    which is exactly what happened when the fixtures were rebuilt from real
+    logs and a pin still reached for an id from the invented shape. The pin
+    stayed green while asserting nothing. Same family as every other blind
+    check today: the operation reported success about the wrong object.
+    """
+    assert needle in text, (
+        f"fixture mutation is a NO-OP: {needle!r} does not occur. The pin "
+        f"would test the UNMUTATED fixture and pass for no reason.")
+    return text.replace(needle, replacement)
 
 
 def _log(tmp_path, text, name="f13_ws_fill1_120000.log"):
@@ -118,16 +160,17 @@ def __test_venue_fill_follows_the_activated_conditional_to_its_child__():
     silently grade the CONDITIONAL'S CREATION as the fill and make every
     latency ~1s too large here (and arbitrarily wrong in general).
     """
-    epoch, note = grader.venue_fill_epoch(VENUE, "215286")
+    epoch, note = grader.venue_fill_epoch(UMBRELLA_VENUE,
+                                          "dakf2aavfqkc7397ikqg")
     assert epoch == 1789456800.5, f"took the umbrella's own date ({epoch})"
-    assert "child 159736" in note
+    assert "child 214806" in note
 
 
 def __test_activated_umbrella_without_its_child_record_is_undetermined__():
     """Catches: falling back to the umbrella's date when the child record is
     absent. Absence of the child is could-not-determine, never a substitute."""
-    partial = {"215286": VENUE["215286"]}
-    epoch, note = grader.venue_fill_epoch(partial, "215286")
+    partial = {"dakf2aavfqkc7397ikqg": UMBRELLA_VENUE["dakf2aavfqkc7397ikqg"]}
+    epoch, note = grader.venue_fill_epoch(partial, "dakf2aavfqkc7397ikqg")
     assert epoch is None, "substituted the umbrella's date for a missing child"
     assert "child" in note
 
@@ -137,9 +180,10 @@ def __test_missing_first_live_frame_grades_ws_as_delivering_nothing__(
     """#134: the subscribe line is NOT delivery evidence. Catches a grader that
     accepts 'subscribe REQUESTED' (or any frame at all) as proof the WS arm
     worked."""
-    text = PREFIXED.replace(
-        "[BROKER] WS ORDER SOURCE FIRST LIVE FRAME id=**2376",
-        "[BROKER] WS order feed subscribe REQUESTED channel=order.DERIVATIVE.json")
+    text = _edit(PREFIXED,
+                 "[BROKER] WS ORDER SOURCE FIRST LIVE FRAME id=**4806",
+                 "[BROKER] WS order feed subscribe REQUESTED "
+                 "channel=order.DERIVATIVE.json")
     rc = grader.main([str(_log(tmp_path, text)), "--arm", "ws",
                       "--venue-json", _venue_json(tmp_path)])
     out = capsys.readouterr().out
@@ -160,26 +204,37 @@ def __test_child_frame_gate_asks_about_the_ENTRY_child_not_the_bracket__(
 
     #130 asks whether the ENTRY conditional's normal-book child is attributed
     over WS. Grading the bracket's ids answers a different question and calls
-    it a PASS. Here the entry's child (215286 -> 159736, from the venue record)
-    IS named by a frame, so the gate passes for the RIGHT reason.
+    it a PASS. Here the entry's child (dakf2aav… -> 214806, stated by the
+    engine's own ACTIVATED line) IS named by a frame, so the gate passes for
+    the RIGHT reason.
     """
     rc = grader.main([str(_log(tmp_path, PREFIXED)), "--arm", "ws",
                       "--venue-json", _venue_json(tmp_path)])
     out = capsys.readouterr().out
-    assert "names the entry's normal-book child 159736" in out, (
+    assert "names the entry's normal-book child 214806" in out, (
         f"the #130 gate did not resolve the ENTRY's child:\n{out}")
     assert rc == grader.EXIT_OK
 
 
-def __test_child_frame_gate_is_undetermined_without_a_venue_record__(
+def __test_child_frame_gate_uses_the_engines_own_ACTIVATED_line__(
         tmp_path, capsys):
-    """Catches inventing a child id from the log when the venue never supplied
-    one. The entry's externalOrderId is a VENUE fact; absent it, the #130
-    question cannot be asked of the run — and must not be answered."""
+    """The child comes from OUR log, not from a venue call.
+
+    The engine states the mapping itself — `conditional ACTIVATED -> tracking
+    child | parent=… child=214806` — and that is BETTER evidence for #130 than
+    the venue record, because #130 asks about OUR attribution of the child.
+
+    This pin replaced one asserting the opposite (that the gate is
+    COULD-NOT-DETERMINE without a venue record). That premise came from a
+    fixture using the umbrella's id as the FILLED id, which the engine never
+    emits. Catches a regression to a venue-only lookup, which would answer
+    could-not-determine on every run where the conditional record was not
+    captured — i.e. most of them, since the runner asks about the FILLED id.
+    """
     grader.main([str(_log(tmp_path, PREFIXED)), "--arm", "ws"])
     out = capsys.readouterr().out
-    assert "#130 child frame" in out and "COULD-NOT-DETERMINE" in out
-    assert "cannot ask the #130 question" in out
+    assert "child from engine ACTIVATED line" in out, (
+        f"the #130 gate did not use the engine's own mapping:\n{out}")
 
 
 def __test_a_masked_frame_id_must_not_substring_match_a_foreign_child__(
@@ -196,14 +251,10 @@ def __test_a_masked_frame_id_must_not_substring_match_a_foreign_child__(
     Contract: a masked id matches only if the child ENDS WITH its visible
     suffix, and the frame is at/after the entry fill.
     """
-    records = {"215286": {"orderStatus": "Activated",
-                          "externalOrderId": "1597312",
-                          "createdDate": 1789456799000},
-               "1597312": {"orderStatus": "Filled",
-                           "modifiedDate": 1789456800500}}
-    collide = PREFIXED.replace("id=159736 status=Filled", "id=**5973 status=Filled")
+    collide = _edit(_edit(PREFIXED, "child=214806", "child=1597312"),
+                    "id=**4806", "id=**5973")
     grader.main([str(_log(tmp_path, collide, "f13_ws_fill3_120000.log")),
-                 "--arm", "ws", "--venue-json", _venue_json(tmp_path, records)])
+                 "--arm", "ws"])
     out = capsys.readouterr().out
     assert "no WS frame names the entry's child 1597312" in out, (
         f"an unrelated masked id substring-matched a foreign child:\n{out}")
@@ -215,8 +266,7 @@ def __test_a_masked_suffix_that_really_is_the_child_still_matches__(
     a rule that rejected all of them would fail every real run and still pass
     the collision pin above. A genuine suffix match is labelled as such so the
     table never presents it as an exact id match."""
-    masked = PREFIXED.replace("id=159736 status=Filled", "id=**9736 status=Filled")
-    grader.main([str(_log(tmp_path, masked, "f13_ws_fill4_120000.log")),
+    grader.main([str(_log(tmp_path, PREFIXED, "f13_ws_fill4_120000.log")),
                  "--arm", "ws", "--venue-json", _venue_json(tmp_path)])
     out = capsys.readouterr().out
     assert "suffix-matched" in out, f"a genuine masked child was rejected:\n{out}"
@@ -234,10 +284,10 @@ def __test_poll_arm_with_ws_frames_is_not_poll_only__(tmp_path, capsys):
     clean = ("1789456800.100 [2026-09-16 13:41:00+0700] bar: 501 INFO [BROKER] "
              "WS order feed disabled by config\n"
              "1789456801.250 [2026-09-16 13:41:00+0700] bar: 501 INFO [BROKER] "
-             "event FILLED id=215286 side=buy qty=1.0 filled=1.0 price=1964.6 "
+             "event FILLED id=214806 side=buy qty=1.0 filled=1.0 price=1952.9 "
              "pine='E' leg=entry\n"
-             "1789456802.500 [2026-09-16 13:41:00+0700] bar: 502 INFO [BROKER] "
-             "dispatched EXIT id='X' from='E' qty=1.0 sl=1940.6 -> ['159736']\n")
+             "1789456802.500 [2026-09-15 14:18:00+0700] bar: 503 INFO [BROKER] "
+             "dispatched EXIT id='X' from='E' qty=1.0 sl=1948.4 -> ['215286']\n")
     grader.main([str(_log(tmp_path, clean, "f13_poll_fill1_120000.log")),
                  "--arm", "poll"])
     assert "WS disabled and zero frames" in capsys.readouterr().out, (

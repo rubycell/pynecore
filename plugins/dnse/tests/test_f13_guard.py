@@ -30,6 +30,17 @@ TWO_ENTRIES = """\
 1789456860.100 [2026-09-16 13:42:00+0700] bar: 502 INFO [BROKER] dispatched ENTRY BUY id='E' qty=1.0 type=stop stop=1875.0 -> ['da2he2g6p09g1n1vkb80']
 """
 
+#: THE CHASE, verbatim in shape from l2b_orig_141527: the re-placed conditional
+#: appears ONLY as `event CREATED … leg=entry`. There is no second
+#: `dispatched ENTRY` line, so a dispatch-only parse collects the id the engine
+#: already cancelled and MISSES the live one.
+CHASED_ENTRY = """\
+1789456800.100 [2026-09-15 14:16:00+0700] bar: 501 INFO [BROKER] dispatched ENTRY BUY id='E' qty=1.0 type=stop stop=1953.0 -> ['dakf1ravfqkc7397iko0']
+1789456800.150 [2026-09-15 14:16:00+0700] bar: 501 INFO [BROKER] event CREATED id=dakf1ravfqkc7397iko0 side=buy qty=1.0 filled=0.0 pine='E' leg=entry
+1789456800.400 [2026-09-15 14:17:00+0700] bar: 502 INFO [BROKER] cancel -> wire | order=dakf1ravfqkc7397iko0 book=STOP pine=E from_entry=None leg=ENTRY
+1789456800.450 [2026-09-15 14:17:00+0700] bar: 502 INFO [BROKER] event CREATED id=dakf2aavfqkc7397ikqg side=buy qty=1.0 filled=0.0 pine='E' leg=entry
+"""
+
 
 class _Runner:
     """Records venue.py calls; answers from a canned script."""
@@ -164,3 +175,34 @@ def __test_non_continuous_phase_refuses_to_start__():
             datetime(2026, 9, 18, 9, 30, tzinfo=ICT), phase, 600)
         assert decision.proceed is False, (
             f"phase {phase!r} was allowed to start an order-placing run")
+
+
+def __test_a_chased_replacement_entry_is_collected_and_cancelled__():
+    """R3-F-B, measured on l2b_orig_141527.
+
+    When l2b moves its stop, the engine logs `cancel -> wire | order=<old>` and
+    then `event CREATED id=<new> … leg=entry` — with NO second
+    `dispatched ENTRY` line. A dispatch-only parse therefore collects the id the
+    engine ALREADY cancelled and misses the LIVE replacement. On a NO-SAMPLE
+    timeout the vehicle is SIGTERMed and pyne's interrupt path cancels nothing
+    (run.py:2112-2125), so that live stop rests with no process left to bracket
+    its fill.
+
+    Catches: collecting only `dispatched ENTRY` ids — which is what shipped, and
+    which no fixture caught because the fixtures had no chase in them.
+    """
+    ids = guard.entry_ids(CHASED_ENTRY)
+    assert "dakf2aavfqkc7397ikqg" in ids, (
+        f"the chased REPLACEMENT was not collected (got {ids}) — it is the live "
+        f"stop, and the only line naming it is `event CREATED … leg=entry`")
+    assert "dakf1ravfqkc7397iko0" in ids, (
+        "the superseded id was dropped; cancelling an already-terminal order "
+        "reads back terminal and returns 0, so keeping it is free while "
+        "dropping one we only BELIEVE is dead is not")
+
+    runner = _Runner()
+    decision = guard.cleanup_decision(CHASED_ENTRY, run=runner)
+    cancelled = [c[1] for c in runner.calls if c and c[0] == "cancel"]
+    assert "dakf2aavfqkc7397ikqg" in cancelled, (
+        f"the live chased stop was never cancelled: {cancelled}")
+    assert decision.proceed is True

@@ -47,6 +47,14 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 #: on every flat bar, so a 6-bar window can dispatch six of them. The shipped
 #: ``tail -1`` cancelled the newest and left the rest resting.
 _ENTRY_DISPATCH = re.compile(r"dispatched ENTRY [A-Z]+ .*?->\s*\[(?P<ids>[^\]]*)\]")
+#: The CHASE re-place. Measured on three real l2b runs: when l2b moves its stop
+#: the engine logs `cancel -> wire | order=<old>` and then `event CREATED
+#: id=<new> … leg=entry` with NO second `dispatched ENTRY` line. Collecting only
+#: dispatch lines therefore yields ids the engine has ALREADY cancelled and
+#: MISSES the live replacement — so on a NO-SAMPLE timeout, where the vehicle is
+#: SIGTERMed and pyne's interrupt path cancels nothing, a live stop would rest
+#: with no process left to bracket its fill.
+_ENTRY_CREATED = re.compile(r"event CREATED id=(?P<id>\S+).*?leg=entry")
 
 #: Hard boundaries a run must finish BEFORE (ICT). 11:25 leaves five minutes to
 #: flatten before the 11:30 lunch close; 14:25 leaves five before the 14:30 ATC,
@@ -106,13 +114,26 @@ def window_decision(now: datetime, phase: str, run_timeout_s: float) -> Decision
 # ----------------------------------------------------------------- cleanup
 
 def entry_ids(log_text: str) -> list[str]:
-    """EVERY venue id this run dispatched as an entry, in order, deduped."""
+    """EVERY venue id this run put on the book as an entry, in order, deduped.
+
+    BOTH sources, because a chased stop only appears in the second: the initial
+    placement logs `dispatched ENTRY … -> [id]`, and each re-place logs only
+    `event CREATED id=<new> … leg=entry`. Superseded ids are deliberately kept
+    — cancelling an already-terminal order reads back terminal and returns 0,
+    so including them costs one harmless call each, while excluding one we
+    wrongly believed dead would leave a live stop resting.
+    """
+    text = _ANSI.sub("", log_text)
     found: list[str] = []
-    for match in _ENTRY_DISPATCH.finditer(_ANSI.sub("", log_text)):
+    for match in _ENTRY_DISPATCH.finditer(text):
         for piece in match.group("ids").split(","):
             ident = piece.strip().strip("'\"")
             if ident and ident not in found:
                 found.append(ident)
+    for match in _ENTRY_CREATED.finditer(text):
+        ident = match.group("id").strip().strip("'\"")
+        if ident and ident not in found:
+            found.append(ident)
     return found
 
 

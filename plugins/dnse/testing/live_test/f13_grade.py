@@ -54,6 +54,14 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 _ENTRY_FILL = re.compile(r"event FILLED id=(?P<id>\S+).*?leg=entry")
 _ENTRY_DISPATCH = re.compile(r"dispatched ENTRY [A-Z]+ ")
+#: The engine states the conditional -> normal-book child mapping IN OUR LOG:
+#:   conditional ACTIVATED -> tracking child | parent=dakf2aav… child=214806
+#: Measured on three real l2b runs. This is better evidence than the venue
+#: record for the #130 question, because it is OUR attribution — the thing the
+#: question is actually about — and it needs no extra call.
+_ACTIVATED_CHILD = re.compile(
+    r"conditional ACTIVATED -> tracking child \| parent=(?P<parent>\S+) "
+    r"child=(?P<child>\S+)")
 _DISPATCH_EXIT = re.compile(r"dispatched EXIT id='(?P<pine>[^']*)'.*?->\s*\[(?P<ids>[^\]]*)\]")
 _WS_FRAME = re.compile(r"order frame via WS: id=(?P<id>\S+) status=(?P<status>\S+)")
 _FIRST_FRAME = re.compile(r"WS ORDER SOURCE FIRST LIVE FRAME")
@@ -109,6 +117,7 @@ def parse_run(path: Path) -> dict:
     run: dict = {
         "log": path.name, "clock_usable": usable, "clock_why": why,
         "entry_fill": None, "entry_id": None, "entry_dispatch": None,
+        "activated_parent": None, "activated_child": None,
         "exit_dispatch": None,
         "exit_child_ids": [], "ws_frames": [], "first_live_frame": False,
         "ws_disabled": False, "no_sample": False, "fallback": False,
@@ -124,6 +133,10 @@ def parse_run(path: Path) -> dict:
             run["fallback"] = True
         if _ENTRY_DISPATCH.search(text) and run["entry_dispatch"] is None:
             run["entry_dispatch"] = epoch
+        activated = _ACTIVATED_CHILD.search(text)
+        if activated:
+            run["activated_parent"] = activated.group("parent")
+            run["activated_child"] = activated.group("child")
         fill = _ENTRY_FILL.search(text)
         if fill and run["entry_fill"] is None:
             run["entry_fill"] = epoch
@@ -179,13 +192,39 @@ def venue_fill_epoch(venue: dict, entry_id: str | None) -> tuple[float | None, s
     return (value / 1000.0 if value > 1e11 else value), note
 
 
-def venue_child_id(venue: dict, entry_id: str | None) -> str | None:
-    """The entry conditional's NORMAL-book child, per the venue record."""
-    if not venue or not entry_id:
-        return None
-    record = venue.get(str(entry_id)) or {}
-    child = record.get("externalOrderId")
-    return str(child) if child else None
+def entry_child_id(run: dict, venue: dict) -> tuple[str | None, str]:
+    """-> (child id, where it came from). The normal-book order that FILLED.
+
+    Measured on three real l2b runs (l2b_orig_141527, l2b_fill_133954,
+    f11_retry): for a STOP entry the engine's ``event FILLED id=`` carries the
+    CHILD, not the conditional —
+
+        conditional ACTIVATED -> tracking child | parent=dakf2aav… child=214806
+        event FILLED id=214806 … leg=entry
+
+    The first cut took ``entry_id`` from the FILLED line and then asked the
+    VENUE for *that* record's ``externalOrderId`` — but a child has none, so
+    the #130 gate answered COULD-NOT-DETERMINE on every real run while the
+    fixture (which used the umbrella's id) said it worked. The fixture pinned a
+    shape the engine does not produce, which is worse than no fixture: it made
+    a broken gate look verified.
+
+    Three sources, best first: the engine's own ACTIVATED line (our attribution,
+    which is what #130 asks about), the venue's ``externalOrderId`` if a record
+    for the conditional was captured, and finally the FILLED id itself — which
+    for a stop entry already IS the child.
+    """
+    if run.get("activated_child"):
+        return str(run["activated_child"]), "engine ACTIVATED line"
+    entry_id = run.get("entry_id")
+    if venue and entry_id:
+        record = venue.get(str(entry_id)) or {}
+        child = record.get("externalOrderId")
+        if child:
+            return str(child), "venue externalOrderId"
+    if entry_id:
+        return str(entry_id), "the FILLED id (already the normal-book child)"
+    return None, ""
 
 
 def match_child_frame(frames: list, child_id: str, entry_dispatch_t: float | None):
@@ -229,7 +268,7 @@ def match_child_frame(frames: list, child_id: str, entry_dispatch_t: float | Non
         if (entry_dispatch_t is not None and stamp is not None
                 and stamp < entry_dispatch_t):
             continue                  # predates our entry: cannot be its child
-        return True, f"suffix-matched on {suffix!r}, frame at/after the fill"
+        return True, f"suffix-matched on {suffix!r}, frame at/after the entry dispatch"
     return False, ""
 
 
@@ -257,22 +296,22 @@ def grade(run: dict, arm: str, venue: dict) -> dict:
         # which is a different order entirely — a PASS there answered a
         # question nobody asked, and an OCO umbrella (Activated from birth with
         # its own child) would likely have produced a false FAIL as well.
-        entry_child = venue_child_id(venue, run["entry_id"])
+        entry_child, source = entry_child_id(run, venue)
         if entry_child:
             matched, how = match_child_frame(
                 run["ws_frames"], entry_child, run["entry_dispatch"])
             gates.append(("#130 child frame",
                           "PASS" if matched else "FAIL",
                           f"a WS frame names the entry's normal-book child "
-                          f"{entry_child} ({how})" if matched else
+                          f"{entry_child} ({how}; child from {source})"
+                          if matched else
                           f"no WS frame names the entry's child {entry_child} "
-                          f"— the conditional's normal-book child was not "
-                          f"attributed over WS"))
+                          f"(child from {source}) — the conditional's "
+                          f"normal-book child was not attributed over WS"))
         else:
             gates.append(("#130 child frame", "COULD-NOT-DETERMINE",
-                          "the entry's externalOrderId child is unknown (no "
-                          "venue record supplied for the entry) — cannot ask "
-                          "the #130 question of this run"))
+                          "no entry fill and no ACTIVATED line in this run — "
+                          "there is no child to ask the #130 question about"))
     elif arm == "poll":
         pure = run["ws_disabled"] and not run["ws_frames"]
         gates.append(("poll purity",

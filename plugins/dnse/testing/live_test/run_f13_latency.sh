@@ -249,6 +249,33 @@ for line in sys.stdin:
 
 entry_filled() { grep -aq "event FILLED.*leg=entry" "$1"; }
 
+# F-D: ONE `venue.py flat` is one get_position, and a stale-FLAT read is
+# MEASURED on this venue (#124-OBS, #122). For the l2/fallback vehicle — no
+# bracket, position held for a whole bar — a lagging FLAT would SIGTERM the
+# only thing that flattens and then launch the next run over a live position.
+# Two agreeing reads, 1.5 s apart, exactly as flatten.py requires before it
+# acts on a sign.
+flat_confirmed() {
+    $PY plugins/dnse/tools/venue.py flat >/dev/null 2>&1 || return 1
+    sleep 1.5
+    $PY plugins/dnse/tools/venue.py flat >/dev/null 2>&1 || return 1
+    return 0
+}
+
+# F-C: the window gate must run before EVERY run and every fallback, not once
+# before the loop. `--arm poll --fills 2` at 13:00 otherwise reaches run 2 at
+# ~14:00 with a 2700 s timeout and trades through the 14:30 ATC — where DNSE
+# refuses cancels and fills whatever rests — having passed a gate that was
+# true 75 minutes earlier.
+window_open() {
+    local phase
+    phase=$($PY -c "
+import sys; sys.path.insert(0, 'plugins/dnse/tools')
+import venue; print(venue.session_phase())" 2>/dev/null || echo "UNKNOWN")
+    $PY plugins/dnse/testing/live_test/f13_guard.py window \
+        --phase "$phase" --run-timeout "$RUN_TIMEOUT"
+}
+
 # F6: NO vehicle self-terminates — l2 idles after its `var traded` latch, l2b
 # keeps re-entering, and `pyne run --live` never exits — so `timeout` was the
 # only terminator and EVERY run cost the full window+3 bars (45 min at the
@@ -268,7 +295,7 @@ run_vehicle() {                      # $1 script  $2 log
     while kill -0 "$pid" 2>/dev/null && [ "$(date +%s)" -lt "$deadline" ]; do
         sleep 15
         entry_filled "$2" || continue
-        if $PY plugins/dnse/tools/venue.py flat >/dev/null 2>&1; then
+        if flat_confirmed; then
             # A fill happened AND the account is flat again: the vehicle
             # entered, protected and flattened. Nothing further to observe.
             echo "  run complete (entry fill observed, venue FLAT) — terminating"
@@ -286,6 +313,11 @@ echo "=== [3/4] $FILLS run(s) via $VEHICLE @${TIMEFRAME}m (timeout ${RUN_TIMEOUT
 for i in $(seq 1 "$FILLS"); do
     LOG="$LOGDIR/f13_${ARM}_fill${i}_$TS.log"
     echo "--- run $i/$FILLS ($VEHICLE) -> $LOG ---"
+    if ! window_open; then
+        echo "!!! window gate refuses run $i — STOPPING the ladder here."
+        echo "    (the gate that passed before run 1 is not evidence for run $i)"
+        break
+    fi
     run_vehicle "$SCRIPT" "$LOG"; echo "  pyne exit=$?"
 
     if [ "$VEHICLE" = l2b ] && ! entry_filled "$LOG"; then
@@ -309,7 +341,9 @@ for i in $(seq 1 "$FILLS"); do
             echo "    FLATTEN NOW, operator: this runner cannot, and an entry may be resting."
             break
         fi
-        if [ "$FALLBACK" -eq 1 ]; then
+        if [ "$FALLBACK" -eq 1 ] && ! window_open; then
+            echo "  fallback SKIPPED — the window has closed since this run started."
+        elif [ "$FALLBACK" -eq 1 ]; then
             FB="$LOGDIR/f13_${ARM}_fill${i}fb_$TS.log"
             echo "  fallback: ONE l2 run so the arm still gets a transport sample -> $FB"
             run_vehicle "$FALLBACK_SCRIPT" "$FB"; echo "  fallback pyne exit=$?"
@@ -318,9 +352,9 @@ for i in $(seq 1 "$FILLS"); do
         fi
     fi
 
-    $PY plugins/dnse/tools/venue.py flat >/dev/null 2>&1; F=$?
+    flat_confirmed; F=$?
     if [ "$F" -ne 0 ]; then
-        echo "!!! NOT FLAT after run $i (exit $F; 2 = COULD NOT DETERMINE, never 'no')"
+        echo "!!! NOT FLAT after run $i on TWO reads 1.5s apart (2 = COULD NOT DETERMINE, never 'no')"
         echo "    FLATTEN NOW, operator — this runner never flattens; it only stops."
         echo "    venue.py status, then flatten in the app or via flatten_api.py."
         break
@@ -347,10 +381,16 @@ fi
 # conditional to its normal-book CHILD, which is the record that actually
 # carries the fill (#41).
 VENUE_JSON="$LOGDIR/f13_${ARM}_venue_$TS.json"
+# All three id shapes a real l2b run produces (measured): the initial
+# dispatch, each CHASE re-place (which logs only `event CREATED … leg=entry`),
+# and the normal-book CHILD the conditional activated into — which is the id
+# that actually FILLED and therefore the only one carrying a fill timestamp.
 ENTRY_IDS=$(for L in $LOGS; do
-    sed 's/\x1b\[[0-9;]*m//g' "$L" \
-      | grep -aoE "dispatched ENTRY [A-Z]+ .*-> \['[^']+'\]" \
-      | grep -oE "\['[^']+'\]" | tr -d "[]'"
+    sed 's/\x1b\[[0-9;]*m//g' "$L" | {
+        grep -aoE "dispatched ENTRY [A-Z]+ .*-> \['[^']+'\]" | grep -oE "\['[^']+'\]" | tr -d "[]'"
+    }
+    sed 's/\x1b\[[0-9;]*m//g' "$L" | grep -aoE "event CREATED id=[^ ]+ .*leg=entry" | grep -oE "id=[^ ]+" | cut -d= -f2
+    sed 's/\x1b\[[0-9;]*m//g' "$L" | grep -aoE "child=[^ ]+" | cut -d= -f2
 done | sort -u)
 if [ -n "$ENTRY_IDS" ]; then
     # shellcheck disable=SC2086
