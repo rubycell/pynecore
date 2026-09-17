@@ -2248,10 +2248,20 @@ class OrderSyncEngine:
         Only identity feeds the cancel path: ``pine_id`` (plus
         ``from_entry`` for an exit) selects the working order at the plugin,
         and ``intent_key`` drives the engine-side teardown once the cancel
-        lands. ``side`` / ``qty`` / ``order_type`` are placeholders — no
-        consumer of :attr:`_forced_cancel_pending` reads them
-        (:meth:`_dispatch_cancel_strict` builds a bare :class:`CancelIntent`
-        from the identity fields and the diff guard tests key membership).
+        lands (:meth:`_dispatch_cancel_strict` builds a bare
+        :class:`CancelIntent` from the identity fields, and the diff guard
+        tests key membership). ``side`` / ``order_type`` are placeholders
+        nothing reads.
+
+        ``qty`` IS READ, and its 0.0 placeholder is load-bearing (#122
+        finding 27): the moot-park release in :meth:`_retry_forced_cancels`
+        falls back to the PARKED intent when the live one is gone, and it
+        releases only when the fill ledger covers ``qty``. A journal-rebuilt
+        park carries 0.0 here and a restart starts with an empty ledger, so
+        without the release's ``qty > 0.0`` guard this placeholder would
+        read as "complete" and drop a REAL obligation without ever
+        dispatching a cancel. Do not give it a "more realistic" value: the
+        0.0 is what makes a rebuilt park distinguishable from a live one.
         """
         if INTENT_KEY_SEP in key:
             pine_id, from_entry = key.split(INTENT_KEY_SEP, 1)
@@ -8193,6 +8203,14 @@ class OrderSyncEngine:
             if pine_order is not None:
                 pine_order.size = remaining if sibling.side == 'buy' else -remaining
                 pine_order.sign = 1.0 if sibling.side == 'buy' else -1.0
+            # #122 finding 28 residual (carded on #140): this modify can
+            # re-point ``_order_mapping[key]`` while a forced cancel is PARKED
+            # on that key. It deliberately does NOT opt into the park guard —
+            # this runs inside ``_route_event``'s drain (try/finally, no
+            # except), so a raise here would kill the fill drain, and a silent
+            # skip would be worse than the hazard: the Pine order's size is
+            # already mutated above and the intent is replaced below, so
+            # skipping only the dispatch desyncs Pine from the venue.
             self._dispatch_modify(sibling, replacement)
             self._active_intents[key] = replacement
 
@@ -10029,6 +10047,12 @@ class OrderSyncEngine:
 
         old_qty = bracket_intent.qty
         new_intent = dataclasses.replace(bracket_intent, qty=target_qty)
+        # #122 finding 28 residual (carded on #140): same hazard as the
+        # OCA-reduce cascade — this can re-point a PARKED key's mapping. It
+        # does not opt into the park guard for a stronger reason than that
+        # caller's: this amend sizes PROTECTION to a fill, so deferring or
+        # skipping it leaves the freshly filled lot under-protected, and on
+        # this card nakedness outranks every other failure mode.
         try:
             self._dispatch_modify(bracket_intent, new_intent)
         except OrderSkippedByPlugin as e:
@@ -14793,7 +14817,10 @@ class OrderSyncEngine:
                         self._active_intents[key] = intent
                         continue
                 try:
-                    self._dispatch_modify(self._active_intents[key], intent)
+                    self._dispatch_modify(
+                        self._active_intents[key], intent,
+                        defer_if_forced_cancel_parked=True,
+                    )
                 except OrderSkippedByPlugin as e:
                     # The cancel+re-execute fallback inside _dispatch_modify
                     # cancelled the old order before the plugin declined the
@@ -19847,7 +19874,79 @@ class OrderSyncEngine:
             extras.pop('defensive_close_pending')
             self._store_ctx.upsert_order(position_coid, extras=extras)
 
-    def _dispatch_modify(self, old: Intent, new: Intent) -> None:
+    def _defer_modify_while_forced_cancel_parked(
+            self, old: Intent, new: Intent) -> None:
+        """Refuse-and-defer a modify while this key carries a parked cancel.
+
+        A prior cancel on this key is still un-landed; the per-sync
+        :meth:`_retry_forced_cancels` owns that obligation. Re-cancelling
+        here would only double the broker round-trip, and dispatching the
+        replacement would double-live the still-resting order — worse, every
+        replacement path re-points ``_order_mapping[key]`` onto the NEW order
+        while the park still names the predecessor.
+
+        #122 finding 28 — the hazard. The entry-remainder park
+        (:meth:`_cancel_working_entry_remainder`) deliberately KEEPS the
+        intent active, so an ordinary Pine re-emission at a new price (limit
+        chasing) reaches the diff's modify branch with the park live. Two
+        ways that ends badly: the parked retry's cancel lands on the
+        REPLACEMENT, pops its mapping and releases the park while
+        ``_active_intents[key]`` still equals the Pine order — so the diff
+        sees no change and never re-dispatches, leaving the entry silently
+        dead for the rest of the run; or the replacement's own fills drive
+        the reset ledger up to the parked qty, firing the moot release
+        against an order that never filled.
+
+        WHO MAY BE DEFERRED, and why this is caller-declared rather than
+        applied to everyone. Deferring is only safe for a caller that can
+        absorb a raise AND for which waiting is cheaper than acting:
+          * the DIFF (:meth:`_diff_and_dispatch`) opts in — it already
+            handles :class:`_PartialBracketModifyDeferred` by keeping
+            ``_active_intents`` on the OLD intent, and deferring a Pine
+            re-emission costs a missed entry, which is recoverable.
+          * the FILL-DRIVEN callers do NOT. ``_cascade_oca_reduce`` has no
+            ``try`` at all and has already mutated the Pine order's size
+            before the call; ``_amend_bracket_qty_for_entry_fill`` catches
+            only :class:`OrderSkippedByPlugin` and says in its own comment
+            that re-raising crashes the event drain. Both run inside
+            :meth:`_route_event`, whose drain has ``try/finally`` and no
+            ``except``, so a raise there turns a dead ENTRY into a dead RUN.
+          * ``_arm_protective_exits_after_fill`` could catch it, but must
+            never be blocked on purpose: it is #123's protection GROW, and
+            deferring it routes a freshly filled slice into its own
+            "UNPROTECTED" branch. On this card nakedness outranks every
+            other failure — deferring an entry costs opportunity, deferring
+            that exit costs protection.
+        The residual — those callers can still re-point a parked key's
+        mapping — is real, is NOT closed here, and is carded separately.
+
+        :raises _PartialBracketModifyDeferred: when a park is pending; the
+            caller keeps ``_active_intents`` on the OLD intent so the next
+            sync re-diffs and retries once the cancel lands or is released.
+        """
+        if old.intent_key not in self._forced_cancel_pending:
+            return
+        _blog_warning(
+            "modify %s -> %s deferred — a prior forced cancel on this key "
+            "has not landed yet; retrying each sync",
+            old, new,
+        )
+        raise _PartialBracketModifyDeferred(
+            "modify deferred — forced cancel pending"
+        )
+
+    def _dispatch_modify(self, old: Intent, new: Intent, *,
+                         defer_if_forced_cancel_parked: bool = False) -> None:
+        # #122 finding 28: refuse-and-defer BEFORE anything else happens —
+        # above the kind dispatch, above every early return that cancels and
+        # re-dispatches, and above ``_build_envelope`` (which carries a
+        # ``record_complete`` that can purge this key's durable park row, so a
+        # guard placed below it would let a "deferred" modify still do durable
+        # damage). Opt-in per caller: see the helper's docstring for why the
+        # fill-driven callers must NOT receive this raise.
+        if defer_if_forced_cancel_parked:
+            self._defer_modify_while_forced_cancel_parked(old, new)
+
         # Quarantine gate for entry amends: ``modify_entry`` goes straight
         # to the broker and an amend can raise qty / move the level — an
         # exposure-increasing dispatch the quarantine invariant blocks.
@@ -20242,22 +20341,7 @@ class OrderSyncEngine:
                         )
                         self._dispatch_new(new)
                         return
-                if old.intent_key in self._forced_cancel_pending:
-                    # A prior cancel on this key is still un-landed; the
-                    # per-sync :meth:`_retry_forced_cancels` owns it.
-                    # Re-cancelling here would only double the broker
-                    # round-trip, and dispatching the replacement would
-                    # double-live the still-resting order. Defer the whole
-                    # modify until the parked cancel lands.
-                    _blog_warning(
-                        "modify %s -> %s deferred — a prior forced cancel "
-                        "on this key has not landed yet; retrying each sync",
-                        old, new,
-                    )
-                    raise _PartialBracketModifyDeferred(
-                        "cancel+re-execute modify deferred — forced cancel "
-                        "pending"
-                    )
+                self._defer_modify_while_forced_cancel_parked(old, new)
                 landed = self._dispatch_cancel(old)
                 # If the cancel landed in cancel-tentative (default cancel
                 # path swallowed an ``OrderDispositionUnknownError`` and

@@ -835,7 +835,7 @@ def __test_plugin_resolution_modify_rejected_restores_pre_modify_active_intent__
         second_modify_coid_holder: dict[str, str] = {}
         original_dispatch_modify = engine._dispatch_modify
 
-        def _capturing_dispatch_modify(old, new):
+        def _capturing_dispatch_modify(old, new, **kwargs):
             # Capture the COID the *next* park will use (the engine
             # rebuilds the envelope inside _dispatch_modify); this
             # lets the test target the second resolution write
@@ -844,7 +844,7 @@ def __test_plugin_resolution_modify_rejected_restores_pre_modify_active_intent__
             # then delegate.
             new_env = engine._build_envelope(new)
             second_modify_coid_holder['coid'] = new_env.client_order_id('e')
-            original_dispatch_modify(old, new)
+            original_dispatch_modify(old, new, **kwargs)
 
         engine._dispatch_modify = _capturing_dispatch_modify  # type: ignore[method-assign]
         ctx.record_resolution(modify_coid, 'rejected')
