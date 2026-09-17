@@ -98,6 +98,26 @@ def main() -> int:
         return 0
     command = (payload.get("tool_input") or {}).get("command") or ""
 
+    # A code path spelled through a shell variable or command substitution
+    # cannot be resolved without evaluating the shell. Measured 2026-09-17
+    # (#153): `pytest "$R/plugins/…/test_x.py"` ran an edited, unapproved test
+    # file THROUGH this gate — the `$R/…` form was either not captured by the
+    # execution patterns at all or, when captured, joined onto REPO as a
+    # literal `$R/…` that does not exist and was dropped by the exists() filter
+    # below. Either way the file was never judged; silence read as "clean".
+    # This is a hard gate on executing unreviewed code, so "cannot tell" must
+    # REFUSE, not allow. Checked on the raw command text, not on the captured
+    # candidates, so the pattern set cannot hide it again.
+    unresolvable = re.search(r"[`$][^\s\"';&|]*\.(?:py|sh)\b", command)
+    if unresolvable:
+        sys.stderr.write(
+            "BLOCKED by the code-review law: the code path "
+            f"{unresolvable.group(0)!r} is spelled through a shell variable or "
+            "command substitution and cannot be resolved by the hook, so it "
+            "cannot be judged approved or not. Use a literal path (relative "
+            "to the repo root or absolute).\n")
+        return 2
+
     candidates: set[Path] = set()
     for pattern in _EXEC_PATTERNS:
         for match in pattern.finditer(command):

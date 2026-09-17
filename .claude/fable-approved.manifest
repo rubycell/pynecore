@@ -137,3 +137,10 @@ c22cf4a06f94df4cb3d0ac0378119173d20775bb7ec2c9d52e44b09d588fc4f6  .claude/hooks/
 372c5095e0165eb5b63426c1a13c2653344f7ddb3344a004fb2f5449782c5621  .claude/hooks/test_enforce_ownership.py
 # 2026-09-17 #148: variable-target check shared by the quoted and unquoted scans
 f2f062ba03b78269353fdf07ba3cdc8bec1516390270d21bff2dea4d417985af  .claude/hooks/enforce_ownership.py
+# 2026-09-17 #153 S1 (verification only; commit waits for the operator's panel decision): dummy token + missing token_file in the two straggler test helpers
+0a2a12f48db789d38a2f98ad77f8dee9a05909b5cd179ce22bedf5173076ba75  plugins/dnse/tests/test_broker_state.py
+c1e204552b1b0188554aaaca09cbf550cf5e4729815ad0bdf680cc2034539f9d  plugins/dnse/tests/test_divergence_matrix.py
+# 2026-09-17 code-review hook: an execution path spelled through a shell variable / command substitution is REFUSED (unresolvable), not dropped (#153 bypass)
+974c59b457695a40b613cae596ba3a8bb64dca078833e085cbc3d2b69a5556b2  .claude/hooks/enforce_code_review.py
+# 2026-09-17 code-review hook rev 2: the unresolvable-path check reads the RAW command text (the pytest pattern never captured the variable form)
+07c337728aedec50b136bd7f55dde8292e5ec188d2139dfd382a00f93f092d5f  .claude/hooks/enforce_code_review.py
