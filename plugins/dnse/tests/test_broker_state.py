@@ -11,6 +11,8 @@ is monkeypatched (autouse) so the ``watch_orders`` poll loop never really waits.
 Test functions use the repo convention ``__test_*__`` (see ``pytest.ini``).
 """
 import asyncio
+import tempfile
+from pathlib import Path
 
 import pytest
 import pynecore.lib as lib
@@ -21,6 +23,16 @@ from pynecore.core.broker.models import LegType, OrderStatus
 from pynecore.core.broker.exceptions import (
     BrokerManualInterventionError, ExchangeConnectionError,
 )
+
+#: A trading-token file that deliberately does NOT exist (#153). ``_token()``
+#: checks the FILE FIRST and only then falls back to ``config.trading_token``,
+#: so a test that supplies a dummy token but leaves ``token_file`` at its
+#: default would still read the operator's REAL credential
+#: (``workdir/state/dnse_trading_token.json``) whenever it happens to be
+#: present — which is why these tests passed here and failed in a worktree.
+#: A fresh empty temp dir forces the fallback and keeps this file hermetic,
+#: matching test_journal_wiring.py and seven siblings.
+_ABSENT_TOKEN_FILE = str(Path(tempfile.mkdtemp(prefix="dnse-tests-")) / "missing_token.json")
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +48,9 @@ def _broker(fake_client, *, symbol="VN30F1M", account_no="ACC1", **responses):
     """A real :class:`DNSEBroker` wired to a fake client — the seam every
     state-read/fill-detection method funnels through. ``account_no`` is set
     explicitly so the ``account_id`` property never needs a network call."""
-    cfg = broker.DNSEBrokerConfig(api_key="k", api_secret="s", account_no=account_no)
+    cfg = broker.DNSEBrokerConfig(api_key="k", api_secret="s", account_no=account_no,
+                                  trading_token="tok-A",
+                                  token_file=_ABSENT_TOKEN_FILE)
     instance = broker.DNSEBroker(symbol=symbol, timeframe="5", config=cfg)
     instance._client = fake_client(**responses)
     return instance
