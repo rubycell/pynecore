@@ -1195,16 +1195,10 @@ def live_ohlcv_generator(
                 thread: a dict mutated under it raises, and raising means
                 halt.
                 """
-                nonlocal blind_accum_s, blind_tick_at, saw_real_bar_today
+                nonlocal saw_real_bar_today
 
-                # Clock first, so it keeps accumulating even on cycles that
-                # return early below.
-                now = time.time()
-                elapsed = now - blind_tick_at
-                blind_tick_at = now
+                _tick_blindness_clock()
                 open_now = _market_open_now()
-                if open_now and not _in_feed_quiet_phase():
-                    blind_accum_s += elapsed
 
                 if halt_day_key is not None and halt_day_key != _local_day_key():
                     # New trading day: yesterday's bars prove nothing about
@@ -1232,6 +1226,54 @@ def live_ohlcv_generator(
                     f"{feed_stale_after:.0f}s + grace); halting loudly so a "
                     f"supervisor can restart via the recovery path"
                 )
+
+            def _tick_blindness_clock() -> None:
+                """Advance the #84 blindness clock by the time just observed.
+
+                The clock credits ONLY intervals it actually sampled, and
+                credits each one according to the market state at that
+                sample. That is what makes the pause structural: a closed or
+                declared-quiet interval simply never gets added, wherever the
+                loop happens to be waiting it out.
+
+                Called from BOTH loops, and it must stay that way:
+                  * the main watch loop, which runs every <= 2 s and is where
+                    a CONNECTED-but-silent feed sits (``watch_ohlcv`` times
+                    out, no exception, so the retry loop is never entered);
+                  * the reconnect retry loop, which is where a persistent
+                    outage sits and where the main loop is NOT running.
+
+                Sampling in only one of them is a real bug, not a
+                theoretical one: with retry-loop-only sampling, a lunch break
+                waited out on the silent path is un-sampled, and the first
+                sample after a routine reconnect at the reopen measures the
+                whole 90 minutes, sees the market open AT THAT INSTANT, and
+                books all of it as blindness — halting a HEALTHY feed at
+                every session reopen.
+
+                Rebasing at the individual closed-window sites is NOT enough
+                either: the session gate there is slot-aware
+                (``_market_open_at(synth_ts)``) while the halt gate is
+                point-in-time (``_market_open_now()``), so the two can
+                disagree and the rebase is skipped exactly when it matters.
+                Bounding every credited interval to one sampling period is
+                what makes this correct regardless of which branch waits.
+                """
+                nonlocal blind_accum_s, blind_tick_at
+                if feed_halt_after is None:
+                    # Halting is disarmed (staleness off, or no exposure
+                    # probe — i.e. every data-only run). The clock is then
+                    # meaningless, and this runs on EVERY pass of the main
+                    # watch loop, so skipping it keeps the hot loop byte-for-
+                    # byte as cheap as it was before #84 rather than adding a
+                    # session lookup per iteration to runs that can never
+                    # halt.
+                    return
+                now = time.time()
+                elapsed = now - blind_tick_at
+                blind_tick_at = now
+                if _market_open_now() and not _in_feed_quiet_phase():
+                    blind_accum_s += elapsed
 
             def _deliver_halt_if_due() -> None:
                 """Ship a due halt to the consumer through the bar queue.
@@ -1407,6 +1449,13 @@ def live_ohlcv_generator(
             pending_connection_error: BaseException | None = None
 
             while not stop_event.is_set():
+                # #84: sample the blindness clock on every pass of the MAIN
+                # loop as well as the retry loop. This pass is the one that
+                # runs while a CONNECTED-but-silent feed times out, so
+                # without it a closed window waited out here is never
+                # sampled and lands, whole, on the next sample taken after
+                # the market reopens.
+                _tick_blindness_clock()
                 # Dispatch any deferred dead-WS signal from the previous
                 # iteration's ``except asyncio.TimeoutError`` handler
                 # (see ``pending_connection_error`` notes above).
@@ -1785,7 +1834,7 @@ def live_ohlcv_generator(
                         # staleness clock pauses while the market is
                         # closed: silence is legitimate there, and at
                         # reopen the feed gets a fresh window.
-                        if not _market_open_now():
+                        if not _market_open_now() or _in_feed_quiet_phase():
                             last_real_update = time.time()
                         elif (time.time() - last_real_update
                               >= feed_stale_after):

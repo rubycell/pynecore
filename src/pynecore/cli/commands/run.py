@@ -1914,9 +1914,16 @@ def run(
                         """
                         if _engine._position.size != 0.0:
                             return True
+                        # ``active_intents`` hands back the LIVE dict, and
+                        # this runs on the PRODUCER thread — snapshot it with
+                        # ``tuple()`` (atomic under the GIL) so a concurrent
+                        # mutation cannot raise "dict changed size during
+                        # iteration". The fail-closed rule below would treat
+                        # that as exposed, which is the safe direction, but a
+                        # halt should fire for a real reason, not a race.
                         return any(
                             not isinstance(_intent, ExitIntent)
-                            for _intent in _engine.active_intents.values()
+                            for _intent in tuple(_engine.active_intents.values())
                         )
 
                 live_iter = live_ohlcv_generator(
@@ -2277,25 +2284,37 @@ def run(
         # unprotected position and report success. Raised AFTER the teardown
         # ``finally`` above, so storage is closed and the event loop is stopped
         # exactly as on the happy path — only the exit status differs.
-        # #84: a run that went blind mid-session while holding a position must
-        # not report success. Same shape and the same reason as the #120 exit
-        # below: raised AFTER the teardown ``finally``, so storage is closed
-        # and the event loop stopped exactly as on the happy path, and the run
-        # summary above still prints — only the exit status differs.
-        if feed_liveness_halt:
-            broker_error(
-                "run ended after a FEED LIVENESS HALT — the feed went blind "
-                "mid-session while the book held exposure and reconnect could "
-                "not restore it. The position is UNMONITORED: check the venue "
-                "and flatten or restart; exiting non-zero."
-            )
-            raise Exit(1)
-
+        # #84 shares this shape and this reason: a run that went blind
+        # mid-session while exposed must not report success either, and it is
+        # raised from the same place for the same purpose.
+        #
+        # Both conditions can hold at once, so #120's message is emitted
+        # FIRST and #84's second, under a single ``Exit(1)``: exiting on the
+        # #84 branch alone would swallow the quarantine message, which
+        # carries the stricter runbook ("flatten manually before restarting"
+        # vs "restart").
         if broker_plugin is not None and runner.broker_unprotected_position_quarantine:
             broker_error(
                 "run ended QUARANTINED with an UNPROTECTED position — the "
                 "broker refused the protective exit for the whole wall-clock "
                 "budget. Check the venue and flatten manually before "
                 "restarting; exiting non-zero."
+            )
+            if feed_liveness_halt:
+                broker_error(
+                    "run ALSO ended after a FEED LIVENESS HALT — the feed "
+                    "went blind mid-session. Resolve the quarantine above "
+                    "first; it carries the stricter runbook."
+                )
+            raise Exit(1)
+
+        if feed_liveness_halt:
+            broker_error(
+                "run ended after a FEED LIVENESS HALT — the feed went blind "
+                "mid-session while we held exposure (or a working entry that "
+                "could acquire it) and reconnect could not restore the feed. "
+                "The position is UNMONITORED and any resting entry is STILL "
+                "LIVE at the venue (see #143): check the venue and flatten or "
+                "restart; exiting non-zero."
             )
             raise Exit(1)
