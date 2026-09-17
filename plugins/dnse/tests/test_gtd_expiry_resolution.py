@@ -174,15 +174,76 @@ def __test_a_past_final_trade_date_is_floored_at_the_next_open_day__(
         f"flooring means the expiry is unusable — it must be audible; got {warnings}"
 
 
-def __test_expiry_day_itself_is_floored_to_the_next_open_day__(
+def __test_on_the_final_trade_date_the_gtd_is_that_days_session_close__(
         fake_client, tmp_path, frozen_clock, warnings):
-    """On the final trade date the ceiling is already behind ``now``.
+    """On the final trade date the GTD must stay ON that date, at the close.
 
-    The floor wins (never emit a past GTD) and says so. UNVERIFIED at the venue: whether
-    DNSE accepts a GTD one day past the final trade date ON that date has not been
-    measured — the warning is what puts the operator on notice.
+    INVERTED 2026-09-17. This test previously asserted the opposite — that
+    expiry day floors to the NEXT open day — and its own docstring conceded
+    the premise was "UNVERIFIED at the venue: whether DNSE accepts a GTD one
+    day past the final trade date ON that date has not been measured".
+
+    It was measured, on prod, and the venue refused: four conditional
+    placements (STOP buy/sell, STOP-LIMIT buy/sell) all rejected
+    ``CO-ORD-006 http=400 "Validate Order Failed"``, each immediately preceded
+    by the floor warning this test used to require. So the old assertion
+    pinned a guess that turned out to be wrong, and pinning it kept the bug
+    stable: the clamp was "correct" by its own test while making every native
+    STOP unplaceable for a whole session.
+
+    The cause was the ceiling's TIME, not its date. Midnight UTC of the final
+    trade date is 07:00 ICT on that date — before the session opens — so by
+    mid-session it is already in the past, the floor takes over, and the GTD
+    lands one day PAST the final trade date. The ceiling is now the session
+    close (14:45 ICT = 07:45Z), which is inside the final date in ICT and
+    still ahead of any in-session order.
     """
     b = _broker_with_expiry(fake_client, tmp_path, "2026-09-14")   # == frozen today
+
+    assert _gtd_day(b) == "2026-09-14", (
+        "the GTD must stay ON the final trade date — emitting the next day is "
+        "exactly what DNSE refuses with CO-ORD-006"
+    )
+    assert b._gtd(days=7) == "2026-09-14T07:45:00Z", (
+        "and at the session close, not midnight UTC (07:00 ICT), which is "
+        "already behind any order placed during the session"
+    )
+    assert not any("GTD floored" in line for line in warnings), (
+        "the final trade date is USABLE, so nothing was floored and there is "
+        "nothing to warn about; warning here would train the operator to "
+        "ignore the line that matters when a secdef really is stale"
+    )
+
+
+
+# --- #118 (2026-09-17): the ceiling is a TIME, not just a date ---------------
+
+def __test_the_day_before_expiry_also_uses_the_session_close__(
+        fake_client, tmp_path, frozen_clock, warnings):
+    """The ceiling moved from 00:00Z to 07:45Z on EVERY day, not just expiry day.
+
+    Frozen now is 2026-09-14; a final trade date of 2026-09-17 is three days
+    out, so the ceiling is comfortably in the future either way and the DATE
+    is unchanged. What changes is the time-of-day, and pinning it here stops
+    a future edit from quietly reverting the ceiling to midnight while the
+    date-only assertions elsewhere stay green.
+    """
+    b = _broker_with_expiry(fake_client, tmp_path, "2026-09-17")
+
+    assert b._gtd(days=7) == "2026-09-17T07:45:00Z"
+    assert not any("GTD floored" in line for line in warnings)
+
+
+def __test_a_stale_expiry_still_floors_and_still_warns__(
+        fake_client, tmp_path, frozen_clock, warnings):
+    """The floor path survives — it is for a STALE secdef, which is real (#113).
+
+    Only a final trade date genuinely in the PAST should reach it. This is the
+    control for the inversion above: if the fix had simply deleted the floor,
+    this goes red, and a rolled-away contract would put a GTD in the past on
+    the wire.
+    """
+    b = _broker_with_expiry(fake_client, tmp_path, "2026-08-20")   # previous contract
 
     assert _gtd_day(b) == NEXT_OPEN_DAY
     assert any("GTD floored" in line for line in warnings)
