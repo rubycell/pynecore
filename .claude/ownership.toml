@@ -1,0 +1,104 @@
+# File ownership between concurrent executor sessions (#148).
+#
+# INERT UNTIL ENABLED. Nothing reads this file until
+# `.claude/hooks/enforce_ownership.py` is registered in settings.json. That
+# registration is deliberately NOT part of writing this file: a new PreToolUse
+# hook is the one change that can block every session at once, so it is never
+# introduced during a live trading session.
+#
+# WHAT THIS IS FOR, and what it is NOT for. Ownership stops two sessions
+# EDITING one file. It does not stop one session's STATE reaching another
+# session's PROCESS — that is what the per-worker worktree is for
+# (tools/new_worker_worktree.sh). Both are needed; neither substitutes.
+#
+# TWO RELATIONS, not one:
+#   owner         — this session may write the path; others are blocked.
+#   needs_consent — another session may PROPOSE a change; the owner applies it.
+#
+# The second relation exists because of a real case: an operator-facing runbook
+# stated as fact that a tool exits 0 on a bad verdict. It had never done so —
+# the claim was inherited, not measured — and the false claim was cited as the
+# REASON a working exit-code gate was left disabled. Fixing it was one card's
+# work, in another card's file, hours before a live run. Both sessions were
+# right to refuse to edit the other's file, and with only a hard owner the
+# correct fix stalls at the boundary. The owner applying a proposed line is the
+# resolution; the map has to be able to say so.
+#
+# FAIL OPEN, ALWAYS. An unmapped session is warned, never blocked. A path with
+# no owner is unowned, not forbidden. A hook that wedges a session mid-card is
+# worse than the collisions it prevents — measured: the review hook already
+# caught a session halfway through a mutation run, and a second blocking hook
+# composes into a state neither one explains.
+
+[sessions]
+# session name -> the cards it is working. Advisory; the globs below are the
+# enforced part.
+WorkerForDNSEPlugin  = "#148 (worktrees + ownership), #149 (stage 2)"
+Worker2ForDNSEPlugin = "#133 (token refresh + cron)"
+Worker3ForDNSEPlugin = "#146 / #132 (naked-position sidecar, live_test runner + grader)"
+DNSEPlugin           = "leader — review, adjudication, runbook"
+
+[owner]
+# Worker2 — #133
+"plugins/dnse/tools/refresh_token.py"        = "Worker2ForDNSEPlugin"
+"plugins/dnse/tools/token_status.py"         = "Worker2ForDNSEPlugin"
+"plugins/dnse/tests/test_refresh_token.py"   = "Worker2ForDNSEPlugin"
+"plugins/dnse/tests/test_token_status.py"    = "Worker2ForDNSEPlugin"
+
+# Worker3 — #146 / #132
+"plugins/dnse/tools/venue.py"                = "Worker3ForDNSEPlugin"
+"plugins/dnse/tools/naked_watch.py"          = "Worker3ForDNSEPlugin"
+"plugins/dnse/tools/naked_position.py"       = "Worker3ForDNSEPlugin"
+"plugins/dnse/tests/test_naked_watch.py"     = "Worker3ForDNSEPlugin"
+"plugins/dnse/testing/live_test/**"          = "Worker3ForDNSEPlugin"
+
+# This session — #148
+"tools/new_worker_worktree.sh"               = "WorkerForDNSEPlugin"
+".claude/hooks/enforce_ownership.py"         = "WorkerForDNSEPlugin"
+".claude/hooks/test_enforce_ownership.py"    = "WorkerForDNSEPlugin"
+"docs/plan/worker-handoff-template.md"       = "WorkerForDNSEPlugin"
+
+# Leader — INCLUDING THE ENFORCEMENT SURFACE ITSELF.
+#
+# A map that lets a session own the map is not a map. Measured during review:
+# ownership.toml was assigned to its author, so the LEADER editing it was
+# refused (rc=2) while the refusal text said "ask the leader to reassign" —
+# advice the leader could not take. Worse, `session-names.json`,
+# `settings.json` and the other hooks had NO owner, so under a fail-open map
+# any session could rewrite its own identity, delete the map to make the hook
+# fail open, or deregister the hook outright — all ungated.
+#
+# So the control surface belongs to the leader: the map, the identity file,
+# the settings that register hooks, and the hooks themselves.
+"plugins/dnse/testing/live_test/FRIDAY_2026-09-18_RUNBOOK.md" = "DNSEPlugin"
+".claude/fable-approved.manifest"                             = "DNSEPlugin"
+".claude/ownership.toml"                                      = "DNSEPlugin"
+".claude/session-names.json"                                  = "DNSEPlugin"
+".claude/settings.json"                                       = "DNSEPlugin"
+".claude/hooks/enforce_code_review.py"                        = "DNSEPlugin"
+".claude/hooks/enforce_card_reads.py"                         = "DNSEPlugin"
+
+[needs_consent]
+# Paths where another session may propose a change for the owner to apply.
+# Value is the owner who applies it.
+"plugins/dnse/testing/live_test/FRIDAY_2026-09-18_RUNBOOK.md" = "DNSEPlugin"
+"plugins/dnse/testing/live_test/run_*.sh"                     = "Worker3ForDNSEPlugin"
+
+[machine_state]
+# MACHINE-LEVEL STATE HAS NO REPO OWNER, and that is the gap ownership-by-path
+# does not see. Measured 2026-09-17: the user crontab (117 lines) is SHARED
+# with the sibling project vnstocksectorvnindexcorrelation, whose own docs tell
+# agents to run `crontab deploy/crontab` in THREE places (AGENTS.md:292,
+# CLAUDE.md:141, docs/adding_a_data_source.md:189). That file is 100 lines and
+# contains ZERO pynecore entries, and `crontab <file>` is a whole-file REPLACE
+# with no merge mode — so following one repo's documented routine silently
+# deletes the other repo's 08:00 trading-token refresh and @reboot guard.
+# Neither repo's tests would notice.
+#
+# RULE: every installer MERGES (append-if-absent) and NEVER replaces. Snapshot
+# before any write. These entries name who may write each piece of state.
+"crontab"                     = "operator"      # merge only; snapshot first
+"systemd units"               = "operator"
+".env"                        = "operator"      # secrets; never echoed, moved file-to-file
+"workdir/state/**"            = "runtime"       # written by the running bot, not by sessions
+"workdir/config/plugins/**"   = "operator"      # credentials; gitignored
