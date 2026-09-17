@@ -17,6 +17,18 @@ Either answer is a measurement we need before trusting WS as the primary fill tr
 Costs accepted: a stop entry fills only on a breakout (mitigated by the per-run window + fallback
 below); the contract is held ~2 bars at 5m; worst case 6 contract round-trips, typical 4.
 
+## 0b. Thursday 09-17 afternoon (operator decision 12:05): ws arm runs TODAY, expiry day
+
+Operator moved the ws arm to Thursday 13:00 (Worker3 executing; poll arm + roll grade stay
+Friday). Expiry-day deltas: no roll grade; thin liquidity → NO-SAMPLE likely; flat by 14:25 is
+absolute (14:30 ATC is the final settlement auction). **Window deviation:** `--window-bars 3`
+today, not the default 6 — with 6, a NO-SAMPLE run 1 (13:00 + 2700 s) ends after the 13:40
+latest-start, so the l2 fallback AND run 2 are both refused by the deadline gate and the arm
+yields nothing; with 3, NO-SAMPLE ends ~13:30 and the fallback fits. Today's rows are graded
+with `window-bars=3` written on them; Friday's rows use 6 and are not comparable as equals.
+Pre-flight 12:20: commits present, 742 passed/1 xfailed, token GOOD (hand-minted, no cron log —
+expected), venue flat ×2, W0 sight = 41I1G9000 (the expiring contract, correct today).
+
 ## 1. Thursday evening prep — runner change (card, Worker3 after #132-W0; Fable reviews)
 
 `plugins/dnse/testing/live_test/run_f13_latency.sh` gains:
