@@ -2259,6 +2259,26 @@ def __test_84_budget_is_reachable_at_production_constants__():
         ("dnse 1D", 17, 86400), ("ccxt 1m", 30, 60), ("ccxt 15m", 30, 900),
         ("default 1m", 3, 60), ("default 1D", 3, 86400),
     ]
+    # FIXED VALUES at the production constants. The invariants below bound
+    # the budget but do not PIN it — a grace multiplier of 0.5 or 1.5 keeps
+    # every invariant and every behavioural pin green (they all override the
+    # constants for speed), so a silent change to the tuning would ship
+    # unnoticed. These rows are the only thing that sees it.
+    assert (_lr._FEED_STALE_FLOOR_S, _lr._FEED_HALT_GRACE_MULTIPLIER,
+            _lr._FEED_HALT_CEILING_S) == (90.0, 2.0, 600.0), (
+        "production tuning changed — update the fixed rows below DELIBERATELY "
+        "and re-check reachability against a real session length, do not just "
+        "make this pass"
+    )
+    for label, ftb, tf, expected in (
+        ("dnse 1m", 17, 60, 1620.0),     # 17m staleness + 10m capped grace
+        ("dnse 5m", 17, 300, 5700.0),    # 1h25m staleness + 10m capped grace
+    ):
+        _stale, got = _budget(ftb, tf)
+        assert got == expected, (
+            f"{label}: halt budget {got:.0f}s != the reviewed {expected:.0f}s"
+        )
+
     for label, ftb, tf in cases:
         stale, budget = _budget(ftb, tf)
         assert budget > stale, (
@@ -2482,3 +2502,103 @@ def __test_84_closed_window_time_does_not_count_as_blindness__():
         "closed-window time must not accumulate as blindness — a raw-elapsed "
         "clock halts here, and would halt every lunch break in production"
     )
+
+
+class _ConnectedThenSilentProvider(MockLiveProvider):
+    """One real bar, then a CONNECTED-but-silent feed, then one error.
+
+    ``watch_ohlcv`` stops answering without ever raising, and
+    ``is_connected`` stays True — so the generator sits on the ``except
+    asyncio.TimeoutError`` session-gate path and NEVER enters the reconnect
+    retry loop. That is the whole point: the retry loop is where the #84
+    blindness clock is sampled, so a closed window waited out here is a
+    window nothing samples.
+
+    After ``error_after_s`` it raises ONCE (a routine WS reconnect at the
+    session reopen), which re-enters the retry loop and takes the first
+    sample since the bar — then it delivers its second real bar.
+    """
+
+    def __init__(self, error_after_s: float):
+        super().__init__([_make_ohlcv(1000, is_closed=True, close=100.0),
+                          _make_ohlcv(2000, is_closed=True, close=200.0)])
+        self.reconnect_delay = 0.001
+        self.max_reconnect_delay = 0.002
+        self.feed_timeout_bars = 0.05
+        self._error_after_s = error_after_s
+        self._started = time.monotonic()
+        self._errored = False
+
+    @property
+    def is_connected(self) -> bool:
+        return True
+
+    async def connect(self):
+        self._connected = True
+
+    async def watch_ohlcv(self, symbol: str, timeframe: str) -> OHLCV:
+        if self._index >= 1:
+            if time.monotonic() - self._started < self._error_after_s:
+                await asyncio.sleep(5)       # silent: wait_for times out
+                raise asyncio.CancelledError()
+            if not self._errored:
+                self._errored = True
+                raise ConnectionError("routine reconnect at session reopen")
+        return await super().watch_ohlcv(symbol, timeframe)
+
+
+def __test_84_closed_window_waited_out_while_CONNECTED_does_not_count__():
+    """The blindness clock must pause on EVERY closed-window path.
+
+    Regression pin for a real defect in the first #84 implementation. The
+    clock was sampled only inside the reconnect retry loop, but a closed
+    window can also be waited out on the ``except asyncio.TimeoutError``
+    session-gate path — taken when the provider still reports
+    ``is_connected``, i.e. the "reconnects cleanly then says nothing" case
+    this feature exists for. That path rebased ``last_real_update`` but not
+    the blindness clock, so the first sample after ANYTHING re-entered the
+    retry loop measured elapsed across the whole closed window, saw the
+    market open at that instant, and booked all of it as OPEN blindness.
+
+    Concretely, on DNSE 1m: last bar 11:29, lunch waited out on this path,
+    a routine reconnect at 13:00:10 before the first afternoon bar → 91 min
+    of "blindness" against a 27 min budget, with a position held over lunch
+    → halt and ``Exit(1)`` on a HEALTHY feed, at every reopen meeting the
+    precondition.
+
+    Here: ~0.1 s of true open blindness before the close, a 1.4 s closed
+    window against a 0.6 s budget, then one reconnect after reopen. A
+    pausing clock never reaches the budget; the unpaused one is far past it
+    the moment it takes its first sample.
+
+    Distinct from ``__test_84_closed_window_time_does_not_count_as_blindness__``
+    which uses a provider that RAISES, so its closed window is spent INSIDE
+    the retry loop and it cannot see this bug at all.
+
+    UNVERIFIED: whether DNSE specifically keeps ``is_connected`` True across
+    the lunch break. The mechanism is generic to the session-gate path and
+    does not depend on that, but the concrete DNSE scenario above is
+    therefore illustrative rather than measured.
+    """
+    provider = _ConnectedThenSilentProvider(error_after_s=1.5)
+    with _halt_budget_shrunk():
+        # Reaching this line at all IS the assertion: under the defect the
+        # drain raises FeedLivenessHaltError here. The stream is not checked
+        # for the second real bar — by the time it arrives the idle-synth
+        # machinery has already passed its slot, so it is legitimately
+        # dropped as late (see
+        # __test_live_generator_drops_late_real_bar_for_already_synthesised_boundary__).
+        _, bars = _scripted_session_drain(
+            provider, closed_from=0.1, closed_until=1.4,
+            exposure_probe=lambda: True,
+        )
+
+    # Guard against a VACUOUS pass: the bug only shows on the first sample
+    # taken after the reopen, so a run that never errored never sampled and
+    # would pass no matter what the clock did.
+    assert provider._errored, (
+        "the provider must have raised once after the reopen — otherwise the "
+        "retry loop was never entered, no sample was taken, and this pin "
+        "proves nothing about the clock"
+    )
+    assert bars, "the run must have produced bars, not died early"
