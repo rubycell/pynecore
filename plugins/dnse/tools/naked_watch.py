@@ -53,6 +53,7 @@ import argparse
 import asyncio
 import json
 import sqlite3
+import os
 import sys
 import threading
 import time
@@ -102,9 +103,19 @@ def prove_sight(broker) -> tuple[bool, str]:
     """
     symbol = broker.symbol or ""
     try:
-        resolved = broker.resolve_contract()
+        # require_contract (#145) RAISES rather than falling back to the alias,
+        # and it discriminates on PROVENANCE — a 200 that simply lacks the row
+        # (the catalogue is paged) is unresolved too, which a status check
+        # cannot see. W0 is its first consumer, which is fitting: a watchdog
+        # that cannot establish the contract must say BLIND, not read FLAT.
+        # This deliberately does NOT re-derive "is it resolved?" — that policy
+        # now lives in one place, and the second copy is what produced the
+        # worst_exit_code miss two rounds ago.
+        resolved = broker.require_contract()
     except Exception as exc:                                      # noqa: BLE001
-        return False, f"resolve_contract RAISED {type(exc).__name__}: {exc}"
+        return False, (f"contract UNRESOLVED ({type(exc).__name__}: {exc}) — "
+                       f"every position read would filter on an alias and "
+                       f"answer FLAT (#145)")
     try:
         status, body = broker.client.get_instruments(limit=200)
     except Exception as exc:                                      # noqa: BLE001
@@ -112,16 +123,42 @@ def prove_sight(broker) -> tuple[bool, str]:
     if status != 200 or not isinstance(body, dict):
         return False, (f"instruments read answered HTTP {status} — a cached "
                        f"alias cannot be ruled out (#145)")
-    codes = {str(r.get("symbol")) for r in (body.get("data") or [])}
-    if symbol.upper().startswith("VN30F") and resolved == symbol:
-        return False, (f"{symbol!r} resolved to ITSELF — that is the #145 "
-                       f"signature: a derivative alias is never a tradable "
-                       f"code, so this is a cached failed read")
-    if codes and resolved not in codes:
+    rows = body.get("data") or []
+    if not rows:
+        # A 200 with an EMPTY catalogue proved sight under the first cut
+        # (`if codes and ...` skipped the check entirely). Empty is not an
+        # answer: it is a read that told us nothing.
+        return False, ("the instruments catalogue came back EMPTY — that is "
+                       "not evidence the cached contract is current")
+    # The alias-resolves-to-itself check that stood here is GONE: that is
+    # exactly what require_contract now refuses, above, and keeping a local
+    # copy would mean two definitions of "unresolved" drifting apart.
+    #
+    # THE ROLL (#113), and membership alone does not survive it. The provider
+    # caches a RESOLVED code permanently, and for a while after the repoint the
+    # catalogue lists BOTH the expired and the new contract — so a stale code
+    # is still "in codes", passes, and then get_position filters on a contract
+    # the account no longer holds, answers None, and the sidecar reports
+    # "nothing bot-owned is open" over a position held in the NEW code. The
+    # binding question is not "does this code exist?" but "is this code the one
+    # our ALIAS points at TODAY?".
+    current = [str(r.get("symbol")) for r in rows
+               if str(r.get("symbolType") or "") == symbol.upper()]
+    if current:
+        if resolved not in current:
+            return False, (f"{symbol} now maps to {current[0]!r} but this "
+                           f"process has {resolved!r} cached — the alias has "
+                           f"REPOINTED (#113 roll). Restart the sidecar; its "
+                           f"position reads are filtering on an expired "
+                           f"contract and will answer FLAT.")
+        return True, (f"{symbol} -> {resolved} (confirmed as the CURRENT "
+                      f"mapping, not merely present in the catalogue)")
+    if resolved not in {str(r.get("symbol")) for r in rows}:
         return False, (f"resolved contract {resolved!r} is absent from the "
                        f"instruments catalogue — stale cache across a roll "
                        f"(#113)?")
-    return True, f"{symbol} -> {resolved} (confirmed against the catalogue)"
+    return True, (f"{symbol} -> {resolved} (present in the catalogue; no "
+                  f"symbolType row to confirm it is the current mapping)")
 
 
 # --------------------------------------------------------------- journal
@@ -219,6 +256,32 @@ def journal_attribution(store_path, account_id: str):
     return owned, exposure, per_id
 
 
+def _today_start_ms() -> int:
+    """Midnight ICT today, in epoch ms — the same boundary the journal uses."""
+    return int(datetime.now(ICT).replace(
+        hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+
+
+def _epoch_ms(value) -> "float | None":
+    """DNSE serves epoch MILLISECONDS; tolerate seconds and ISO, else None.
+
+    A date we cannot parse must not become a number — it would silently answer
+    the reissue question in whichever direction the default happened to fall.
+    """
+    if value is None:
+        return None
+    try:
+        number = float(value)
+        return number if number > 1e11 else number * 1000.0
+    except (TypeError, ValueError):
+        pass
+    try:
+        text = str(value).replace("Z", "+00:00")
+        return datetime.fromisoformat(text).timestamp() * 1000.0
+    except (TypeError, ValueError):
+        return None
+
+
 # ----------------------------------------------------------------- venue
 
 class _PhantomCache:
@@ -278,10 +341,14 @@ def read_resting(broker, symbol, owned, per_id, phantoms):
         is_owned = oid in owned
         if attribution.get("stale_numeric"):
             # N1: our journal claims this id from a PRIOR day. Believe it only
-            # if the resting order still looks like the one we journalled.
+            # if the resting order still looks like the one we journalled AND
+            # the venue did not create it today (a today-created record under a
+            # prior-day journal id is a reissue by definition).
             if core.stale_numeric_id_verdict(
                     attribution.get("side"), attribution.get("qty"),
-                    venue_side, venue_qty) == "owned":
+                    venue_side, venue_qty,
+                    venue_created_ms=_epoch_ms(row.get("createdDate")) if row else None,
+                    day_start_ms=_today_start_ms()) == "owned":
                 is_owned = True
             else:
                 print(f"   id {oid}: prior-day journal row does not match the "
@@ -328,10 +395,21 @@ class Heartbeat:
     promptly.
     """
 
-    def __init__(self, interval_s: float, emit, stall_after_s: float = 0.0) -> None:
+    def __init__(self, interval_s: float, emit, stall_after_s: float = 0.0,
+                 on_stall=None) -> None:
         self._interval = interval_s
         self._emit = emit
         self._stall_after = stall_after_s
+        #: What a STALL does. The default IS the production behaviour — a hard
+        #: ``os._exit`` from this thread, because the main thread is blocked in
+        #: a venue read and will never observe a flag or an exception. It is a
+        #: parameter only so the behaviour can be OBSERVED: with the hard exit
+        #: wired in unconditionally, the stall pin killed the pytest process
+        #: itself (exit 2, no summary, the whole suite gone), which is both
+        #: untestable and a fair warning about what this does to anything
+        #: sharing the interpreter. Injecting the ACTION keeps the shipped
+        #: default honest while making it pinnable.
+        self._on_stall = on_stall if on_stall is not None else os._exit
         self._stop = threading.Event()
         self._last_done = time.monotonic()
         self._seq = 0
@@ -352,6 +430,20 @@ class Heartbeat:
             age = time.monotonic() - self._last_done
             if self._stall_after and age >= self._stall_after and not self.stalled:
                 self.stalled = True
+                self._emit(self._seq, age)
+                # EXIT FROM THE THREAD. The flag was consulted only at loop END,
+                # so a genuinely hung cycle — a venue read with no asyncio
+                # deadline, urllib3 defaults connect=30/read=60 — never reached
+                # it: the process printed STALLED forever and exited 2 only if
+                # someone pressed Ctrl-C. A watchdog that has stopped watching
+                # must STOP, loudly and by itself, or its supervisor cannot
+                # restart it. os._exit because the main thread is blocked in a
+                # read and will not observe a flag or an exception.
+                print("!! HEARTBEAT STALL — exiting could-not-determine so a "
+                      "supervisor can restart this watchdog", flush=True)
+                sys.stdout.flush()
+                self._on_stall(core.EXIT_UNKNOWN)
+                return          # reached only when a caller injected a no-op
             self._emit(self._seq, age)
 
     def start(self) -> None:
@@ -502,8 +594,11 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--heartbeat", type=float, default=30.0,
                         help="heartbeat cadence in seconds (0 disables)")
     parser.add_argument("--bar-period", type=float, default=0.0,
-                        help="the run's bar period in seconds; the naked-confirm "
-                             "window is max(30s, this)")
+                        help="the run's bar period in seconds — PASS THIS. The "
+                             "naked-confirm window is max(30s, this), and a "
+                             "reactively placed exit arms a bar late by design, "
+                             "so leaving it 0 at 5m/15m pages on every entry "
+                             "(300 / 900 are the values for those timeframes)")
     parser.add_argument("--stall-after", type=float, default=120.0,
                         help="seconds without a completed evaluation before the "
                              "heartbeat reports a STALL and the run exits "

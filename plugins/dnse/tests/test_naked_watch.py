@@ -228,10 +228,19 @@ def __test_blind_watcher_is_never_OK__():
 
 
 def __test_off_session_FREEZES_rather_than_evaluating__():
-    """Off session the books answer 200 with ZERO rows, so every order
-    legitimately vanishes. Catches: evaluating across the lunch break or
-    after 14:45, which alarms on every held position."""
-    assessment = core.evaluate(_obs(phase="lunch", resting=()))
+    """With the books CLOSED an absent order is not evidence of a missing one,
+    so the population is frozen rather than evaluated. Catches: alarming on
+    every position held overnight.
+
+    NOTE — this pin originally used `lunch`, on the premise that every
+    non-continuous phase has empty books. Review round 2 traced that premise to
+    a measurement taken on a WEEKEND (live_test/README.md:387), while T9
+    (README:179) shows a PendingCancel row served THROUGH lunch. The contract
+    changed deliberately: only `closed` freezes, and lunch/atc are evaluated by
+    `__test_lunch_and_atc_are_EVALUATED_not_held__`. The assertion was not
+    weakened to go green — the behaviour it described was wrong.
+    """
+    assessment = core.evaluate(_obs(phase="closed", resting=()))
     assert assessment.verdict is Verdict.HOLD, assessment.reason
 
 
@@ -343,8 +352,11 @@ def __test_sight_is_NOT_proven_when_the_alias_resolves_to_itself__(
     proven, detail = watch.prove_sight(broker)
     assert not proven, (
         "sight was declared PROVEN after a FAILED instruments read — the "
-        "alias is now cached and every position read will answer FLAT (#145)")
-    assert "#145" in detail or "cached" in detail
+        "alias would be cached and every position read would answer FLAT (#145)")
+    assert "UNRESOLVED" in detail, (
+        f"the refusal must name WHAT failed; got {detail!r}. W0 is the first "
+        f"consumer of require_contract's guarantee, so its message is the one "
+        f"an operator reads when the contract cannot be established.")
 
 
 def __test_sight_IS_proven_against_a_healthy_catalogue__(fake_client, tmp_path):
@@ -521,8 +533,16 @@ def __test_known_off_session_phases_still_HOLD__():
     """The over-block control for F2: if every non-continuous phase became
     UNDETERMINED, the tool would report could-not-determine all night and the
     F2 pin above would still pass. Catches a fix that forgot the allowlist —
-    including the holiday ANNOTATION form venue.py appends."""
-    for phase in ("lunch", "atc", "closed", "closed (exchange holiday)"):
+    including the holiday ANNOTATION form venue.py appends.
+
+    This pin ALSO listed lunch and atc until review round 2 refuted the premise
+    (see `__test_lunch_and_atc_are_EVALUATED_not_held__`). It was the SECOND
+    pin orphaned by that one contract change, and the suite found it rather
+    than a sweep — which is why the sweep is now the rule: when a change
+    inverts a documented behaviour, grep the phase/verdict tokens across the
+    test file BEFORE running, because `-x` only surfaces them one at a time.
+    """
+    for phase in ("closed", "closed (exchange holiday)"):
         assessment = core.evaluate(_obs(phase=phase))
         assert assessment.verdict is Verdict.HOLD, (
             f"phase {phase!r} graded {assessment.verdict} — a known "
@@ -620,18 +640,184 @@ def __test_sight_is_reproved_every_cycle__(fake_client, tmp_path, monkeypatch):
         "stale cache across the roll (#113) could never be detected mid-run")
 
 
-def __test_heartbeat_stall_sets_a_flag_the_exit_code_can_use__():
-    """A stall that only PRINTS is a warning no wrapper can act on, and a hung
-    cycle is exactly when the operator needs a non-zero exit.
+def __test_heartbeat_stall_EXITS_rather_than_only_flagging__():
+    """A stall must terminate the process, not merely set a flag.
 
-    Catches: a print-only stall notice (the shipped behaviour).
+    Two shipped behaviours this catches, in order of discovery:
+    (a) print-only — a warning no wrapper can act on;
+    (b) flag-only — the flag was consulted at LOOP END, which a genuinely hung
+        cycle never reaches, so the process printed STALLED forever and exited
+        2 only if someone pressed Ctrl-C.
+
+    The action is injected because the default is `os._exit`: wired in
+    unconditionally it killed the pytest process itself (exit 2, no summary,
+    the whole suite gone). The default here is still the real one — this pin
+    asserts the EXIT CODE the watchdog would hand its supervisor.
     """
-    beat = watch.Heartbeat(0.01, lambda seq, age: None, stall_after_s=0.02)
+    exits = []
+    beat = watch.Heartbeat(0.01, lambda seq, age: None, stall_after_s=0.02,
+                           on_stall=exits.append)
     beat.start()
     deadline = time.time() + 2.0
-    while not beat.stalled and time.time() < deadline:
+    while not exits and time.time() < deadline:
         time.sleep(0.01)
     beat.stop()
-    assert beat.stalled, (
+    assert exits, (
         "no completed evaluation for well past the threshold and the heartbeat "
-        "never flagged a stall")
+        "neither exited nor flagged — a watchdog that has stopped watching "
+        "must stop loudly enough for a supervisor to restart it")
+    assert exits[0] == core.EXIT_UNKNOWN, (
+        f"stalled with exit code {exits[0]}; a hung watchdog has not observed "
+        f"anything, so its verdict is could-not-determine")
+    assert beat.stalled
+
+
+# === review round 2 (Fable on e9b14434) — four more false-silence paths =====
+
+def __test_loop_exit_code_covers_UNATTRIBUTED__():
+    """R2-F1, unconditional and unpinned before this.
+
+    `Verdict.exit_code` said UNATTRIBUTED == 2 while `worst_exit_code` tested a
+    hardcoded tuple that omitted it — so `--once` answered 2 and LOOP MODE,
+    which is the mode Friday runs, exited 0 after an unattributed cycle. The
+    same policy was encoded twice and only one copy was updated.
+
+    Catches: any re-hardcoding of the verdict list in worst_exit_code.
+    """
+    assert core.worst_exit_code([Verdict.UNATTRIBUTED]) == core.EXIT_UNKNOWN
+    assert core.worst_exit_code(
+        [Verdict.OK, Verdict.UNATTRIBUTED, Verdict.OK]) == core.EXIT_UNKNOWN, (
+        "a loop that saw an UNATTRIBUTED cycle exited 0 — the wrapper is told "
+        "the invariant held")
+    assert core.worst_exit_code(
+        [Verdict.UNATTRIBUTED, Verdict.NAKED]) == core.EXIT_NEGATIVE, (
+        "an alarm must still outrank could-not-determine")
+
+
+def __test_partially_unjournalled_position_is_UNATTRIBUTED__():
+    """R2-F2 — the residual of the first UNATTRIBUTED fix, which tested
+    `owned == 0.0` EXACTLY.
+
+    The same mechanism (#39/#120: a stop entry's normal-book child never
+    adopted because the engine died between trigger and adoption) produces a
+    NONZERO remainder whenever only part of the position is journalled — a
+    pyramiding stop entry, or the #105 frozen-2 flip. Venue +2 with journal +1
+    graded [OK] exposure +1 covered, silently carrying an unaccounted contract.
+
+    Catches: `owned == 0.0` instead of a magnitude comparison.
+    """
+    assessment = core.evaluate(_obs(position_signed=2.0, owned_exposure=1.0,
+                                    resting=(_order(side="sell"),)))
+    assert assessment.verdict is Verdict.UNATTRIBUTED, (
+        f"venue +2 / journal +1 graded {assessment.verdict.value}: "
+        f"{assessment.reason}")
+    assert "unattributed" in assessment.reason
+
+
+def __test_fully_journalled_position_is_not_flagged_unattributed__():
+    """Over-block control for R2-F2: if any position triggered UNATTRIBUTED the
+    tool would be permanently exit 2 and the pin above would still pass.
+    Venue +2 fully journalled with cover is a normal, healthy cycle."""
+    assessment = core.evaluate(_obs(position_signed=2.0, owned_exposure=2.0,
+                                    resting=(_order(side="sell", qty=2.0),)))
+    assert assessment.verdict is Verdict.OK, assessment.reason
+
+
+def __test_lunch_and_atc_are_EVALUATED_not_held__():
+    """R2-F4. HOLD at lunch/atc rested on a measurement taken on a WEEKEND
+    (live_test/README.md:387); T9 (README:179) shows a PendingCancel row served
+    THROUGH lunch, so those books are populated. Holding meant exit 0 and
+    silence for 90 minutes at lunch and 15 at ATC — the latter being exactly
+    when an unprotected position meets the auction print.
+
+    Catches: the original {closed, lunch, atc} freeze set.
+    """
+    for phase in ("lunch", "atc"):
+        assessment = core.evaluate(_obs(phase=phase, resting=()))
+        assert assessment.verdict is Verdict.NAKED, (
+            f"phase {phase!r} graded {assessment.verdict.value} over an "
+            f"uncovered position — 105 minutes a day of silence")
+
+
+# The `closed`-still-holds control that belonged here is NOT duplicated: it is
+# `__test_known_off_session_phases_still_HOLD__` above, which already asserts
+# exactly that over both the plain and holiday-annotated forms. Three pins were
+# converging on one fact after this round, and a fact asserted in three places
+# is three places to drift — the same duplication that produced R2-F1.
+
+
+def __test_a_venue_record_created_TODAY_under_a_prior_day_id_is_a_reissue__():
+    """R2-N1 — the coincidence side+qty alone cannot catch.
+
+    Derivative quantity is almost always 1, so on an id hit the corroboration
+    degrades to side-only: "our overnight `501 sell 1` was cancelled with the
+    engine down, the venue reissued `501` to the operator's `sell 1`" reads as
+    our cover over a naked position. A venue record CREATED TODAY under an id
+    our journal recorded on a PRIOR day is a reissue by definition — the order
+    we journalled cannot have been created after we wrote it down.
+
+    Catches: side+qty corroboration without the date.
+    """
+    day_start = 1_789_400_000_000
+    assert core.stale_numeric_id_verdict(
+        "sell", 1.0, "sell", 1.0,
+        venue_created_ms=day_start + 3_600_000,   # created TODAY
+        day_start_ms=day_start) == "unclassifiable"
+    assert core.stale_numeric_id_verdict(
+        "sell", 1.0, "sell", 1.0,
+        venue_created_ms=day_start - 86_400_000,  # created YESTERDAY: ours
+        day_start_ms=day_start) == "owned"
+
+
+def __test_unparsable_venue_date_does_not_silently_pass_the_reissue_check__():
+    """A date we cannot read must not become a number. Catches defaulting an
+    unparsable createdDate to 0 (which reads as 'created long ago' and passes
+    the reissue check) — the empty-is-not-an-answer rule applied to a field."""
+    assert watch._epoch_ms(None) is None
+    assert watch._epoch_ms("not-a-date") is None
+    assert watch._epoch_ms(1789456800000) == 1789456800000.0
+    assert watch._epoch_ms(1789456800) == 1789456800000.0
+
+
+def __test_sight_fails_when_the_alias_has_repointed_across_the_roll__(
+        fake_client, tmp_path):
+    """R2-F3, and tomorrow IS roll morning.
+
+    The provider caches a RESOLVED code permanently, and after the repoint the
+    catalogue lists BOTH the expired and the new contract for a while — so a
+    membership test (`resolved in codes`) still passes, get_position then
+    filters on a contract the account no longer holds, answers None, and the
+    sidecar reports "nothing bot-owned is open" over a position held in the NEW
+    code.
+
+    Catches: membership instead of "is this the CURRENT mapping for our alias?".
+    """
+    rolled = (200, {"data": [
+        {"symbolType": "VN30F1M", "symbol": "41I1GA000"},   # the NEW front month
+        {"symbolType": "", "symbol": "41I1G9000"},          # expired, still listed
+    ]})
+    broker = _broker(fake_client, tmp_path, get_instruments=rolled)
+    # Stub the PUBLIC method, not the private cache. The first cut seeded
+    # `broker._contract_cache = {"VN30F1M": "41I1G9000"}` — and when #145's fix
+    # legitimately changed that cache to a 3-tuple carrying a read timestamp,
+    # this pin broke with `ValueError: too many values to unpack` while the
+    # code under test was fine. A pin reaching into a private shape makes a
+    # colleague's correct refactor look like a regression; pin the interface.
+    broker.require_contract = lambda *a, **k: "41I1G9000"    # cached pre-roll
+    proven, detail = watch.prove_sight(broker)
+    assert not proven, (
+        "a stale pre-roll contract passed the sight proof because it was still "
+        "listed — every position read would answer FLAT")
+    assert "REPOINTED" in detail or "#113" in detail
+
+
+def __test_empty_instruments_catalogue_is_not_proof_of_sight__(
+        fake_client, tmp_path):
+    """A 200 with `data: []` used to PROVE sight, because the membership check
+    was guarded by `if codes and ...` and an empty set skipped it entirely.
+    Empty is not an answer."""
+    broker = _broker(fake_client, tmp_path, get_instruments=(200, {"data": []}))
+    broker.require_contract = lambda *a, **k: "41I1G9000"
+    proven, detail = watch.prove_sight(broker)
+    assert not proven, "an EMPTY catalogue proved sight"
+    assert "EMPTY" in detail
