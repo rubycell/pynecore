@@ -16491,6 +16491,109 @@ def __test_122_partial_entry_remainder_keep_tracking_when_cancel_not_landed__():
     )
 
 
+def __test_122_fractional_full_fill_dispatches_no_spurious_entry_cancel__():
+    """A fully filled FRACTIONAL entry must not be cancelled (finding 26a).
+
+    The fill ledger accumulates in float with an over-clamp only, so a
+    complete fractional entry (0.7 + 0.1) reads 0.7999... < 0.8. An
+    epsilon-free `filled >= qty` check dispatched a cancel against a DONE
+    order — which the venue refuses forever, turning the park into a
+    permanent, restart-surviving lock on the pine id. The tolerant compare
+    (matching the file's three sibling ledger reads) makes it a no-op.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 0.8, limit=50_000.0)
+    engine.sync(BAR_TS)
+    engine._route_event(_fill_event(
+        "buy", qty=0.7, price=50_000.0, pine_id="L", leg=LegType.ENTRY,
+        event_type='partial', filled_qty=0.7, remaining_qty=0.1,
+    ))
+    engine._route_event(_fill_event(
+        "buy", qty=0.1, price=50_000.0, pine_id="L", leg=LegType.ENTRY,
+        filled_qty=0.8, remaining_qty=0.0,
+    ))
+    cancels_before = len(b.cancel_calls)
+
+    engine._accept_confirmed_external_flatten()
+
+    assert len(b.cancel_calls) == cancels_before, (
+        "a fully filled fractional entry got a spurious cancel — the "
+        "float-accumulated ledger read < qty without the 1e-9 tolerance"
+    )
+    assert "L" not in engine._forced_cancel_pending, (
+        "a spurious cancel of a done order parked forever (the venue "
+        "refuses it, so the park can never be released)"
+    )
+
+
+def __test_122_moot_entry_park_is_released_when_the_remainder_fills__():
+    """A park over an entry that COMPLETES after parking must be released.
+
+    The remainder's fill can race the cancel: entry qty 2, park taken on
+    the working remainder, then the remainder fills before the cancel
+    lands. A cancel of a done order is refused forever, so `_retry_forced_
+    cancels` must recognise the moot obligation (ledger now complete) and
+    release the park + its durable row rather than locking the pine id.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 2.0, limit=50_000.0)
+    engine.sync(BAR_TS)
+    engine._route_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="L", leg=LegType.ENTRY,
+        event_type='partial', filled_qty=1.0, remaining_qty=1.0,
+    ))
+    b.false_on_next_cancel = True          # cancel won't land: park stays
+    engine._accept_confirmed_external_flatten()
+    assert "L" in engine._forced_cancel_pending, "park taken on the remainder"
+
+    # the remainder fills before the retry — the obligation is now moot.
+    # The venue keeps refusing (a done order can never be cancelled), so
+    # only a MOOT release — not a landed retry — can clear the park.
+    engine._active_entry_filled_qty["L"] = 2.0
+    b.false_on_next_cancel = True
+    cancels_before = len(b.cancel_calls)
+    engine._retry_forced_cancels()
+
+    assert "L" not in engine._forced_cancel_pending, (
+        "the park over a now-complete entry was not released — it would "
+        "lock the pine id forever (the venue refuses a done-order cancel)"
+    )
+    assert len(b.cancel_calls) == cancels_before, (
+        "a moot park was re-driven against a done order instead of released"
+    )
+
+
+def __test_122_our_fill_close_cancels_a_partial_entry_remainder__():
+    """The our-fill retire path must also cancel a working remainder (26b).
+
+    Finding 25's first fix scoped the entry-remainder cancel to external
+    flattens, claiming our-fill paths always see a terminal entry. False:
+    `_cleanup_closed_position` retires after a TP/SL fill closes the FILLED
+    slice while the remainder still rests. Unscoping the helper (its own
+    ledger discrimination keeps it a no-op on terminal entries) fixes it.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 2.0, limit=50_000.0)
+    engine.sync(BAR_TS)
+    engine._route_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="L", leg=LegType.ENTRY,
+        event_type='partial', filled_qty=1.0, remaining_qty=1.0,
+    ))
+    cancels_before = len(b.cancel_calls)
+
+    # our own close of the filled slice retires tracking (no external flag)
+    engine._cleanup_position_tracking("L")
+
+    new_cancels = b.cancel_calls[cancels_before:]
+    assert any(getattr(c.intent, "pine_id", None) == "L" for c in new_cancels), (
+        "the our-fill retire path disowned the working remainder with no "
+        "cancel — the finding-25 bug, alive on the path the fix declared safe"
+    )
+
+
 def __test_122_ambiguous_cancel_must_not_strand_the_protective_order__():
     """An AMBIGUOUS cancel must keep its tracking, even though
     `_dispatch_cancel` returns True for it.
