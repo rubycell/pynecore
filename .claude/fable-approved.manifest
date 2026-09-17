@@ -42,3 +42,9 @@ e4a8af042d6d7eb4fd5a0a14c43dcc3bcf80068e3f6b1ac870ffced0abb09e7d  plugins/dnse/t
 # 2026-09-17 #132-W0: injected on_stall action (default os._exit) so the stall exit is pinnable without killing the harness
 cc6dc4ebde9ae574ea4d04509873515a3980d4229779997bfb8d73805f35875c  plugins/dnse/tools/naked_watch.py
 097581c11fde080eca0c02b17faa77750dbaf7c29fa278aaa4229309dc49fbf5  plugins/dnse/tests/test_naked_watch.py
+# 2026-09-17 #146 round-3 fixes (F-A..F-D: child from ACTIVATED line, CREATED ids, per-run window, two-read flat) — pre-verification approval
+e6d4f683a06e45b2dd5575fb81b93d794c7a218bf1050ae3df35b6a7724f589e  plugins/dnse/testing/live_test/f13_grade.py
+979f90db35e664f8450b7b288109cf71925d98058f58163b130ed510716b172a  plugins/dnse/testing/live_test/f13_guard.py
+0a2ea8355b174e442deabdd4f6275016de458b13a8bc9b13707bf51eb7ffe671  plugins/dnse/testing/live_test/run_f13_latency.sh
+37e7530ac9fa9944ab51a818f499b90d95c7a25749f95f1446d74143b1ded6c9  plugins/dnse/tests/test_f13_grade.py
+4cc971fb27523c41a9b607ef7234190c841c2d39bed2b89d0c08a84e679b7c0b  plugins/dnse/tests/test_f13_guard.py
