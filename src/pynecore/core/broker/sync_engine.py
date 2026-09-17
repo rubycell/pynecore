@@ -20341,6 +20341,20 @@ class OrderSyncEngine:
                         )
                         self._dispatch_new(new)
                         return
+                # UNCONDITIONAL by design, and pinned as such by
+                # ``__test_modify_cancel_reexecute_deferred_while_cancel_
+                # unlanded__``: this branch cancels and re-executes, so it must
+                # never run while a cancel on the key is unlanded, whoever
+                # called it. The opt-in flag governs the TOP-of-method guard
+                # only.
+                #
+                # Consequence, stated precisely because the finding-28 commit
+                # message overstated it: "no fill-path caller can receive the
+                # deferral" is NOT a property of the flag. It holds because no
+                # fill-path caller's intent kinds route here — they are
+                # Entry->Entry or Exit->Exit and match the branches above. A
+                # future caller that lands in THIS branch will get the raise
+                # regardless of the flag, and must be able to take it.
                 self._defer_modify_while_forced_cancel_parked(old, new)
                 landed = self._dispatch_cancel(old)
                 # If the cancel landed in cancel-tentative (default cancel
