@@ -83,22 +83,41 @@ def _midnight_utc(day: _date) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
 
 
-#: End of the VN trading session, in UTC: 14:45 ICT (UTC+7) is 07:45Z.
-_SESSION_CLOSE_UTC_H, _SESSION_CLOSE_UTC_M = 7, 45
+#: End of the CONTINUOUS session, in UTC: 14:30 ICT (UTC+7) is 07:30Z.
+#: NOT the 14:45 close — the final 15 minutes are the ATC auction, and a GTD
+#: reaching into it is refused on the final trade date (measured 2026-09-17).
+_LAST_CONDITIONAL_GTD_UTC_H, _LAST_CONDITIONAL_GTD_UTC_M = 7, 30
 
 
-def _session_close_utc(day: _date) -> datetime:
-    """The LAST instant of ``day`` that DNSE still reads as ``day`` (#118).
+def _last_conditional_gtd_utc(day: _date) -> datetime:
+    """The latest GTD DNSE accepts for a conditional on ``day`` (#118).
 
-    The venue reads a GTD's date in ICT, so the usable ceiling is the session
-    close — 14:45 ICT = 07:45Z — not midnight UTC. Midnight UTC of the final
-    trade date is 07:00 ICT *on that date*, i.e. before the session even
-    opens: perfectly valid as a date, and already in the PAST for any order
-    placed during the day. That is what made every conditional unplaceable on
-    2026-09-17 (measured, four refusals).
+    **14:30 ICT — the end of the CONTINUOUS session, not the 14:45 close.**
+    The last 15 minutes are the ATC auction, and a GTD reaching into it is
+    refused on the final trade date.
+
+    Measured 2026-09-17, three ways: a GTD of 07:45Z (14:45, the close) was
+    REFUSED four times on the expiring contract; the operator's own app order
+    placed at 13:40 the same day on the same contract, carrying an expiry of
+    **14:30**, was ACCEPTED and rested on the book
+    (``daloml2vfqkc7397mdk0``, awaiting activation); and the same L0 gate
+    passed normally on the NEXT month minutes later. So the boundary is real
+    and it is 15 minutes earlier than the close.
+
+    CAVEAT on the exact value: 14:30 is what the APP DISPLAYED for that order.
+    The venue does not return it — ``GET`` on the order detail carries
+    orderStatus/side/quantity/price/stopPrice/createdDate/modifiedDate/
+    externalOrderId/orderCategory and **no duration field at all** — so
+    07:30:00Z is derived from the display, not read back from the venue. It is
+    the best available value, not a confirmed one.
+
+    Midnight UTC — what this used to be — is 07:00 ICT *on* the final date,
+    before the session opens: a valid date, but already past for anything
+    placed during the day, so the floor took over and emitted the NEXT day,
+    which the venue refuses on any day.
     """
     return datetime(day.year, day.month, day.day,
-                    _SESSION_CLOSE_UTC_H, _SESSION_CLOSE_UTC_M,
+                    _LAST_CONDITIONAL_GTD_UTC_H, _LAST_CONDITIONAL_GTD_UTC_M,
                     tzinfo=timezone.utc)
 
 
@@ -1233,7 +1252,8 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
 
         Two bounds, both of which the old code lacked (#118):
 
-        * **Ceiling** — the SESSION CLOSE on the final trade date, 14:45 ICT = 07:45Z.
+        * **Ceiling** — the END OF THE CONTINUOUS SESSION on the final trade date,
+          14:30 ICT = 07:30Z (the ATC start), NOT the 14:45 close.
           The venue reads the date in ICT (UTC+7), so 23:59Z on the final date is
           already 07:00 the NEXT day there and is refused (measured 2026-08-14:
           2026-08-20T04:00Z accepted, 2026-08-20T23:59Z not). It was MIDNIGHT UTC
@@ -1243,19 +1263,22 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
           took over and emitted the next day, and DNSE refused every conditional with
           CO-ORD-006 (measured on prod, four placements). 07:45Z keeps the ceiling
           inside the final date in ICT while staying ahead of any in-session order.
-          MEASURED 2026-09-17, and the answer is bigger than this clamp: 07:45Z was
-          REFUSED on the final trade date, as was the floored next-day value. On a
-          contract's FINAL TRADING DAY the venue refuses every NEW conditional on THAT
-          contract regardless of the GTD — there is no time-of-day that works, so do
-          not go looking for one. The same L0 gate passed on the NEXT month minutes
-          later (VN30F2M / 41I1GA000: four conditionals placed, rested, cancelled), and
-          a plain NORMAL LO on the expiring contract rests fine, so the restriction is
-          specific to new conditionals on the expiring contract.
+          MEASURED 2026-09-17: 07:45Z (the 14:45 close) was REFUSED four times on the
+          expiring contract, as was the floored next-day value — but the operator's own
+          app order at 13:40 the same day, same contract, with a **14:30** expiry, was
+          ACCEPTED and rested. So the final trading day IS placeable; the boundary is
+          the end of the continuous session, 15 minutes before the close.
 
-          This ceiling is still correct and still required: without it the floor emitted
-          a GTD one day PAST the final trade date, which the venue refuses on ANY day,
-          not just the last one. The remedy for the final day itself is SCHEDULING —
-          run conditional work on the next-month contract (#118).
+          A CORRECTION worth keeping, because the wrong version reached a commit
+          message: two refusals and no acceptances were briefly read as "the venue
+          refuses conditionals on the final day regardless of GTD". Two failures do not
+          establish a universal negative — the honest statement was "no value we have
+          tried works, and we have tried two", and the value that does work had simply
+          never been probed.
+
+          The next month is unaffected either way (VN30F2M / 41I1GA000: the same L0 gate
+          passed minutes later), so scheduling conditional work off the expiring
+          contract remains a valid workaround — it is just no longer the only one.
         * **Floor** — the next open day. Without it a stale/past expiry (an alias-keyed
           secdef cache serving a rolled-away contract, #113) produced a GTD **in the
           past**, which the venue refuses just as hard. The floor winning is itself an
@@ -1264,7 +1287,7 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
         floor = _midnight_utc(expiry.next_open_day_after(now.date()))
         final = self._final_trade_date(now.date())
         if final is not None:
-            ceiling = _session_close_utc(final)
+            ceiling = _last_conditional_gtd_utc(final)
             if ceiling > now:
                 # The contract still trades. The ceiling is therefore a
                 # PLACEABLE GTD and wins outright — the floor must never push
