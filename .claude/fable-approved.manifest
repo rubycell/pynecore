@@ -39,3 +39,6 @@ ee314ba1bdc83f64328e18b1e5d9532135f5882763233a0176d1ed39e9eeb9be  plugins/dnse/t
 fdac63f89f7528fbcb1eafd98fb166f13c626cf5267fdd5fc4cf982df7ba4440  plugins/dnse/tests/test_naked_watch.py
 0c358ae965409295686c765024cb2d7fdc58170e802c6eabe6af186ffc5622b4  plugins/dnse/tests/test_naked_watch.py  # re-approved: orphaned round-1 pin re-pointed to phase=closed (F4 contract inversion)
 e4a8af042d6d7eb4fd5a0a14c43dcc3bcf80068e3f6b1ac870ffced0abb09e7d  plugins/dnse/tests/test_naked_watch.py  # re-approved after the orphan sweep (2 re-pointed, 1 redundant pin removed)
+# 2026-09-17 #132-W0: injected on_stall action (default os._exit) so the stall exit is pinnable without killing the harness
+cc6dc4ebde9ae574ea4d04509873515a3980d4229779997bfb8d73805f35875c  plugins/dnse/tools/naked_watch.py
+097581c11fde080eca0c02b17faa77750dbaf7c29fa278aaa4229309dc49fbf5  plugins/dnse/tests/test_naked_watch.py
