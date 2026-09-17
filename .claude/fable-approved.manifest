@@ -144,3 +144,5 @@ c1e204552b1b0188554aaaca09cbf550cf5e4729815ad0bdf680cc2034539f9d  plugins/dnse/t
 974c59b457695a40b613cae596ba3a8bb64dca078833e085cbc3d2b69a5556b2  .claude/hooks/enforce_code_review.py
 # 2026-09-17 code-review hook rev 2: the unresolvable-path check reads the RAW command text (the pytest pattern never captured the variable form)
 07c337728aedec50b136bd7f55dde8292e5ec188d2139dfd382a00f93f092d5f  .claude/hooks/enforce_code_review.py
+# 2026-09-17 code-review hook rev 3: substitution / backtick forms with whitespace inside are refused too (tokenizer blind spot, Worker1)
+c283817197bd40bfc317dba589e5d8c6f78e5f5920f0e6f8f9b701f9f483b69e  .claude/hooks/enforce_code_review.py

@@ -108,7 +108,15 @@ def main() -> int:
     # This is a hard gate on executing unreviewed code, so "cannot tell" must
     # REFUSE, not allow. Checked on the raw command text, not on the captured
     # candidates, so the pattern set cannot hide it again.
-    unresolvable = re.search(r"[`$][^\s\"';&|]*\.(?:py|sh)\b", command)
+    # Three spellings, because the tokenizer is where the blind spot moved
+    # (measured, Worker1, same day): a plain variable; a `$( … )` substitution
+    # whose INSIDE may contain whitespace — `"$(git rev-parse --show-toplevel)
+    # /plugins/…/test_x.py"` is the idiom this repo's own CLAUDE.md teaches,
+    # and a char class that stops at the first space never reached its suffix;
+    # and the backtick form of the same.
+    unresolvable = (re.search(r"\$\([^)]*\)[^\s\"';&|]*\.(?:py|sh)\b", command)
+                    or re.search(r"`[^`]*`[^\s\"';&|]*\.(?:py|sh)\b", command)
+                    or re.search(r"[`$][^\s\"';&|]*\.(?:py|sh)\b", command))
     if unresolvable:
         sys.stderr.write(
             "BLOCKED by the code-review law: the code path "
