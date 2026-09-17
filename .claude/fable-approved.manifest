@@ -49,3 +49,6 @@ e6d4f683a06e45b2dd5575fb81b93d794c7a218bf1050ae3df35b6a7724f589e  plugins/dnse/t
 37e7530ac9fa9944ab51a818f499b90d95c7a25749f95f1446d74143b1ded6c9  plugins/dnse/tests/test_f13_grade.py
 4cc971fb27523c41a9b607ef7234190c841c2d39bed2b89d0c08a84e679b7c0b  plugins/dnse/tests/test_f13_guard.py
 ce3e0d82bd4dfc60322c53b9691031891f7775b98af05bfd8ab5dd52acad8613  plugins/dnse/tests/test_f13_grade.py  # re-approved: _edit() asserts the needle exists (no silent no-op fixture mutations)
+# 2026-09-17 #145 stage 1b: completeness vs total + direct symbol lookup for passthrough; empty-symbol row unresolved
+b5b236102c8696813496b3c85b94af7d719ef9e194dd0f64aa226343e7bc22c7  plugins/dnse/tests/test_provider.py
+b06312755f9b710c56b9645479ab6114a5074d424d97500023f4ea0781ff1ea8  plugins/dnse/pynecore_dnse/provider.py
