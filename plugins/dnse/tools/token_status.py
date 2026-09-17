@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Check the DNSE trading-token status, and refresh it by hand if it isn't good.
 
-Meant to be run manually at ~08:05 (just after the 08:00 cron) to answer one question:
+Meant to be run after the scheduled refresh (currently 06:45 ICT on weekdays, so
+any time from ~07:05) to answer one question:
 **did the job leave us with a token that actually works?** It shows:
 
   * mint time + age vs the 8h TTL, and whether it was minted TODAY (no hour
@@ -198,8 +199,8 @@ def main() -> int:
             # reaches the verdict.
             # NO hour threshold. This used to be ``and minted.hour >= 8``,
             # which hard-coded an assumption about WHEN the schedule runs —
-            # and the schedule moved three times in one day (07:55 -> 08:00 ->
-            # 06:20). At 06:20 a perfectly successful mint would have printed
+            # and the schedule moved FOUR times in two days (07:55 -> 08:00 ->
+            # 06:20 -> 06:45). At 06:20 a perfectly successful mint would have printed
             # "NO — not minted after 08:00 today", i.e. the tool calling a
             # working morning a failure, at the exact moment the operator
             # reads it. A status line must not encode the caller's timetable:

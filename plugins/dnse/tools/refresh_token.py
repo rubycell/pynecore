@@ -4,7 +4,8 @@
 The plugin is a pure CONSUMER of ``workdir/state/dnse_trading_token.json``; this is
 the ONLY producer. A trading token is valid ~8h and self-invalidating (requesting a
 new OTP kills the previous code), so run this once each trading morning — one daily
-cron at 08:00 ICT covers the whole session (morning + afternoon, expires ~16:00).
+cron at 06:45 ICT covers the whole session: an 8h TTL from 06:45 lasts to 14:45,
+the close. (The time has moved repeatedly — nothing in this tool depends on it.)
 
 Modes
 -----
@@ -153,7 +154,7 @@ def gmail_credentials() -> tuple[str, str]:
     Exits with a typed message when unusable. Never prints a value: the shape
     line reports lengths only, which is enough to tell an account password
     (not 16) from an app password and is the difference between a five-second
-    diagnosis and a morning lost at 08:00.
+    diagnosis and a morning lost to a dead token.
     """
     _load_dotenv()  # pick up DNSE_GMAIL_* from the repo-root .env
     user = (os.environ.get("DNSE_GMAIL_USER") or "").strip()
@@ -180,7 +181,7 @@ def _imap_login(user: str, app_pw: str) -> imaplib.IMAP4_SSL:
 
     ``imaplib.IMAP4.error`` covers protocol errors ONLY. A DNS failure, a
     refused connection or a TLS timeout raises ``OSError`` / ``SSLError`` /
-    ``TimeoutError`` and would otherwise escape as a traceback at 08:00 —
+    ``TimeoutError`` and would otherwise escape as a traceback in the cron log —
     a stack trace where the log should have said why.
     """
     try:

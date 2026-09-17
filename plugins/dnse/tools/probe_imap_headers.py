@@ -16,7 +16,8 @@ minting a token or burning an OTP:
    visible rather than inferred.
 3. Does the forwarded mail land in INBOX at all? A Gmail filter with
    "skip the inbox" would make ``select("INBOX")`` see nothing — invisible to
-   code reading, and indistinguishable at 08:00 from "the OTP never arrived".
+   code reading, and indistinguishable at the scheduled run from "the OTP never
+   arrived".
 
 SAFETY — this reads the operator's mailbox, so it is deliberately blind:
   * it NEVER prints a credential, an address, a subject line or a body;
