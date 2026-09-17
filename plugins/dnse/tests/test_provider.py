@@ -843,3 +843,65 @@ def __test_unresolved_contract_heals_after_the_retry_window__(
         "the unresolved answer outlived its retry window — one transient "
         "failure would blind every position read for the life of the process"
     )
+
+
+def __test_absent_total_on_a_full_page_must_not_read_as_whole__(fake_client):
+    """A FULL page with NO ``total`` is the shape a TRUNCATED catalogue takes.
+
+    `positions_complete` answers True when the metadata is missing — correct at
+    the positions read, where STOCK rows carry no ``total``; wrong here. Taking
+    it as "a whole catalogue that happens to lack this symbol" relabels the
+    alias RESOLVED and caches it PERMANENTLY: #145's original poison, through a
+    door opened while closing another one. With no metadata to judge by, only a
+    page SHORT of the limit can be called whole.
+
+    This shape was live-reachable: `require_contract` already has a consumer
+    (naked_watch.py:114, W0's prove-sight gate), so a venue answering a full
+    page without ``total`` would have made that watchdog report a confident
+    contract instead of BLIND.
+    """
+    full_page = [{"symbolType": f"X{i}", "symbol": f"S{i}"} for i in range(200)]
+
+    def _no_total(*_a, **kwargs):
+        if kwargs.get("symbol"):
+            return (200, {"data": []})
+        return (200, {"data": full_page})          # note: no "total" key
+
+    fake = fake_client(get_instruments=_no_total)
+    p = _wired(fake, symbol="NOSUCH")
+
+    with pytest.raises(ExchangeConnectionError):
+        p.require_contract()
+    assert fake.count("get_instruments") == 2, (
+        "the partial-page branch must have been taken (scan, then the direct "
+        "lookup) — one call means it was read as a whole catalogue"
+    )
+    # And it must not be remembered as resolved: the next call re-reads.
+    with pytest.raises(ExchangeConnectionError):
+        p.require_contract()
+    assert p._contract_cache["NOSUCH"][1] is False, (
+        "an unresolvable name was cached as RESOLVED — permanently, since a "
+        "resolved answer never expires"
+    )
+
+
+def __test_direct_lookup_must_verify_the_row_it_got_back__(fake_client):
+    """The direct lookup must check the row it received, not trust the filter.
+
+    `get_instruments(symbol=...)` is a server-side filter, and the guard
+    `row.get("symbol") == wanted` is what makes the answer OURS rather than
+    whatever the venue chose to return. A venue that ignores the filter and
+    hands back page 1 would otherwise have its first row accepted as this
+    symbol's contract — cached RESOLVED, permanently, for a name that does not
+    exist.
+    """
+    full_page = [{"symbolType": f"X{i}", "symbol": f"S{i}"} for i in range(200)]
+
+    def _filter_ignored(*_a, **_k):
+        # The same unfiltered page comes back whatever we ask for.
+        return (200, {"data": full_page, "total": 3298})
+
+    p = _wired(fake_client(get_instruments=_filter_ignored), symbol="NOSUCH")
+
+    with pytest.raises(ExchangeConnectionError):
+        p.require_contract()

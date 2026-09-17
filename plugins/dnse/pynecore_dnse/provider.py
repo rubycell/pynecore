@@ -319,7 +319,17 @@ class DNSEProvider(ProviderPlugin[DNSEConfigT]):
                 # missing metadata, and these two sites disagree about what
                 # missing means.)
                 if rows:
-                    if positions_complete(len(rows), total):
+                    # ABSENT ``total`` is not proof of completeness HERE.
+                    # `positions_complete` answers True when the metadata is
+                    # missing — right at the positions read, wrong at this one:
+                    # a FULL page with no ``total`` is exactly the shape a
+                    # truncated catalogue takes, and treating it as whole would
+                    # relabel the alias RESOLVED and cache it permanently. With
+                    # no metadata to judge by, only a page SHORT of the limit
+                    # can be called whole.
+                    whole = (positions_complete(len(rows), total)
+                             and not (total is None and len(rows) >= limit))
+                    if whole:
                         resolved = True      # provably whole, genuinely absent
                     else:
                         # A real but PARTIAL page. Ask directly whether this
