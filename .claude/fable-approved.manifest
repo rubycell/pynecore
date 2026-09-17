@@ -29,3 +29,4 @@ d851c63f79bd89d2a0d947f89ec86d61d0f8a92dedcc6defd08555b414361f0f  plugins/dnse/t
 0dfb4e302cef53930af1a5d574a4e3fa5c662b4d6fdea4eb4099acae5a24392c  src/pynecore/cli/commands/run.py
 bde1ea48ea4454a048d2662fa472ff8c8d809753e39fcad53167cddb48487d66  tests/t00_pynecore/core/test_018_live_runner.py
 78b91a2326f2b290e22b591269d87021562b70cada8ca68cb4dadc1ea8b22952  plugins/dnse/testing/live_test/f13_grade.py  # re-approved: child-frame anchor corrected (frame precedes our FILL line)
+29e6e96be741657767dc29c64ad4b137ea368ba3f6983345776f59a2edd123d7  tests/t00_pynecore/core/test_025_order_sync_engine.py  # #147 assertion messages corrected (refuted framing removed)
