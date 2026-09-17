@@ -229,6 +229,19 @@ $PY plugins/dnse/testing/live_test/level0_venue_semantics/l0_order_semantics.py 
 L0=${PIPESTATUS[0]}; [ "$L0" -ne 0 ] && { echo "!!! L0 FAILED ($L0) — ABORTING."; exit "$L0"; }
 
 # ------------------------------------------------------------- set arm ----
+# F-D: ONE `venue.py flat` is one get_position, and a stale-FLAT read is
+# MEASURED on this venue (#124-OBS, #122). For the l2/fallback vehicle — no
+# bracket, position held for a whole bar — a lagging FLAT would SIGTERM the
+# only thing that flattens and then launch the next run over a live position.
+# Two agreeing reads, 1.5 s apart, exactly as flatten.py requires before it
+# acts on a sign.
+flat_confirmed() {
+    $PY plugins/dnse/tools/venue.py flat >/dev/null 2>&1 || return 1
+    sleep 1.5
+    $PY plugins/dnse/tools/venue.py flat >/dev/null 2>&1 || return 1
+    return 0
+}
+
 # Past this point a run may OPEN a position, so the exit trap owes the operator
 # a cleanliness verdict on every path. Before it, a flat check would be noise on
 # a refusal that never touched the account.
@@ -252,19 +265,6 @@ for line in sys.stdin:
     sys.stdout.write("%.3f %s" % (__import__("time").time(), line))'
 
 entry_filled() { grep -aq "event FILLED.*leg=entry" "$1"; }
-
-# F-D: ONE `venue.py flat` is one get_position, and a stale-FLAT read is
-# MEASURED on this venue (#124-OBS, #122). For the l2/fallback vehicle — no
-# bracket, position held for a whole bar — a lagging FLAT would SIGTERM the
-# only thing that flattens and then launch the next run over a live position.
-# Two agreeing reads, 1.5 s apart, exactly as flatten.py requires before it
-# acts on a sign.
-flat_confirmed() {
-    $PY plugins/dnse/tools/venue.py flat >/dev/null 2>&1 || return 1
-    sleep 1.5
-    $PY plugins/dnse/tools/venue.py flat >/dev/null 2>&1 || return 1
-    return 0
-}
 
 # F-C: the window gate must run before EVERY run and every fallback, not once
 # before the loop. `--arm poll --fills 2` at 13:00 otherwise reaches run 2 at
