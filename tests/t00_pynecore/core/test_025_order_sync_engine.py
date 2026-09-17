@@ -16535,6 +16535,16 @@ def __test_122_moot_entry_park_is_released_when_the_remainder_fills__():
     lands. A cancel of a done order is refused forever, so `_retry_forced_
     cancels` must recognise the moot obligation (ledger now complete) and
     release the park + its durable row rather than locking the pine id.
+
+    WHY A REAL ``sync()`` SITS IN THE MIDDLE (finding 27): the cleanup that
+    takes the park also pops the entry's PINE slot unconditionally, so on
+    the very next sync the diff sees the key in ``_active_intents`` but not
+    in ``new_map`` and REMOVES the live intent. Any moot-release rule that
+    keys on a live ``_active_intents`` row therefore never fires in the
+    real sequence — it only fires in a test that skips the sync. The
+    park's OWN intent is the durable discriminator: taken from a live
+    intent it carries the real qty, rebuilt from the journal it carries the
+    qty=0.0 placeholder that must NOT read as complete.
     """
     b = MockBroker()
     engine, pos = _mk_engine(b)
@@ -16548,11 +16558,34 @@ def __test_122_moot_entry_park_is_released_when_the_remainder_fills__():
     engine._accept_confirmed_external_flatten()
     assert "L" in engine._forced_cancel_pending, "park taken on the remainder"
 
+    # From here the venue refuses EVERY cancel — the real semantics of a
+    # done order. ``false_on_next_cancel`` is ONE-SHOT and cannot model it:
+    # the sync below dispatches twice (the parked retry, then the removal
+    # loop's own cancel), so the second would LAND and release the park for
+    # a reason that has nothing to do with mootness, hiding the defect.
+    async def _venue_refuses_every_cancel(envelope):
+        b.cancel_calls.append(envelope)
+        return False
+
+    b.execute_cancel = _venue_refuses_every_cancel
+
+    # A REAL sync between the park and the fill (see the docstring): the
+    # cleanup popped the Pine entry slot, so the diff's removal loop drops
+    # the live intent.
+    engine.sync(BAR_TS + 60_000)
+    assert engine._active_intents.get("L") is None, (
+        "precondition of finding 27: the removal loop must have dropped the "
+        "live intent — if it is still here this pin is not exercising the "
+        "shape that actually occurs at runtime"
+    )
+    assert "L" in engine._forced_cancel_pending, (
+        "the obligation must survive the intent removal"
+    )
+
     # the remainder fills before the retry — the obligation is now moot.
     # The venue keeps refusing (a done order can never be cancelled), so
     # only a MOOT release — not a landed retry — can clear the park.
     engine._active_entry_filled_qty["L"] = 2.0
-    b.false_on_next_cancel = True
     cancels_before = len(b.cancel_calls)
     engine._retry_forced_cancels()
 
