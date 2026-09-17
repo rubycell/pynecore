@@ -17,7 +17,22 @@ Either answer is a measurement we need before trusting WS as the primary fill tr
 Costs accepted: a stop entry fills only on a breakout (mitigated by the per-run window + fallback
 below); the contract is held ~2 bars at 5m; worst case 6 contract round-trips, typical 4.
 
-## 0b. Thursday 09-17 afternoon (operator decision 12:05): ws arm runs TODAY, expiry day
+## 0c. RESULT of the Thursday attempt (13:26): L0 gate FAIL on #118 — no conditional order is possible on expiry day
+
+The runner started 13:26:43 (`--window-bars 2`), passed config/token/window/flat, and the **L0 gate
+refused**: all four conditionals (STOP buy/sell, STOP-LIMIT buy/sell) rejected `CO-ORD-006 "Validate
+Order Failed"`, each preceded by the engine's `GTD floored: final trade date 2026-09-17 is not in the
+future — using 2026-09-18 … may still be refused (#118)`. Nothing reached the book; config restored
+byte-identical; account flat ×2. **New venue fact (first observation of #118's prediction):** on the
+final trade date a conditional order cannot be placed on the expiring contract, because every GTD the
+clamp can produce is past the final trade date. l2b (STOP entry) is therefore impossible on expiry day;
+the Thursday plan below was wrong on that point and the mandatory L0 gate is what caught it.
+Decision: stand down; **Friday runs BOTH arms on the new front month** — ws arm 09:15–11:10 with the
+default `--window-bars 6` after the roll grade, poll arm 13:00–14:15. W0 shadow ran through the
+expiry-day session as evidence (graded on #132). Rule for the registry: never schedule a
+conditional-order live test on the 3rd Thursday (or the preceding trading day when it is a holiday).
+
+## 0b. Thursday 09-17 afternoon (operator decision 12:05): ws arm runs TODAY, expiry day — SUPERSEDED by 0c
 
 Operator moved the ws arm to Thursday 13:00 (Worker3 executing; poll arm + roll grade stay
 Friday). Expiry-day deltas: no roll grade; thin liquidity → NO-SAMPLE likely; flat by 14:25 is
