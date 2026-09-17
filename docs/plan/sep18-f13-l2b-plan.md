@@ -30,8 +30,9 @@ below); the contract is held ~2 bars at 5m; worst case 6 contract round-trips, t
 
 Grading additions (per run, per arm), all read from the venue record + `[BROKER]` lines:
 
-- `T(venue fill)` from `venue.py order <entry id>` (for l2b: the **child** normal-book id named by the
-  activated conditional's `externalOrderId`; `venue.py order` follows it).
+- `T(venue fill)` from `venue.py order <id> --json` (NEW in #146 — createdDate/modifiedDate, venue clock ms;
+  the runner captures it per entry id + the CHILD named by the activated conditional's `externalOrderId`
+  into the run's venue.json for the grader).
 - `T(event FILLED … leg=entry)` and `T([BROKER] dispatched EXIT …)` from the log.
 - `venue.py order <umbrella id>` showing the bracket **resting** (umbrella is `Activated` from birth —
   never read that as triggered; the TP child on the normal book is the visible cover).
@@ -54,12 +55,18 @@ conditional-book writes die after the first app trade of the day).
 | 1 | ~08:20 | operator | mint the trading token (`tools/refresh_token.py`, OTP by hand) | `token_status.py` → GOOD |
 | 2 | ~08:25 | executor | `venue.py status` · `venue.py flat` | flat exit **0**; exit 2 = stop, could-not-determine |
 | 3 | 08:45–09:05 | executor | **roll grade** per runbook §1 (probe log bracketing the repoint) | new venue fact recorded |
-| 4 | 09:15–11:10 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm ws --fills 2` — **each run can take up to 45 min** (5m × (6-bar window + 3); typical 15–20 min on a breakout) | L0 exit 0 inside the runner; executor watches the named log |
-| 5 | 13:00–14:15 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm poll --fills 2` (moved to the afternoon: two 45-min worst cases do not fit one morning) | same; flat by 14:25 |
+| 4 | 09:15–11:10 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm ws --fills 2` — **every run costs the full 45 min unless the #146 terminator lands** (no vehicle self-terminates; `timeout` is the only stop). The runner (post-#146 fixes) REFUSES to start a run whose timeout would cross 11:25 / 14:25 or outside `continuous` | token exit read (not grep'd), flat 0, L0 0, session continuous |
+| 5 | 13:00–14:15 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm poll --fills 2` (afternoon) — **if the terminator did not land, use `--fills 1`**: two 45-min runs from 13:00 end AT 14:30 = ATC | same; the runner's deadline gate enforces it |
 | 6 | ≤11:20 | executor | `venue.py flat` — must exit 0 before lunch; cancel OUR leftovers with `venue.py cancel <id>` | never `sweep` |
 | 7 | 13:00 (before step 5) | executor | `probe_116_same_day_cancel.py <filled entry id from step 4>` (refuses working orders; takes seconds) | record http/code/message verbatim |
 | 8 | any run | executor | passive captures: one `venue.py status` while a position is open (prod `/positions` frame); first venue order id of the day vs Thursday's range (#135 id-reuse) | evidence file |
 | 9 | ≤14:25 | executor | `venue.py flat` exit 0 — **never hold into 14:30 ATC** | |
+
+**Operator duties the runner cannot perform** (from the #146 review): on `NOT FLAT … STOPPING the
+ladder` or after Ctrl-C, the runner STOPS — it does not flatten; **flatten in the app immediately**,
+then `venue.py flat` must exit 0 before anything else runs. A fallback l2 run happens ONLY after the
+resting stop's cancel returned 0 AND `venue.py flat` exited 0 (post-#146); if the runner prints
+"FLATTEN NOW", do it.
 
 If step 4's ws arm shows **no `FIRST LIVE FRAME`** on the first fill: that is the delivery
 milestone missing — do NOT infer from the subscribe line; finish the arm anyway (the poll fallback
