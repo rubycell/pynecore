@@ -29,6 +29,16 @@ _LOAN_OK = (200, {"loanPackages": [{"id": 42}]})
 _TOOL_PATH = (pathlib.Path(__file__).resolve().parents[1]
               / "tools" / "flatten.py")
 
+# WARNING — MUTATION TESTING THIS TOOL. It is loaded BY PATH, so it gets a
+# ``plugins/dnse/tools/__pycache__/flatten.cpython-*.pyc``. A mutant run writes
+# that cache, and restoring the source afterwards does NOT invalidate it
+# reliably: the tests then execute the MUTANT while the file on disk is correct
+# (hit 2026-09-17 during the sign fix — a correct fix looked broken).
+# ``inspect.getsource()`` CANNOT detect it: getsource reads the .py while the
+# code object comes from the .pyc, so the check that feels authoritative is the
+# one that is blind to this. Verify BEHAVIOURALLY — call the function and
+# assert on its RETURN VALUE — and run mutants with PYTHONDONTWRITEBYTECODE=1
+# or move that __pycache__ to backup/deleteable/ before the restore run.
 spec = importlib.util.spec_from_file_location("dnse_flatten_tool", _TOOL_PATH)
 tool = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tool)
@@ -347,3 +357,233 @@ def __test_agreeing_reads_still_flatten__(fake_client, tmp_path, monkeypatch):
     assert rc == 0, f"agreeing reads must proceed normally, got rc={rc}"
     assert any(c[0] == "post_order" for c in b._client.calls), \
         "the close must still be placed when both reads agree"
+
+
+def __test_short_position_is_closed_by_BUYING_not_selling__(
+        fake_client, tmp_path, monkeypatch):
+    """#135: flattening a SHORT must send a BUY. It sent a SELL.
+
+    `ExchangePosition.size` is a MAGNITUDE — the sign lives in `.side`
+    (broker.py builds it as `size=abs(net)`, `side="long" if net > 0 else
+    "short"`), and the engine re-derives a signed size from `.side` at three
+    separate places. The tool did not: it read `float(pos.size)` and then
+    branched on `size > 0`, which is TRUE for every non-flat position. So the
+    `else "buy"` arm was unreachable on this venue and a real SHORT 1 was
+    SOLD into — short 1 -> short 2, printed as "long 1.0", reported rc=0.
+
+    This is the mechanism of the 2026-09-16 incident. It survived because
+    every live test entry so far has been LONG, and because the existing
+    short-fixture tests assert the SEQUENCE (close, then sweep) and the exit
+    code, never the SIDE of the order actually sent.
+
+    The two-agreeing-reads guard cannot catch it: both reads return +1.0 and
+    agree with each other. That guard is for replica LAG and stays.
+    """
+    state = {"pos": 1}
+    responses = _short_position_book(state)
+    sent: "list[dict]" = []
+    original_post = responses["post_order"]
+
+    def _capturing_post(*a, **k):
+        # payload is POSITIONAL arg 2:
+        # post_order(account, market_type, payload, token, order_category=...)
+        sent.append(a[2])
+        return original_post(*a, **k)
+
+    responses["post_order"] = _capturing_post
+    b = _broker(fake_client, tmp_path, **responses)
+    monkeypatch.setattr(tool.time, "sleep", lambda *_a: None)
+
+    rc = tool.flatten(b, "VN30F1M", set())
+
+    assert sent, "no order was sent at all"
+    assert sent[0]["side"] == "NB", (
+        f"flattening a SHORT sent side={sent[0]['side']!r} (NS=sell) — that "
+        f"DOUBLES the position instead of closing it; a short is closed by "
+        f"BUYING (NB)"
+    )
+    assert rc == 0
+
+
+def __test_position_reader_returns_a_SIGNED_size__(fake_client, tmp_path):
+    """The reader's contract is a SIGNED net; a short must read negative.
+
+    Its docstring already promised "Signed net size" while it returned the
+    unsigned magnitude — the docstring was right and the code was wrong.
+    Pinned separately from the order-side pin so a future refactor that moves
+    the sign derivation elsewhere still has to keep this contract.
+    """
+    state = {"pos": 1}
+    b = _broker(fake_client, tmp_path, **_short_position_book(state))
+
+    size = tool._read_position_size(b, "VN30F1M")
+
+    assert size is not None, "the read failed; this pin needs a live read"
+    assert size < 0, (
+        f"a SHORT position read as {size} — the sign was dropped, and the "
+        f"sign is what decides whether the flatten buys or sells"
+    )
+
+
+def __test_long_position_is_still_closed_by_SELLING__(
+        fake_client, tmp_path, monkeypatch):
+    """Control for the sign fix: a LONG must still be closed by SELLING.
+
+    Without this, "flattening a short must buy" is satisfied by an
+    implementation that simply inverted the branch — which would then double
+    every LONG instead. The two pins together fix the mapping in both
+    directions, and this is the case every live test so far has exercised,
+    which is precisely why the short bug went unseen.
+    """
+    state = {"pos": 1}
+    responses = _short_position_book(state)
+
+    def _long_positions(*_a, **_k):
+        if state["pos"]:
+            return (200, {"positions": [{"symbol": "VN30F1M", "side": "NB",
+                                         "openQuantity": 1,
+                                         "costPrice": 1964.6}]})
+        return (200, {"positions": []})
+
+    sent: "list[dict]" = []
+    original_post = responses["post_order"]
+
+    def _capturing_post(*a, **k):
+        sent.append(a[2])
+        return original_post(*a, **k)
+
+    responses["get_positions"] = _long_positions
+    responses["post_order"] = _capturing_post
+    b = _broker(fake_client, tmp_path, **responses)
+    monkeypatch.setattr(tool.time, "sleep", lambda *_a: None)
+
+    assert tool._read_position_size(b, "VN30F1M") > 0, (
+        "a LONG must read positive"
+    )
+    rc = tool.flatten(b, "VN30F1M", set())
+
+    assert sent and sent[0]["side"] == "NS", (
+        f"flattening a LONG sent side={sent[0]['side'] if sent else None!r} "
+        f"— a long is closed by SELLING (NS)"
+    )
+    assert rc == 0
+
+
+def __test_close_quantity_matches_the_position_size__(
+        fake_client, tmp_path, monkeypatch):
+    """The wire QUANTITY must be the real size, not just the right side.
+
+    Every fixture in this file held exactly 1 contract — the one magnitude
+    where a correct size and a bare sign are the same number. A reader that
+    returned only the SIGN (+1/-1) therefore passed every pin in this file
+    while, against a real SHORT 3, buying 1: the position is left short 2,
+    the tool never reads flat, and the protection sweep is withheld.
+
+    So this fixture holds THREE, and the assertion is on what went out on
+    the wire.
+    """
+    state = {"pos": 1}
+    responses = _short_position_book(state)
+
+    def _short_three(*_a, **_k):
+        if state["pos"]:
+            return (200, {"positions": [{"symbol": "VN30F1M", "side": "NS",
+                                         "openQuantity": 3,
+                                         "costPrice": 1964.6}]})
+        return (200, {"positions": []})
+
+    sent: "list[dict]" = []
+    original_post = responses["post_order"]
+
+    def _capturing_post(*a, **k):
+        sent.append(a[2])
+        return original_post(*a, **k)
+
+    responses["get_positions"] = _short_three
+    responses["post_order"] = _capturing_post
+    b = _broker(fake_client, tmp_path, **responses)
+    monkeypatch.setattr(tool.time, "sleep", lambda *_a: None)
+
+    assert tool._read_position_size(b, "VN30F1M") == -3.0, (
+        "the reader must carry the MAGNITUDE, not just the sign"
+    )
+    tool.flatten(b, "VN30F1M", set())
+
+    assert sent, "no order was sent"
+    assert sent[0]["side"] == "NB", "a short is closed by buying"
+    assert float(sent[0]["quantity"]) == 3.0, (
+        f"closed a SHORT 3 with quantity {sent[0]['quantity']!r} — a partial "
+        f"close leaves the rest of the position open while the tool reports "
+        f"it handled the flatten"
+    )
+
+
+def __test_unrecognised_side_label_refuses_to_guess_the_sign__(
+        fake_client, tmp_path):
+    """An unknown `.side` is could-not-determine, never a guessed sign.
+
+    Mirrors the engine, which falls through to a halt rather than assume.
+    Without this pin the whole refuse-to-guess branch has ZERO coverage:
+    an implementation that silently treats an unrecognised label as SHORT
+    passes every other test in this file, and would then BUY against an
+    unknown-side position.
+    """
+    b = _broker(fake_client, tmp_path, **_short_position_book({"pos": 1}))
+
+    class _OddPosition:
+        size = 1.0
+        side = "sideways"
+
+    async def _odd(_symbol):
+        return _OddPosition()
+
+    b.get_position = _odd
+
+    assert tool._read_position_size(b, "VN30F1M") is None, (
+        "an unrecognised side label was given a sign instead of being "
+        "reported as could-not-determine"
+    )
+
+
+def __test_one_stale_flat_read_must_not_authorise_the_sweep__(
+        fake_client, tmp_path, monkeypatch):
+    """The post-close FLAT verdict needs two agreeing reads, like the sign.
+
+    The verification loop polls ~12 times over the close window and breaks on
+    the FIRST flat observation — so it actively samples FOR a stale empty
+    page. That verdict authorises cancelling the protective conditionals, so
+    a single lagging response cancelled protection over a still-open position
+    and returned 0. `size` and `emptiness` are the same rule.
+    """
+    state = {"pos": 1, "reads": 0}
+    responses = _short_position_book(state)
+
+    def _one_stale_blip(*_a, **_k):
+        state["reads"] += 1
+        # One lagging EMPTY page mid-poll; the position is still really short.
+        if state["pos"] and state["reads"] == 3:
+            return (200, {"positions": []})
+        if state["pos"]:
+            return (200, {"positions": [{"symbol": "VN30F1M", "side": "NS",
+                                         "openQuantity": 1,
+                                         "costPrice": 1964.6}]})
+        return (200, {"positions": []})
+
+    def _close_never_fills(*_a, **_k):
+        return (201, {"id": "900001", "symbol": "VN30F1M", "side": "NB",
+                      "quantity": 1, "orderStatus": "New", "fillQuantity": 0})
+
+    responses["get_positions"] = _one_stale_blip
+    responses["post_order"] = _close_never_fills
+    b = _broker(fake_client, tmp_path, **responses)
+    monkeypatch.setattr(tool.time, "sleep", lambda *_a: None)
+
+    cancels_before = len(getattr(b._client, "calls", []))
+    rc = tool.flatten(b, "VN30F1M", {"prot-cond-1"}, close_wait_s=6)
+
+    assert rc != 0, (
+        "one stale EMPTY read declared the account FLAT and returned success "
+        "while the close had not filled — the protection sweep that follows "
+        "cancels the conditionals over a still-open position"
+    )
+    assert cancels_before is not None

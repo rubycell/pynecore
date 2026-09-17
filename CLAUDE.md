@@ -165,15 +165,32 @@ Fork-specific venue plugins, editable-installed (so they import as
   Live testing exists but is its own gated suite (see "DNSE testing" below). Docs mirror + sync tool:
   `docs/dnse-openapi-documentation/` (`fetch_docs.py`); plans in `docs/plan/`.
 
-## A DNSE position read is NOT authoritative alone (measured twice 2026-09-16)
+## A DNSE position read is NOT authoritative alone (replica lag) — AND its size is UNSIGNED
 
-A single `get_position`/position read can be STALE (lagging replica; measured: `long 1.0`
-served while the account was really SHORT 1 — acting on it doubled the position; and a
-stale FLAT nearly retired protection for a live position, #122 post-close fix 6abe04c6).
-**Any code deciding something IRREVERSIBLE from a position snapshot (its SIGN, or its
-emptiness) requires TWO AGREEING READS; disagreement resolves to could-not-determine —
-never to the newer snapshot — and the fail-closed action.** Enforced today in
-`tools/flatten.py` (bf5096e3) and `sync_engine.py` (6abe04c6); new call sites must follow.
+TWO SEPARATE HAZARDS. They were conflated for a day; keep them apart.
+
+**1. `ExchangePosition.size` is a MAGNITUDE — the sign lives in `.side`.** `broker.py`
+builds it as `size=abs(net)` with `side="long" if net > 0 else "short"`. Read `.size`
+alone and every non-flat position tests as positive, so a `size > 0` branch NEVER takes
+its negative arm. That is what made `tools/flatten.py` print `long 1.0` for an account
+that was really SHORT 1 and SELL into it — short 1 -> short 2, exit code 0 (2026-09-16;
+fixed 2026-09-17, pinned by the short/long order-side tests in `test_flatten_tool.py`).
+It is a pure sign-derivation bug, NOT a stale read: both reads agreed, and no
+confirmation discipline can catch it. **Any reader of `ExchangePosition` derives the sign
+from `.side` and refuses to guess an unrecognised label** — `sync_engine.py` does this at
+three sites (~3849, ~4763, ~5098); `tools/flatten.py` now mirrors them.
+
+**2. A single read can still be STALE (lagging replica).** Measured independently: a
+`get_position` answered 0 while the position was really 1 (#124-OBS), and a stale FLAT
+nearly retired protection for a live position (#122 post-close fix 6abe04c6). **Any code
+deciding something IRREVERSIBLE from a position snapshot (its SIGN, or its emptiness)
+requires TWO AGREEING READS; disagreement resolves to could-not-determine — never to the
+newer snapshot — and the fail-closed action.** Enforced in `tools/flatten.py` (bf5096e3)
+and `sync_engine.py` (6abe04c6); new call sites must follow.
+
+The two-read rule STAYS — hazard 2 is real and orthogonal. But it was credited with
+catching hazard 1, which it never could: both reads return the same unsigned magnitude and
+agree with each other.
 
 ## STOCK amend is CANCEL+REPLACE with a NEW id; write rejects are CODED (measured 2026-09-15)
 

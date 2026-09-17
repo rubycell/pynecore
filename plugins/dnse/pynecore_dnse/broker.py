@@ -3192,7 +3192,28 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             if row.get("symbol") != wanted or not is_exposure_row(row):
                 continue
             size = float(row.get("openQuantity") or row.get("quantity") or 0)
-            signed = size if str(row.get("side", "")).upper() in ("NB", "LONG") else -size
+            # TWO-SIDED whitelist, and refuse anything else. This was a
+            # one-sided test (`in ("NB","LONG")` else NEGATIVE), which made
+            # SHORT the default for every label it did not recognise: a row
+            # whose side was missing, empty, whitespace-padded ("nb ") or
+            # spelled differently ("BUY") reported a real LONG as SHORT.
+            # Downstream that is catastrophic and silent — tools/flatten.py
+            # closes a "short" by BUYING, so a mislabelled long 1 becomes
+            # long 2. Guessing the sign of a position is never safe in either
+            # direction; an unrecognised label is a READ FAILURE, which
+            # callers already handle as could-not-determine (the same
+            # "refusing to conclude" discipline as the truncated-page guard
+            # a few lines above).
+            raw_side = str(row.get("side", "")).strip().upper()
+            if raw_side in ("NB", "LONG"):
+                signed = size
+            elif raw_side in ("NS", "SHORT"):
+                signed = -size
+            else:
+                raise ExchangeConnectionError(
+                    f"DNSE position row for {row.get('symbol')!r} carries an "
+                    f"unrecognised side {row.get('side')!r} — refusing to "
+                    f"conclude its sign")
             net += signed
             # WIRE unit (#119): the positions book prices in đồng for stocks,
             # like the order book. Converted once, on entry_price below.
