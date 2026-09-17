@@ -30,16 +30,18 @@ below); the contract is held ~2 bars at 5m; worst case 6 contract round-trips, t
 
 Grading additions (per run, per arm), all read from the venue record + `[BROKER]` lines:
 
-- `T(venue fill)` from `venue.py order <id> --json` (NEW in #146 — createdDate/modifiedDate, venue clock ms;
-  the runner captures it per entry id + the CHILD named by the activated conditional's `externalOrderId`
-  into the run's venue.json for the grader).
+- `T(venue fill)` from `venue.py order <id> --json` (NEW in #146 — createdDate/modifiedDate, copied RAW;
+  the venue serves them as **ISO-8601 strings** (`"2026-09-16T04:22:43.958Z"`, up to 9-digit fractions —
+  docs + prod capture), NOT epoch ms; the grader parses ISO first (#146 round-3 F1). The runner captures
+  it per entry id + the CHILD named by the activated conditional's `externalOrderId` into the run's
+  venue.json for the grader).
 - `T(event FILLED … leg=entry)` and `T([BROKER] dispatched EXIT …)` from the log.
 - `venue.py order <umbrella id>` showing the bracket **resting** (umbrella is `Activated` from birth —
   never read that as triggered; the TP child on the normal book is the visible cover).
 - ws arm only: whether an `order frame via WS` line names the **child id** (answers #130-for-stops);
   the existing `WS ORDER SOURCE FIRST LIVE FRAME` milestone stays the delivery gate (#134).
 - Timeframe **5m** (the runner was on `@1` before #146 — corrected). `timeout` per run = (window + 3) × 300 s = 2700 s at the default window.
-- NO-SAMPLE cancel uses the entry id from OUR OWN log's `dispatched ENTRY … -> ['id']` line, passed to `venue.py cancel`; if that id cannot be read the runner says so and does NOT cancel — never a sweep, never an inferred id.
+- NO-SAMPLE cleanup cancels EVERY entry id OUR OWN log put on the book — both `dispatched ENTRY … -> ['id']` AND `event CREATED … leg=entry` lines (a chased/replaced entry has more than one id) — via `venue.py cancel`, each; a cancel exit 2 = failure ("FLATTEN NOW"); `venue.py flat` is checked AFTER the cancels. If no id can be read the runner says so and does NOT cancel — never a sweep, never an inferred id.
 
 Definition of done for the prep: `bash -n` clean; `--help` never constructs a broker; a dry run
 against the fake seam prints the grading table with NO-SAMPLE rows; `.venv/bin/python -m pytest
@@ -56,7 +58,7 @@ conditional-book writes die after the first app trade of the day).
 | 2 | ~08:25 | executor | `venue.py status` · `venue.py flat` | flat exit **0**; exit 2 = stop, could-not-determine |
 | 3 | 08:45–09:05 | executor | **roll grade** per runbook §1 (probe log bracketing the repoint) | new venue fact recorded |
 | 4 | 09:15–11:10 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm ws --fills 2` — **every run costs the full 45 min unless the #146 terminator lands** (no vehicle self-terminates; `timeout` is the only stop). The runner (post-#146 fixes) REFUSES to start a run whose timeout would cross 11:25 / 14:25 or outside `continuous` | token exit read (not grep'd), flat 0, L0 0, session continuous |
-| 5 | 13:00–14:15 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm poll --fills 2` (afternoon) — **if the terminator did not land, use `--fills 1`**: two 45-min runs from 13:00 end AT 14:30 = ATC | same; the runner's deadline gate enforces it |
+| 5 | 13:00–14:15 | operator | `bash plugins/dnse/testing/live_test/run_f13_latency.sh --arm poll --fills 2` (afternoon). The terminator landed (#146): a run ends ~2 bars after its fill, ~15–30 min typical; a no-fill slot costs ~57 min (45-min window + fallback l2). Run 2 is REFUSED by the window gate unless run 1 ends by ~13:40 — that refusal is the design, not a failure | same; the runner's deadline gate enforces it |
 | 6 | ≤11:20 | executor | `venue.py flat` — must exit 0 before lunch; cancel OUR leftovers with `venue.py cancel <id>` | never `sweep` |
 | 7 | 13:00 (before step 5) | executor | `probe_116_same_day_cancel.py <filled entry id from step 4>` (refuses working orders; takes seconds) | record http/code/message verbatim |
 | 8 | any run | executor | passive captures: one `venue.py status` while a position is open (prod `/positions` frame); first venue order id of the day vs Thursday's range (#135 id-reuse) | evidence file |
@@ -82,7 +84,7 @@ event arrival time — measured: PendingNew/New/Filled of one order all carry th
 stamp. So NO latency may be computed from log-line timestamps; at 5m it would measure where in
 the bar the fill landed, and the arm latency would read exactly 0 by construction. Therefore:
 - **T(venue fill)** comes from the VENUE record (`venue.py order <id>` createdDate/modifiedDate,
-  venue clock, ms) — never from our log.
+  ISO-8601 strings on the venue clock, sub-second fraction) — never from our log.
 - **T(engine arrival)** comes from a WALL-CLOCK PREFIX the runner adds to the log stream as it
   tees (a pipeline element, not code on the order path; pyne run under `PYTHONUNBUFFERED=1`),
   caveat stated in every table: "when OUR PROCESS PRINTED the line — an upper bound on arrival
@@ -95,9 +97,12 @@ the bar the fill landed, and the arm latency would read exactly 0 by constructio
   bar-quantised and marked UNVERIFIED on #121; not re-derived.
 
 
-- **Latency** = `T(event FILLED leg=entry)` − `T(venue fill)`; **arm latency** = `T(dispatched
-  EXIT)` − `T(venue fill)`. Report per run; with n=2 report both values, never a mean.
-- ws arm splits: venue→frame (delivery) vs frame→event (our drain cost).
+- **Fill latency** = `T(event FILLED leg=entry)` − `T(venue fill)`; **arm latency** as the grader
+  reports it = `T(dispatched EXIT)` − `T(our FILLED print)` (labelled so in the table — it is the
+  engine's fill→arm cost, not venue→arm; add the fill latency to get venue→arm). Report per run;
+  with n=2 report both values, never a mean.
+- ws arm: the grader does NOT split venue→frame vs frame→event; report `FIRST LIVE FRAME`
+  present/absent and whether a frame names the child id.
 - `NO-SAMPLE` rows are reported as such; a fallback `l2` run is labelled `transport-only`.
 - Exit codes from venue tools: 0 yes / 1 no / **2 could-not-determine — never "no"**.
 - `flatten.py` (teardown only; the vehicle flattens in-script) now signs from `.side`; a BUY-arm
