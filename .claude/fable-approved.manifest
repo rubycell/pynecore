@@ -54,3 +54,6 @@ b5b236102c8696813496b3c85b94af7d719ef9e194dd0f64aa226343e7bc22c7  plugins/dnse/t
 b06312755f9b710c56b9645479ab6114a5074d424d97500023f4ea0781ff1ea8  plugins/dnse/pynecore_dnse/provider.py
 8c5a939ecc8d9ba4c9b6df410a113c8c29c89eeb045911346f5a40391a1c1558  plugins/dnse/pynecore_dnse/provider.py  # #145 stage 1b: empty-body arm actually applied (prior edit eaten by a PreToolUse block)
 c6e63cb22e1f1625bc54ae3ecc47c81ae38703c20b58709a28b5b3c66fce3248  plugins/dnse/tools/probe_imap_headers.py  # #133 read-only IMAP headers probe (shapes only; no bodies/codes/addresses)
+# 2026-09-17 #145 stage 1b final: direct lookup only on a partial page; cost pinned both sides
+bbf8b161ff6ebcaf1c0d488b1fc7dc7f06349c724c6fffa6c71b778fcd1bd2af  plugins/dnse/tests/test_provider.py
+eef6cbca5ab1c7ac8ac82224033458dbc7a603b21d744e64a9ab70a534c1a62e  plugins/dnse/pynecore_dnse/provider.py
