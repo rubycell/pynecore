@@ -136,3 +136,28 @@ grader keys on the fill bar index; grading is from the venue record.
    one-bar-earlier SL is aa12a5e3, not a regression.
 6. CLAUDE.md: after step 4 passes, no banner needed for #121/#124 (untouched); add the aa12a5e3
    oracle note to the staged-fill section.
+
+## Review deltas (PyneCoreUpstreamUpdate, 09-17 13:50; all #151 work, folded here so the card starts from them)
+
+1. test_130 row: **verified by run** on the pristine 6.9.4 control (file-scoped 2 passed; among the 2755
+   full-gated passes) — not merely "unverified-by-run".
+2. Correction to "trivial __slots__ collisions": the trial had ONE script_runner stop (imports) and ZERO in
+   `lib/strategy/__init__.py` / `strategy_stats.py` — the fork's P5 drawdown slots and accumulators merged
+   SILENTLY into a rewritten SimPosition (+610/−99) and a restructured strategy_stats (+92/−169). P5 has no
+   test coverage and no in-repo consumer (09-11 audit). **#151 decision: DROP the two P5 commits (16efaa3,
+   f8d6014) unless the operator names an external CSV consumer; if kept, add a liveness pin for the four
+   members in the same change.** Also drop f7ecb054 (TEMP #77 diag, net zero).
+3. Step 2a, explicit: retire the by-design fails BEFORE the gate run, or `-x` stops the suite at the first
+   and hides everything after — test_131 KNOWN_DEAD[opentrades.profit_percent] → remove; test_134 ×3 →
+   retire to backup/deleteable + untrack, or convert to positive assertions of the 6.9.3 behaviour;
+   test_014 needs nothing. Record the expected post-landing counts when measured.
+4. trial-694 is a PROOF, not the landing branch: it was cut at 3a1cf478; 2d628cac, 5bbb1bd2, 3b15004c
+   (#118 clamp) are not on it. #151 rebases from the then-current HEAD and RE-TAKES the 45bc8103 grep-proof
+   on the branch that lands. Nobody lands trial-694.
+5. `_build_envelope` criterion (measurable, not "decide at rebase"): on the merged tree run ebddde60's #77
+   reopen tests — pass AND still traverse the reopen path → keep both; reopen unreachable for the closed-row
+   case → retire that marker-clearing with a comment and keep the test as the "closed row → fresh coid"
+   pin. Either way the pin asserts WHICH coid the fake client received on a same-side re-entry after
+   own-position-closed.
+6. Sequence step 3 must name BOTH pins: (i) restart + clamped-to-0 → zero cancels; (ii) close-fill flat →
+   cancel STILL issued (#122 tests keep passing) — so the re-derivation cannot over-preserve.
