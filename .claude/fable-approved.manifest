@@ -60,3 +60,71 @@ eef6cbca5ab1c7ac8ac82224033458dbc7a603b21d744e64a9ab70a534c1a62e  plugins/dnse/p
 # 2026-09-17 #132-W0 round 2 final: require_contract as first consumer; public-method stub in pins
 12cd462a6959099f6254c9ef66f01efd12effd293724e0cd42f954a1f7473d73  plugins/dnse/tools/naked_watch.py
 6a32750291de6fc73670f5672df7abe8b624f72f1d1c96d0acc9cc3805ed9aa0  plugins/dnse/tests/test_naked_watch.py
+# 2026-09-17 #146 round 3 fixes: ISO venue dates first (F1), exit-trap two-read flat (F2)
+ff04808e20b900fc16f12bb8436870e3a75dcbd29cdd92ef4b50f09c792a49c2  plugins/dnse/testing/live_test/f13_grade.py
+ab45291fc1facd976f8bd0d9fec38754b8981f7cbd468234f83b9e67f6a7bf9d  plugins/dnse/testing/live_test/run_f13_latency.sh
+fee80494cb045d9a2c8fb55055dadc846358745a1eab74cf8623d9d04be02fc7  plugins/dnse/tests/test_f13_grade.py
+# 2026-09-17 #133 refresh_token.py: strip app password, preflight mailbox before send_otp, 110s poll, tz-aware Date, pure select_otp
+1b1092e2d5d11f840ce2341b651aa8bd1d18c9aac8b7ef5b0657e13a3b597f69  plugins/dnse/tools/refresh_token.py
+# 2026-09-17 #146 round 3 (b): naive ISO venue date refused -> None (measured 7h host skew); control pin
+35713d1f418e5bb026a4a81e582c16aeeafc1aafcb9f57c91c936d75d442028c  plugins/dnse/testing/live_test/f13_grade.py
+af3298818180b6233823a04ffa8aa9e8942037e4c941486b5e99b30f8a93ca2a  plugins/dnse/tests/test_f13_grade.py
+# 2026-09-17 #145 stage 1c: full page + absent total is NOT whole (independently found by the Fable re-check Q1)
+cfdfbe020e560fd08330048af76260b091bddec7faab735913f4bf906abf8fc6  plugins/dnse/pynecore_dnse/provider.py
+# 2026-09-17 #145 stage 1c pins: full page + absent total refuses (2 calls, not cached); unfiltered direct lookup refuses
+5f660826c7a22a617c0671ba5ef1a694f0d3d87e42639625b55b9bb322bc5188  plugins/dnse/tests/test_provider.py
+# 2026-09-17 #132-W0 round 3 fixes: absent/unparsable createdDate -> unclassifiable; heartbeat-0 refuses stall-after; help text; R3 docstring scope
+18b4ffd2069e5a27f9854ac8b6aa717053a40ab70eaf546b9ab000334d5b26f2  plugins/dnse/tools/naked_position.py
+7543249a51b4b0410f48d3bac1daef9c457b2966dfee40357a23d3fe9b31d02f  plugins/dnse/tools/naked_watch.py
+05f4b3273029065249d078ffa9f81be4f011d344b65d0da4e1a49a6c76eda49c  plugins/dnse/tests/test_naked_watch.py
+# 2026-09-17 #146 round 4: flat_confirmed() defined (:238) before GATES_PASSED=1 (:248); trap at :190
+fdaab0d8519aca56443acef2328e221327bae6efeabe7a584fc2ccd3b6417962  plugins/dnse/testing/live_test/run_f13_latency.sh
+# 2026-09-17 #133: CLOCK_SKEW_TOLERANCE_S=60 (measured +3 s, 8 s margin); sender re-check = whole domain label; five pure select_otp pins
+6d5daf19eebeafa1784eab90664e46b599403ef6a058ab0df1be64873e5d91da  plugins/dnse/tools/refresh_token.py
+9f68ed5ee9ce282a3af999cd841f0f8541b71b333b55ffc3433569eecaeef437  plugins/dnse/tests/test_refresh_token.py
+# 2026-09-17 #133 (3): show_cron_log returns ran/stale/absent; verdict_text qualifies GOOD; --require-cron opt-in strictness
+3b1b551f7194d74c6fc25c10b142356f9ce2fb6a2fa2749434f66bc14a7aa52e  plugins/dnse/tools/token_status.py
+35e13934f5ced99e8014f704fa73081a028c6218cc847a677498b1bd75f36073  plugins/dnse/tests/test_token_status.py
+# 2026-09-17 #133: "fresh cron" label measured the token's mint hour, not the schedule -> "minted today" (rehearsal caught the contradiction)
+c5d86bce2a64f50bad76639476a22e861ee7ab8c6a810b2e178c80c92d6770a9  plugins/dnse/tools/token_status.py
+# 2026-09-17 #148: new_worker_worktree.sh rev 2 (F2 header, F4 stated twice, F5 detached refusal, --check preconditions) — NOT executed; #148 paused for the live run
+767d32832d169c44870d77e81f66d1280b74fab610cf452c1ab907a98fd3f895  tools/new_worker_worktree.sh
+# 2026-09-17 #148: ownership.toml — DATA ONLY, no hook reads it; nothing registered (verified: 0 references in settings/hooks)
+bfcd325cd92da8a3922b068c7755480ef83f1aea238994e5012c731418d07484  .claude/ownership.toml
+# 2026-09-17 #148: enforce_ownership.py — WRITTEN, NOT REGISTERED, never executed; full Fable review after today's live session
+105bde39b0e8402154656c573fc7db4be31c1384b708d3239090ca1c63a4d13d  .claude/hooks/enforce_ownership.py
+# 2026-09-17 #148: test_enforce_ownership.py — WRITTEN, NOT RUN (executes the unregistered hook); review after the live session
+e97ccfd206577e946356b52b5bde3ab640ebda91b8770e1dac3a6e06a563f2f0  .claude/hooks/test_enforce_ownership.py
+# 2026-09-17 #148: worker-handoff-template.md — prose; reviewed after the live session with the other four
+4b55aebd9ebe9cbb611d41d9697cd149d93f68e890313aed224b22d8220127a8  docs/plan/worker-handoff-template.md
+# 2026-09-17 #118: GTD ceiling = session close (07:45Z) on the final trade date; ceiling-in-future wins over the floor; inverted expiry-day pin
+1c815ecce4c2c28de577b7dd5e2bc955eb7fa945b35a29b25cb091560272a41c  plugins/dnse/pynecore_dnse/broker.py
+1986eadbae1dd00afbd1b70c6500aa02c4f394eca92724f1f2e2eba65a8392db  plugins/dnse/tests/test_gtd_expiry_resolution.py
+51bbc865e0a5373b44a5d9b14741eb7d25ca0f72b948bdbaafd2deab5aef3f86  plugins/dnse/tests/test_gtd_expiry_clamp_starved.py
+# 2026-09-17 #118: l0_order_semantics.py --symbol option (default VN30F1M) to probe the next-month contract on expiry day
+7c9f0df6912fd614669aff6e822b704d1e7e7851c775b653558b398d45d0a868  plugins/dnse/testing/live_test/level0_venue_semantics/l0_order_semantics.py
+# 2026-09-17 #118: GTD ceiling on the final trade date = end of CONTINUOUS session 07:30Z (operator's resting app stop, expiry 14:30); 07:45Z measured refused
+a308a45adc7ef543e1843ca8365898e77b209bd4362c908b2ce07eda82bb1982  plugins/dnse/pynecore_dnse/broker.py
+c378e2b8b43874293ed8fa90884a9dac7072c45b808ee5f1366dcaba8f58cc5b  plugins/dnse/tests/test_gtd_expiry_resolution.py
+deb4c558e8b568f740ee921f70327dc1ef67c572fd68c5869d5df2a69430b86b  plugins/dnse/tests/test_gtd_expiry_clamp_starved.py
+# 2026-09-17 #132 W1 baseline (Fable, operator-directed): red-first tests over REAL prices + mocked order records; detector price_through.py does not exist yet
+062651a36718549b3fb43871ee8c70e5ccddbef08c33e4bc4275290e70e4f113  plugins/dnse/tests/test_price_through.py
+af7aee8f3c50c42d1e59f9933ebccdcd45bcb4a028896b4871d55013a235589d  plugins/dnse/tests/fixtures/f132_20260917_l2b_chain.json
+# 2026-09-17 #148 rev 2: F-1 exemption removed, F-3 systemMessage, F-4 control surface to the leader, minors — still unregistered
+5eee69da3ec02fb247e6842a7430a857052cc3e93943fc3137bd2660e8ec8646  .claude/hooks/enforce_ownership.py
+bd3512a883583abf9d57302b5e99ef987cdedc90dd7d7160fb8be4199328e8c0  .claude/hooks/test_enforce_ownership.py
+b25db7f6e35492e71407692409521b02b572a981d4664dd9eee350aa3f2cd960  .claude/ownership.toml
+# 2026-09-17 #132 W1 baseline: import guarded by importorskip after the RED was recorded (shared tree, -x)
+d62fdfa76c26a34416b74931850c898f0d4b10f69558503b7fe2533b7fb6ae35  plugins/dnse/tests/test_price_through.py
+# 2026-09-17 #148 rev 3: hook (sed quote-strip is load-bearing, documented), worktree --check refuses a leftover branch, template corrected (no manifest exemption)
+e4237e164f9af3f9e41c7e2fe31e3a083230cb4efeabfd9131d58fd080d25739  tools/new_worker_worktree.sh
+eda31703ba35e241caa3da1571170ce2405aeb354aae4d85252b12e6b8906489  .claude/hooks/enforce_ownership.py
+397ba6cb2ebc9c527d689c8d1209876fdc679742f5de4846756045e3afaf0a51  docs/plan/worker-handoff-template.md
+# 2026-09-17 #132 W1 detector (Fable, operator waived the panel): pure price_through.py against the 12 baseline pins
+3aacb6ddb8f43e96dd9e8bf6dc7866a5b8ed8374fdfcbb98b126c4404c38a466  plugins/dnse/tools/price_through.py
+# 2026-09-17 #148: --check pin in a throwaway git repo (never the real tree)
+ff90b410ecb3d2b506c40d9636b0793d493ef4104c6b75082a7e6c8f900ae770  tools/test_new_worker_worktree.py
+# 2026-09-17 #148: --check pin harness fix (mkdir before git init in the throwaway repo)
+909c591b4014b1e61487efa505b15207b4646aee62d365cc25f7dfed470c44a1  tools/test_new_worker_worktree.py
+# 2026-09-17 #148 step 4: TEMPORARY non-blocking session_id logger hook (remove after the measurement)
+747a1ef5417cb8f2d839688c84d9732ae36cc51107f3ca73065c6be02d897313  .claude/hooks/tmp_session_id_logger.py
