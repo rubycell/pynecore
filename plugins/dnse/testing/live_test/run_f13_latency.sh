@@ -172,7 +172,11 @@ restore() {
     # who just pressed Ctrl-C is owed that answer without having to think of
     # asking for it.
     if [ "${GATES_PASSED:-0}" -eq 1 ]; then
-        $PY plugins/dnse/tools/venue.py flat >/dev/null 2>&1; local frc=$?
+        # TWO agreeing reads, like every other flat check here. This line is
+        # read at the moment the operator is deciding what to do — most often
+        # straight after Ctrl-C, mid-position — so a stale FLAT (#124-OBS,
+        # measured) would tell them exactly the wrong thing exactly then.
+        flat_confirmed; local frc=$?
         if [ "$frc" -eq 0 ]; then
             echo "=== account verified FLAT and clean on exit ==="
         else
