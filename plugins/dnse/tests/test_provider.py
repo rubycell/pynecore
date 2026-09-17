@@ -696,36 +696,114 @@ def __test_require_contract_refuses_a_200_that_carries_no_catalogue__(
         p.require_contract()
 
 
-def __test_require_contract_refuses_a_possibly_truncated_catalogue__(
+def __test_require_contract_refuses_when_the_catalogue_is_incomplete__(
         fake_client):
-    """A FULL page with no match may simply be page 1 of several.
+    """An incomplete catalogue with no match resolves NOTHING.
 
-    `/market/instruments` is paged — the client takes `limit` and `page` — and
-    this call asks for one page of 200 without a page loop. A catalogue larger
-    than the page therefore produces "no match" from a perfectly healthy
-    response, and treating that as a passthrough is how a 200 poisons the
-    cache exactly like a 503.
+    Shaped on the REAL endpoint, not on a guess: prod carries ~3298
+    instruments and page 1 is ALWAYS full, so the earlier "a short page means
+    we saw the whole catalogue" heuristic never fired live — every stock would
+    have refused forever once a consumer was wired. Completeness is judged
+    against ``total`` with the same helper the positions read uses, and when
+    the page is provably partial the symbol is looked up DIRECTLY (the
+    endpoint filters on ``symbol``, which is exactly the passthrough
+    question). Here the direct lookup finds nothing either, so the answer is
+    could-not-determine.
     """
     full_page = [{"symbolType": f"X{i}", "symbol": f"S{i}"} for i in range(200)]
-    fake = fake_client(get_instruments=_instruments(full_page))
-    p = _wired(fake, symbol="VN30F1M")
+
+    def _paged(*_a, **kwargs):
+        if kwargs.get("symbol"):
+            return (200, {"data": [], "total": 0})
+        return (200, {"data": full_page, "total": 3298})
+
+    p = _wired(fake_client(get_instruments=_paged), symbol="VN30F1M")
 
     with pytest.raises(ExchangeConnectionError):
         p.require_contract()
 
 
-def __test_require_contract_passes_through_a_stock_in_a_whole_catalogue__(
-        fake_client):
-    """The documented passthrough must survive: a stock IS its own code.
+def __test_require_contract_refuses_a_matched_row_with_no_symbol__(fake_client):
+    """A MATCHED row carrying no ``symbol`` must stay UNRESOLVED.
 
-    The control for the three refusals above. Without it, "refuse when nothing
-    matched" would be satisfied by an implementation that refuses ALWAYS,
-    which would take every stock down with it.
+    It resolves nothing, so it must be retried after the window — never fall
+    through to the passthrough, which would relabel the alias RESOLVED and
+    cache the original poison permanently (measured: the value came back as
+    the alias itself, cached resolved=True).
     """
-    fake = fake_client(get_instruments=_instruments(_CATALOGUE))
+    def _matched_but_empty(*_a, **kwargs):
+        if kwargs.get("symbol"):
+            return (200, {"data": [], "total": 0})
+        return (200, {"data": [{"symbolType": "VN30F1M", "symbol": ""}],
+                      "total": 1})
+
+    p = _wired(fake_client(get_instruments=_matched_but_empty),
+               symbol="VN30F1M")
+
+    with pytest.raises(ExchangeConnectionError):
+        p.require_contract()
+
+
+def __test_require_contract_resolves_a_stock_that_is_not_on_page_one__(
+        fake_client):
+    """The CONTROL, re-shaped on the real catalogue — and it now bites.
+
+    Before this pin the control used a two-row fixture, so it passed while
+    `require_contract("HPG")` would have REFUSED FOREVER on prod: the stock is
+    not on page 1, page 1 is always full, and the old heuristic read a full
+    page as "truncated, refuse". The control claimed to exclude an
+    implementation that refuses always, and against the real shape it did not.
+
+    A control has to be built from the shape the code will actually meet.
+    """
+    full_page = [{"symbolType": f"X{i}", "symbol": f"S{i}"} for i in range(200)]
+
+    def _paged(*_a, **kwargs):
+        if kwargs.get("symbol") == "HPG":
+            return (200, {"data": [{"symbol": "HPG", "symbolType": "STOCK"}],
+                          "total": 1})
+        return (200, {"data": full_page, "total": 3298})
+
+    fake = fake_client(get_instruments=_paged)
     p = _wired(fake, symbol="HPG")
 
-    assert p.require_contract() == "HPG"
+    assert p.require_contract() == "HPG", (
+        "a stock that exists but is not on page 1 must resolve — refusing it "
+        "would take every stock down the moment a consumer is wired"
+    )
+    # COST is a correctness property on a rate-limited venue, and it is pinned
+    # HERE rather than left to a pin that exists for another purpose. The
+    # second request is earned by exactly one branch — a real but PARTIAL page
+    # — and by nothing else. An earlier version of this fix fired the direct
+    # lookup on an EMPTY body too, so a dead endpoint cost two requests per
+    # retry window instead of one: the request storm the negative TTL exists to
+    # prevent, reintroduced by the fix for the poisoning. That was caught by an
+    # older pin asserting a single call, not by any of these.
+    assert fake.count("get_instruments") == 2, (
+        "the partial page earns exactly one extra request: the page scan, then "
+        "the direct lookup"
+    )
+
+
+def __test_a_dead_read_costs_exactly_one_request_per_window__(fake_client):
+    """A dead endpoint must NOT pay for the passthrough lookup.
+
+    The companion to the assertion above, and the one that would have caught
+    the defect directly. An empty body is a dead read, not an incomplete
+    catalogue: there is nothing to disambiguate, so there is no second request
+    to justify. On a venue that is already throttled and already failing, the
+    difference between one call and two per symbol per window is the whole
+    reason the negative TTL was chosen over never caching.
+    """
+    fake = fake_client(get_instruments=(200, {}))
+    p = _wired(fake, symbol="VN30F1M")
+
+    with pytest.raises(ExchangeConnectionError):
+        p.require_contract()
+    assert fake.count("get_instruments") == 1, (
+        "a dead read cost more than one request — the retry storm the "
+        "bounded TTL exists to prevent"
+    )
 
 
 def __test_unresolved_contract_heals_after_the_retry_window__(

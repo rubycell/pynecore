@@ -26,6 +26,7 @@ from pynecore.core.syminfo import SymInfo, SymInfoInterval, SymInfoSession
 from pynecore.types.ohlcv import OHLCV
 
 from .client import DNSEClient
+from .page_completeness import positions_complete
 
 #: TradingView timeframe -> DNSE resolution. DNSE offers 1 3 5 15 30 1H 1D 1W,
 #: so the mapping is NOT identity above 30 minutes.
@@ -279,24 +280,59 @@ class DNSEProvider(ProviderPlugin[DNSEConfigT]):
         status, body = self.client.get_instruments(limit=limit)
         value, resolved = wanted, False
         rows: list = []
+        total = None
         if status == 200 and isinstance(body, dict):
             rows = list(body.get("data") or [])
+            total = body.get("total")
             for row in rows:
                 if row.get("symbolType") == wanted:
-                    value = row.get("symbol") or wanted
-                    resolved = bool(row.get("symbol"))
+                    code = row.get("symbol")
+                    if code:
+                        value, resolved = code, True
+                    # A MATCHED row with no ``symbol`` resolves NOTHING. It must
+                    # stay unresolved (and retried) rather than fall through to
+                    # the passthrough below, which would relabel the alias
+                    # RESOLVED and cache the original poison permanently.
                     break
-        if not resolved and status == 200 and rows and len(rows) < limit:
-            # The catalogue came back WHOLE (a non-empty body, short of the
-            # page limit) and does not list this symbolType: the documented
-            # passthrough — a stock IS its own tradable code.
-            #
-            # ``rows`` must be non-empty. A 200 carrying no ``data`` key, or an
-            # empty list, is not a catalogue that "does not list" anything — it
-            # is a response that tells us nothing, and trusting it is how a
-            # healthy-looking read poisons the cache. Empty is suspicious, not
-            # conclusive.
-            resolved = True
+            else:
+                # No ``symbolType`` row for this name. That is either the
+                # documented passthrough (a stock IS its own tradable code) or
+                # a catalogue we have not seen all of. Distinguish by ASKING —
+                # the endpoint filters on ``symbol`` (not ``symbolType``), so
+                # it cannot resolve an alias, but it answers exactly the
+                # passthrough question: is this already a tradable code?
+                #
+                # The old test — "a full page means truncation, a short page
+                # means whole" — is REFUTED for this endpoint: prod carries
+                # ~3298 instruments and page 1 is ALWAYS full, so a short page
+                # never occurs live and every stock would refuse forever.
+                # Completeness is judged against ``total``, using the same
+                # helper the positions read uses (#57/#62 G1/G2b).
+                # ``rows`` must be NON-EMPTY before any of this means
+                # anything. `positions_complete` treats ABSENT metadata as
+                # complete — correct at the positions read, where STOCK rows
+                # carry no ``total`` — so an empty body would otherwise read as
+                # "a whole catalogue that happens to lack this symbol". An
+                # empty body is not a catalogue at all; it is a dead read, and
+                # it stays UNRESOLVED without a second request. (Reusing a
+                # helper across two call sites imports its judgement about
+                # missing metadata, and these two sites disagree about what
+                # missing means.)
+                if rows:
+                    if positions_complete(len(rows), total):
+                        resolved = True      # provably whole, genuinely absent
+                    else:
+                        # A real but PARTIAL page. Ask directly whether this
+                        # name is itself a tradable code — one extra request,
+                        # and only on this branch, so a dead endpoint still
+                        # costs exactly one call per retry window.
+                        d_status, d_body = self.client.get_instruments(
+                            symbol=wanted, limit=limit)
+                        if d_status == 200 and isinstance(d_body, dict):
+                            for row in list(d_body.get("data") or []):
+                                if row.get("symbol") == wanted:
+                                    resolved = True
+                                    break
         cache[wanted] = (value, resolved, _monotonic())
         return value, resolved
 
