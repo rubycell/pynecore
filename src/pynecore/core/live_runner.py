@@ -44,7 +44,7 @@ import logging
 import sys
 import time
 import threading
-from collections.abc import Coroutine, Generator
+from collections.abc import Callable, Coroutine, Generator
 from datetime import datetime
 from queue import Queue, Empty, Full
 from typing import Any
@@ -306,6 +306,78 @@ _CLOSED_WINDOW_SLEEP_S = 30.0
 # shrink it.
 _FEED_STALE_FLOOR_S = 90.0
 
+# #84: the deliverable HALT fires only AFTER the staleness watchdog has
+# tripped and reconnect has had real chances — so the budget is
+# ``feed_stale_after`` PLUS a grace, never a bare wall-clock number. A bare
+# ceiling would fire BEFORE staleness on a long timeframe (at 5m DNSE
+# staleness is 85 min), halting without the reconnect machinery ever
+# running, which inverts the whole design.
+#
+# The grace is capped in ABSOLUTE wall-clock because ``feed_stale_after``
+# is ``feed_timeout_bars x tf``, and ``feed_timeout_bars`` is a
+# false-positive-RECONNECT knob, not a risk budget: DNSE declares 17 to
+# clear its measured 16-minute ATC gap, so an uncapped multiple would make
+# the halt unreachable inside a trading session (measured: 3x at 15m is
+# 12h45m against a 2h30m session). Both constants are module scope so
+# tests can shrink them.
+_FEED_HALT_GRACE_MULTIPLIER = 2.0
+_FEED_HALT_CEILING_S = 600.0
+
+
+
+def _feed_halt_budget(feed_stale_after: float) -> float:
+    """#84 halt budget: how long OPEN blindness may last before halting.
+
+    ``feed_stale_after`` PLUS a capped grace — never a bare wall-clock
+    number. The halt is defined as "staleness tripped, reconnect had its
+    chances, still blind", so a budget that does not exceed
+    ``feed_stale_after`` would fire before the reconnect machinery ran at
+    all (at 5m with DNSE's ``feed_timeout_bars = 17``, staleness is 5100 s
+    — a bare 600 s budget would pre-empt it by 4500 s).
+
+    The grace is capped in ABSOLUTE wall clock because ``feed_stale_after``
+    is ``feed_timeout_bars x tf`` and ``feed_timeout_bars`` is a
+    false-positive-RECONNECT knob, not a risk budget. Uncapped, a multiple
+    of it puts the halt beyond any trading session.
+
+    Module level, and called by the live iterator rather than inlined, so a
+    test can exercise THIS function at production constants. An inlined
+    formula can only be re-implemented by the test, which then merely tests
+    its own copy — measured: a ``min(3 x stale, ceiling)`` mutant passed
+    such a pin.
+    """
+    return feed_stale_after + min(
+        _FEED_HALT_GRACE_MULTIPLIER * feed_stale_after,
+        _FEED_HALT_CEILING_S,
+    )
+
+
+class FeedLivenessHaltError(RuntimeError):
+    """#84: the feed went blind mid-flow while the book holds exposure.
+
+    Raised OUT of the live iterator (via the bar queue) when bars were
+    flowing today, then stopped, the staleness/reconnect machinery failed
+    to restore them for ``feed_stale_after + min(2 x feed_stale_after,
+    _FEED_HALT_CEILING_S)`` of OPEN, NON-QUIET wall clock, AND we are
+    exposed (or could become exposed). This is the only deliverable
+    escalation:
+    ``raise_if_halted`` runs per DELIVERED item, so a dead feed can never
+    surface a halt through the bar loop — the generator itself must raise.
+
+    Deliberately NOT raised on a flat book with nothing resting (the
+    documented no-attempt-limit reconnect rides out arbitrary outages
+    there) and NOT before the first real bar of the DAY (holiday /
+    closed-venue silence is legitimate; the flow-then-stop precondition
+    gives holiday immunity for free).
+
+    NOTE the arming flag is per-DAY, not per-SESSION. A per-session reset
+    looks tidier and is a latent re-introduction of this very bug: DNSE
+    trades 09:00-11:30 and 13:00-14:45, so a feed dying at 11:25 would
+    never re-arm after the break and the whole afternoon would run blind
+    while exposed. The blindness CLOCK is the thing that must respect
+    session boundaries (it pauses), not the arming flag.
+    """
+
 # Cadence of WARNING-level idle-synth reminders within one idle streak:
 # the first synth of a streak warns, then every Nth; the rest are DEBUG.
 _SYNTH_WARN_EVERY = 10
@@ -504,6 +576,7 @@ def live_ohlcv_generator(
         engine_event_stream: Coroutine[Any, Any, Any] | None = None,
         raise_on_connect_failure: bool = False,
         wake_event: 'threading.Event | None' = None,
+        exposure_probe: 'Callable[[], bool] | None' = None,
 ) -> Generator[OHLCV, None, None]:
     """
     Bridge async watch_ohlcv() to a sync Generator[OHLCV, None, None].
@@ -723,6 +796,13 @@ def live_ohlcv_generator(
         feed_stale_after = max(
             provider.feed_timeout_bars * tf_seconds, _FEED_STALE_FLOOR_S
         )
+    # #84 deliverable-HALT budget: sustained open-session blindness past
+    # this (with flow-then-stop + owned exposure) raises out of the
+    # iterator instead of reconnecting forever. Disabled when staleness
+    # itself is disabled or no exposure probe was wired (data-only runs).
+    feed_halt_after: float | None = None
+    if feed_stale_after is not None and exposure_probe is not None:
+        feed_halt_after = _feed_halt_budget(feed_stale_after)
 
     # Resolve the symbol timezone once. ``syminfo.opening_hours`` times are
     # expressed in this zone; epoch timestamps must be converted before
@@ -895,6 +975,32 @@ def live_ohlcv_generator(
         # rate-limited reconnect logs and the recovery line report how
         # long the feed was actually down.
         outage_started: float | None = None
+        # #84 flow-then-stop ARMING flag, per DAY. Set when a real
+        # ``watch_ohlcv`` update lands; cleared when the local date rolls
+        # over. Per-DAY and not per-SESSION on purpose: DNSE trades
+        # 09:00-11:30 and 13:00-14:45, so a per-session reset would leave a
+        # feed that died at 11:25 unable to re-arm after the break and the
+        # whole afternoon would run blind while exposed — this card's own
+        # bug, re-introduced by its fix.
+        saw_real_bar_today: bool = False
+        halt_day_key: str | None = None
+        # #84 blindness CLOCK, accumulated over OPEN, NON-QUIET wall clock
+        # only — the session/quiet-phase pause lives here, in the clock,
+        # never in the arming flag above. Sampled inside ``_feed_halt_due``
+        # (the one place blindness is re-measured), which is sampled on
+        # EVERY reconnect-loop iteration including closed-window ones, so a
+        # closed window or a declared quiet phase contributes nothing.
+        #
+        # Deliberately NOT derived from ``last_real_update``: that is rebased
+        # on a successful RECONNECT (see the ``Reconnected successfully``
+        # path), which grants a re-subscribed feed a fresh staleness window.
+        # Blindness measured against it can never accumulate past a single
+        # reconnect cycle, so a socket that reconnects cleanly and then says
+        # nothing — the exact hazard #84 exists for — would never halt.
+        blind_accum_s: float = 0.0
+        blind_tick_at: float = time.time()
+        # #84: the halt is delivered through the bar queue exactly ONCE.
+        halt_delivered: bool = False
         # Consecutive idle-synth bars since the last real closed bar.
         # Drives the rate-limited synth warning: first of a streak warns,
         # then every ``_SYNTH_WARN_EVERY``th, the rest log at DEBUG.
@@ -1058,6 +1164,101 @@ def live_ohlcv_generator(
 
             reconnect_attempts = 0
 
+            def _local_day_key() -> str:
+                """Local calendar date, in the SYMBOL's timezone when known.
+
+                The arming flag rolls over on this, so "today" means the
+                venue's today, not the host's.
+                """
+                return datetime.fromtimestamp(
+                    time.time(), tz=_sym_tz
+                ).date().isoformat()
+
+            def _feed_halt_due() -> FeedLivenessHaltError | None:
+                """#84: decide whether sustained blindness must HALT the run.
+
+                Called from :func:`_handle_connection_error` only — every
+                staleness and outage path funnels there, so this is both the
+                single decision point AND the clock's only sampling point.
+
+                Gates, in order (the order matters: the cheap, local ones
+                run before anything that can raise):
+                  1. halting is armed (staleness on + an exposure probe),
+                  2. flow-then-stop — a real bar landed TODAY,
+                  3. the market is open and not in a declared quiet phase,
+                  4. accumulated OPEN blindness exceeded the halt budget.
+                Only then is exposure consulted. A probe FAILURE counts as
+                exposed (could-not-determine is never "flat" — the same rule
+                the venue tools use): blind AND unable to read our own book
+                is exactly the state that must not run silent. That rule also
+                covers the probe reading engine state from this, the PRODUCER
+                thread: a dict mutated under it raises, and raising means
+                halt.
+                """
+                nonlocal blind_accum_s, blind_tick_at, saw_real_bar_today
+
+                # Clock first, so it keeps accumulating even on cycles that
+                # return early below.
+                now = time.time()
+                elapsed = now - blind_tick_at
+                blind_tick_at = now
+                open_now = _market_open_now()
+                if open_now and not _in_feed_quiet_phase():
+                    blind_accum_s += elapsed
+
+                if halt_day_key is not None and halt_day_key != _local_day_key():
+                    # New trading day: yesterday's bars prove nothing about
+                    # today, so re-prove flow before the halt may fire again.
+                    saw_real_bar_today = False
+
+                if feed_halt_after is None or not saw_real_bar_today:
+                    return None
+                if not open_now or _in_feed_quiet_phase():
+                    return None
+                if blind_accum_s < feed_halt_after:
+                    return None
+                try:
+                    exposed = bool(exposure_probe())  # type: ignore[misc]
+                except Exception:  # noqa: BLE001 — fail-closed on probe error
+                    exposed = True
+                if not exposed:
+                    return None
+                return FeedLivenessHaltError(
+                    f"feed blind for {blind_accum_s:.0f}s of OPEN session time "
+                    f"(bars flowed today, then stopped) while we are exposed "
+                    f"or could become exposed — reconnect could not restore "
+                    f"the feed within the halt budget "
+                    f"({feed_halt_after:.0f}s = staleness "
+                    f"{feed_stale_after:.0f}s + grace); halting loudly so a "
+                    f"supervisor can restart via the recovery path"
+                )
+
+            def _deliver_halt_if_due() -> None:
+                """Ship a due halt to the consumer through the bar queue.
+
+                The queue — not ``raise`` — because it is the ONLY channel
+                that can unblock a consumer parked in ``bar_queue.get()`` on
+                a feed that will never speak again, and because putting an
+                item leaves the reconnect control flow and the producer's
+                ``_graceful_shutdown`` teardown completely untouched. The
+                producer keeps reconnecting; the consumer raises, run.py
+                tears down, and this generator's ``finally`` sets
+                ``stop_event``, which is what actually ends the loop.
+
+                Delivered at most ONCE per run: a persistent outage calls
+                this on every reconnect attempt, and one halt must not
+                become a queue full of them.
+                """
+                nonlocal halt_delivered
+                if halt_delivered:
+                    return
+                _halt = _feed_halt_due()
+                if _halt is None:
+                    return
+                halt_delivered = True
+                logger.error("#84 FEED LIVENESS HALT: %s", _halt)
+                bar_queue.put(_halt)
+
             async def _handle_connection_error(
                     connection_error: BaseException,
                     attempts: int,
@@ -1075,6 +1276,20 @@ def live_ohlcv_generator(
                 """
                 nonlocal market_open_state, last_real_update, outage_started
                 while not stop_event.is_set():
+                    # #84: the ONE sampling point for the blindness clock,
+                    # and the one place the halt can be delivered. It sits at
+                    # the TOP of the loop, above the closed-window branch,
+                    # deliberately: that branch ``continue``s, so a check
+                    # placed after it would not run at all while the market is
+                    # closed — and the clock would then attribute the whole
+                    # closed gap to the first sample after reopen (a 90-minute
+                    # lunch would look like 90 minutes of blindness and halt a
+                    # healthy feed at 13:00). Sampling every iteration keeps
+                    # each interval attributed to the state it actually
+                    # elapsed in. It also covers the persistent-outage case,
+                    # where this loop never returns to its caller and is
+                    # therefore the only thing that can still deliver.
+                    _deliver_halt_if_due()
                     # Session-gate: when the market is in a known-closed
                     # window (e.g. FX weekend), do not churn through
                     # reconnect cycles on a connection error. Wait one closed-
@@ -1112,6 +1327,11 @@ def live_ohlcv_generator(
                     # ``provider.max_reconnect_delay`` and the per-attempt
                     # logging is rate-limited so a multi-hour outage costs
                     # a handful of log lines, not one per attempt.
+                    # #84: unbounded holds ONLY while we are flat with
+                    # nothing resting (or no probe is wired). With exposure,
+                    # sustained mid-flow blindness past the halt budget
+                    # escalates to a deliverable HALT instead — see the
+                    # sampling point at the top of this loop.
                     attempts += 1
                     if attempts == 1:
                         outage_started = time.time()
@@ -1221,6 +1441,12 @@ def live_ohlcv_generator(
                         timeout=effective_timeout,
                     )
                     last_real_update = time.time()
+                    # #84: a REAL bar is the only thing that arms the halt
+                    # and the only thing that clears its blindness clock.
+                    saw_real_bar_today = True
+                    halt_day_key = _local_day_key()
+                    blind_accum_s = 0.0
+                    blind_tick_at = last_real_update
                     if reconnect_attempts:
                         # Data-level recovery marker: ``Reconnected
                         # successfully`` above only proves the socket came
