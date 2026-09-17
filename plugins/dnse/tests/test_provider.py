@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from pynecore.core.broker.exceptions import ExchangeConnectionError
 from pynecore_dnse import provider as provider_module
 from pynecore_dnse.provider import DNSEProvider, DNSEConfig
 
@@ -632,3 +633,135 @@ def __test_symbol_info_stock_morning_opens_at_ato_print__(fake_client):
     monday = sorted((o.start.strftime("%H:%M"), o.end.strftime("%H:%M"))
                     for o in si.opening_hours if o.day == 0)
     assert monday == [("09:15", "11:30"), ("13:00", "14:45")]
+
+
+# --- #145: contract provenance, negative TTL, and require_contract ----------
+
+def _instruments(rows, status=200, key="data"):
+    body = {key: rows} if key else {}
+    return lambda *_a, **_k: (status, body)
+
+
+_CATALOGUE = [
+    {"symbolType": "VN30F1M", "symbol": "41I1G9000"},
+    {"symbolType": "VN30F2M", "symbol": "41I1GA000"},
+]
+
+
+def __test_require_contract_returns_the_dated_code_from_a_good_catalogue__(
+        fake_client):
+    """The happy path: a resolved contract is tradable and cached permanently."""
+    fake = fake_client(get_instruments=_instruments(_CATALOGUE))
+    p = _wired(fake, symbol="VN30F1M")
+
+    assert p.require_contract() == "41I1G9000"
+    assert p.require_contract() == "41I1G9000"
+    assert fake.count("get_instruments") == 1, (
+        "a RESOLVED answer must stay cached — the negative TTL is only for "
+        "unresolved ones"
+    )
+
+
+def __test_require_contract_refuses_after_a_failed_read__(fake_client):
+    """#145: `status != 200` must be could-not-determine, never the alias.
+
+    `resolve_contract` legitimately falls back to the alias — it is the
+    CORRECT value on the `/price/ohlc` data path. But a consumer that needs a
+    tradable contract must not receive it: `get_position` filters venue rows
+    by the resolved symbol, so an unresolved alias matches nothing, the net
+    stays 0, and the read answers None — which the engine treats as proof of
+    absence. Could-not-determine must not be able to look like FLAT.
+    """
+    fake = fake_client(get_instruments=_instruments([], status=503, key=None))
+    p = _wired(fake, symbol="VN30F1M")
+
+    assert p.resolve_contract() == "VN30F1M", "the data path keeps the alias"
+    with pytest.raises(ExchangeConnectionError):
+        p.require_contract()
+
+
+def __test_require_contract_refuses_a_200_that_carries_no_catalogue__(
+        fake_client):
+    """A healthy-looking 200 with no rows resolves NOTHING.
+
+    This is the arm an HTTP-status gate is blind to, and it is why provenance
+    rather than `status == 200` is the discriminator. A body with no `data`
+    key is not a catalogue that "does not list" this symbol — it is a response
+    that tells us nothing. Empty is suspicious, not conclusive.
+    """
+    fake = fake_client(get_instruments=_instruments(None, key=None))
+    p = _wired(fake, symbol="VN30F1M")
+
+    with pytest.raises(ExchangeConnectionError):
+        p.require_contract()
+
+
+def __test_require_contract_refuses_a_possibly_truncated_catalogue__(
+        fake_client):
+    """A FULL page with no match may simply be page 1 of several.
+
+    `/market/instruments` is paged — the client takes `limit` and `page` — and
+    this call asks for one page of 200 without a page loop. A catalogue larger
+    than the page therefore produces "no match" from a perfectly healthy
+    response, and treating that as a passthrough is how a 200 poisons the
+    cache exactly like a 503.
+    """
+    full_page = [{"symbolType": f"X{i}", "symbol": f"S{i}"} for i in range(200)]
+    fake = fake_client(get_instruments=_instruments(full_page))
+    p = _wired(fake, symbol="VN30F1M")
+
+    with pytest.raises(ExchangeConnectionError):
+        p.require_contract()
+
+
+def __test_require_contract_passes_through_a_stock_in_a_whole_catalogue__(
+        fake_client):
+    """The documented passthrough must survive: a stock IS its own code.
+
+    The control for the three refusals above. Without it, "refuse when nothing
+    matched" would be satisfied by an implementation that refuses ALWAYS,
+    which would take every stock down with it.
+    """
+    fake = fake_client(get_instruments=_instruments(_CATALOGUE))
+    p = _wired(fake, symbol="HPG")
+
+    assert p.require_contract() == "HPG"
+
+
+def __test_unresolved_contract_heals_after_the_retry_window__(
+        fake_client, monkeypatch):
+    """#145's core: a failed read must NOT poison the cache forever.
+
+    The old code cached the alias fallback permanently with no revalidation,
+    so one transient failure at startup made every position read answer FLAT
+    for the life of the process. Not caching at all is not the answer either —
+    measured at ~10k extra instruments calls per venue-down session against an
+    endpoint that is already throttled — so the fix mirrors `_secdef` /
+    `_SECDEF_RETRY_S` (#119/G1): cache the failure for a bounded window only.
+
+    Drives venue HEALTH rather than call counts: the read fails, then recovers,
+    and the pin asserts the resolved OUTCOME either side of the window.
+    """
+    state = {"healthy": False}
+
+    def _flaky(*_a, **_k):
+        if not state["healthy"]:
+            return (503, {})
+        return (200, {"data": _CATALOGUE})
+
+    fake = fake_client(get_instruments=_flaky)
+    p = _wired(fake, symbol="VN30F1M")
+
+    with pytest.raises(ExchangeConnectionError):
+        p.require_contract()
+
+    state["healthy"] = True
+    # Still inside the retry window: the failure is remembered, not re-read.
+    with pytest.raises(ExchangeConnectionError):
+        p.require_contract()
+
+    monkeypatch.setattr(provider_module, "_CONTRACT_RETRY_S", 0.0)
+    assert p.require_contract() == "41I1G9000", (
+        "the unresolved answer outlived its retry window — one transient "
+        "failure would blind every position read for the life of the process"
+    )
