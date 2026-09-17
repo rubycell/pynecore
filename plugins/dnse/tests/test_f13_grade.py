@@ -140,29 +140,86 @@ def __test_missing_first_live_frame_grades_ws_as_delivering_nothing__(
     text = PREFIXED.replace(
         "[BROKER] WS ORDER SOURCE FIRST LIVE FRAME id=**2376",
         "[BROKER] WS order feed subscribe REQUESTED channel=order.DERIVATIVE.json")
-    rc = grader.main([str(_log(tmp_path, text)), "--arm", "ws"])
+    rc = grader.main([str(_log(tmp_path, text)), "--arm", "ws",
+                      "--venue-json", _venue_json(tmp_path)])
     out = capsys.readouterr().out
     assert "WS delivered nothing" in out, f"ws failure not reported:\n{out}"
     assert rc == grader.EXIT_NEGATIVE, f"a failed delivery gate graded {rc}"
 
 
-def __test_ws_frame_naming_the_child_id_answers_130_for_stop_entries__(
-        tmp_path, capsys):
-    """The open #130 question: does the WS arm attribute the conditional's
-    normal-book CHILD? Catches a grader that only ever looks at the placed id
-    and so can never answer it either way."""
-    rc = grader.main([str(_log(tmp_path, PREFIXED)), "--arm", "ws"])
-    out = capsys.readouterr().out
-    assert "#130 child frame" in out
-    assert "PASS" in out.split("#130 child frame")[0].split("[")[-1] or \
-           "a WS frame names the child id" in out, f"child frame not credited:\n{out}"
+def _venue_json(tmp_path, records=None):
+    path = tmp_path / "venue.json"
+    path.write_text(__import__("json").dumps(records if records else VENUE))
+    return str(path)
 
-    without = PREFIXED.replace("id=159736 status=Filled", "id=**9999 status=Filled")
-    grader.main([str(_log(tmp_path, without, "f13_ws_fill2_120000.log")),
-                 "--arm", "ws"])
-    out2 = capsys.readouterr().out
-    assert "no WS frame names any of" in out2, (
-        f"a run where NO frame names the child still passed the #130 gate:\n{out2}")
+
+def __test_child_frame_gate_asks_about_the_ENTRY_child_not_the_bracket__(
+        tmp_path, capsys):
+    """F3. Catches the shipped gate, which built its child ids from the
+    `dispatched EXIT -> [...]` line — the BRACKET's orders.
+
+    #130 asks whether the ENTRY conditional's normal-book child is attributed
+    over WS. Grading the bracket's ids answers a different question and calls
+    it a PASS. Here the entry's child (215286 -> 159736, from the venue record)
+    IS named by a frame, so the gate passes for the RIGHT reason.
+    """
+    rc = grader.main([str(_log(tmp_path, PREFIXED)), "--arm", "ws",
+                      "--venue-json", _venue_json(tmp_path)])
+    out = capsys.readouterr().out
+    assert "names the entry's normal-book child 159736" in out, (
+        f"the #130 gate did not resolve the ENTRY's child:\n{out}")
+    assert rc == grader.EXIT_OK
+
+
+def __test_child_frame_gate_is_undetermined_without_a_venue_record__(
+        tmp_path, capsys):
+    """Catches inventing a child id from the log when the venue never supplied
+    one. The entry's externalOrderId is a VENUE fact; absent it, the #130
+    question cannot be asked of the run — and must not be answered."""
+    grader.main([str(_log(tmp_path, PREFIXED)), "--arm", "ws"])
+    out = capsys.readouterr().out
+    assert "#130 child frame" in out and "COULD-NOT-DETERMINE" in out
+    assert "cannot ask the #130 question" in out
+
+
+def __test_a_masked_frame_id_must_not_substring_match_a_foreign_child__(
+        tmp_path, capsys):
+    """F3's demonstrated collision, and the sharpest pin in this file.
+
+    `ws_order_source` logs MASKED ids (`id=**9736`), and the shipped test was
+    `f["id"].lstrip("*") in cid or cid in f["id"]`. Against child `1597312`
+    the unrelated frame `**5973` PASSES, because "5973" occurs inside it — a
+    four-character needle finds itself almost anywhere in a longer haystack.
+    That is a false PASS on the one measurement the ws-vs-poll decision rests
+    on.
+
+    Contract: a masked id matches only if the child ENDS WITH its visible
+    suffix, and the frame is at/after the entry fill.
+    """
+    records = {"215286": {"orderStatus": "Activated",
+                          "externalOrderId": "1597312",
+                          "createdDate": 1789456799000},
+               "1597312": {"orderStatus": "Filled",
+                           "modifiedDate": 1789456800500}}
+    collide = PREFIXED.replace("id=159736 status=Filled", "id=**5973 status=Filled")
+    grader.main([str(_log(tmp_path, collide, "f13_ws_fill3_120000.log")),
+                 "--arm", "ws", "--venue-json", _venue_json(tmp_path, records)])
+    out = capsys.readouterr().out
+    assert "no WS frame names the entry's child 1597312" in out, (
+        f"an unrelated masked id substring-matched a foreign child:\n{out}")
+
+
+def __test_a_masked_suffix_that_really_is_the_child_still_matches__(
+        tmp_path, capsys):
+    """The over-block control: masked ids are the NORMAL case on the ws arm, so
+    a rule that rejected all of them would fail every real run and still pass
+    the collision pin above. A genuine suffix match is labelled as such so the
+    table never presents it as an exact id match."""
+    masked = PREFIXED.replace("id=159736 status=Filled", "id=**9736 status=Filled")
+    grader.main([str(_log(tmp_path, masked, "f13_ws_fill4_120000.log")),
+                 "--arm", "ws", "--venue-json", _venue_json(tmp_path)])
+    out = capsys.readouterr().out
+    assert "suffix-matched" in out, f"a genuine masked child was rejected:\n{out}"
 
 
 def __test_poll_arm_with_ws_frames_is_not_poll_only__(tmp_path, capsys):
