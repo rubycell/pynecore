@@ -24,3 +24,4 @@ ac2f599cedfae471e473ccc3c28ac59e1ae712c0a7b9925abb0939e79a530c09  plugins/dnse/t
 7e30c88de2cf170405c2773c5453992e2102d241ca5663edfb80588870b04f05  plugins/dnse/tools/venue.py
 d1254e2c24d5dffde990f888688598c81ebc3808e72db4fddee8eee1ac9a1cb7  plugins/dnse/tests/test_f13_guard.py
 d851c63f79bd89d2a0d947f89ec86d61d0f8a92dedcc6defd08555b414361f0f  plugins/dnse/tests/test_f13_grade.py
+0b4b78d40ebddcfede992a052cc0e96e8d5c63c637a10bcade1b22a1ca727526  tests/t00_pynecore/core/test_025_order_sync_engine.py  # #147 pin docstring corrected (COID claim marked REFUTED)
