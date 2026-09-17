@@ -74,14 +74,62 @@ def token_is_live(client: DNSEClient, account: str, token: str) -> tuple[bool, s
     return True, f"accepted (probe -> {errors.code_of(body) or ('http ' + str(status))})"
 
 
-def show_cron_log(state_path: Path) -> None:
+def verdict_text(good: bool, cron_state: str) -> str:
+    """The VERDICT line, as a value a test can read.
+
+    Extracted so the qualification is pinned rather than asserted in a
+    comment: a GOOD token whose schedule never ran must NEVER render
+    unqualified, because that parenthetical-beside-GOOD is exactly how a
+    dead cron stayed invisible for two mornings.
+    """
+    if not good:
+        return "NOT GOOD — refresh needed"
+    if cron_state == "ran":
+        return "GOOD — the plugin can place orders"
+    detail = ("no cron log exists — the schedule is probably not installed"
+              if cron_state == "absent"
+              else "the schedule did not run today")
+    return (f"GOOD — the plugin can place orders, BUT {detail}. "
+            f"This token was not produced by the automation.")
+
+
+def show_cron_log(state_path: Path, today=None) -> str:
+    """Print the cron log tail and RETURN what it says about today.
+
+    Returns ``"ran"`` / ``"stale"`` / ``"absent"``.
+
+    It returns a value rather than only printing because it used to return
+    ``None`` and never touch the verdict — so "the scheduled refresh never
+    ran" rendered as a parenthetical NEXT TO a ``GOOD`` verdict and exit 0.
+    That is this card's own defect one layer in: a check reporting truthfully
+    while the caller reads a different object as the answer. #133 found it at
+    the callers (they pipe the exit status into ``tail``); this one was
+    inside the tool.
+
+    ``absent`` and ``stale`` stay DISTINCT on purpose. No log file at all
+    means the schedule was probably never installed — this card's origin
+    story, and invisible to code review because a crontab lives outside the
+    repo. A log with nothing from today means it is installed and did not
+    run, or ran and failed. Different actions; collapsing them is what made
+    the old "fresh cron: NO" wording read like a failure when the truth was
+    an absence.
+    """
+    today = today or datetime.now(ICT).date()
     log = state_path.parent / "refresh_token.log"
     print(f"\ncron log ({log}):")
     if not log.exists():
-        print("  (none yet — the 08:00 cron hasn't run, or it logs elsewhere)")
-        return
-    for line in log.read_text().splitlines()[-6:]:
+        print("  (NO LOG FILE — the scheduled refresh has never written here; "
+              "it is probably not installed at all)")
+        return "absent"
+    lines = log.read_text().splitlines()
+    for line in lines[-6:]:
         print(f"  {line}")
+    stamp = today.isoformat()
+    if any(stamp in line for line in lines):
+        return "ran"
+    print(f"  (NOTHING DATED {stamp} — the schedule did not run today, or "
+          f"ran without logging)")
+    return "stale"
 
 
 def interactive_refresh(client: DNSEClient, state_path: Path) -> bool:
@@ -109,6 +157,9 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=rt.DEFAULT_CONFIG)
     parser.add_argument("--state", type=Path, default=rt.DEFAULT_STATE)
     parser.add_argument("--refresh", action="store_true", help="refresh even if the token looks good")
+    parser.add_argument("--require-cron", action="store_true",
+                        help="also fail (exit 1) when the scheduled refresh "
+                             "did not run today, even if the token is GOOD")
     args = parser.parse_args()
 
     client = DNSEClient(*rt.load_credentials(args.config))
@@ -153,8 +204,20 @@ def main() -> int:
             good = live
             print(f"liveness:    {'GOOD — ' if live else 'BAD — '}{why}")
 
-    show_cron_log(args.state)
-    print(f"\nVERDICT: {'GOOD — the plugin can place orders' if good else 'NOT GOOD — refresh needed'}")
+    cron_state = show_cron_log(args.state)
+    # The verdict answers "can the plugin place orders?", so a token that IS
+    # good keeps exit 0 even when the schedule is broken: a manual mint is a
+    # legitimate way to arrive here, and failing a working morning would train
+    # the operator to ignore the exit code — the same cry-wolf failure the
+    # 07:55-vs-`hour >= 8` check already had. But it must never render
+    # UNQUALIFIED, because a dead schedule is what this card exists to surface.
+    print(f"\nVERDICT: {verdict_text(good, cron_state)}")
+    if args.require_cron and cron_state != "ran":
+        # Opt-in strict mode for an automated caller that wants the SCHEDULE
+        # verified, not merely the token. Off by default so a human running
+        # this ad hoc is never blocked by it.
+        print("  (--require-cron: the schedule did not run today -> exit 1)")
+        return 1
 
     if args.refresh or not good:
         if not sys.stdin.isatty():
