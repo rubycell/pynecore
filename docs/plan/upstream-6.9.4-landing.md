@@ -55,6 +55,30 @@ Trial rebase (scratch worktree, throwaway branch, no landing, no tests) runs fir
 two silent outcomes git actually produces: signature + in-memory pass + our cancel tail merged
 markerless (the hazard), or the signature hunk failing → `TypeError` at the first size==0 restart.
 
+### Trial rebase result (PyneCoreUpstreamUpdate, 09-17 13:25; branch `trial-694`, worktree `pynecore-trial-694`, log `TRIAL_REBASE_LOG.md` there)
+
+327/327 fork commits replayed, 4 conflict stops only: script_runner import block; pyproject dist-name
+vs version; and TWO #122 commits (9ba409e4, 122f8f50) that INSERT a method right before
+`_retire_orphan_exits_on_flat_book` and so carried the old `(self) -> None` signature in their context —
+the only reason git asked at all. The #122 BODY edits (d966bad2, 6af337c4) merged silently on top of
+upstream's version. **Grep-proof of the merged function (1 def, 91 lines): upstream signature
+`journal_only: bool = False` + upstream in-memory pass + FORK tail
+`_cleanup_position_tracking(pid, venue_flattened_externally=True)`; `flat_evidence_unconfirmed`: 0
+occurrences; callers: fork close-fill at ~6375 (passes nothing → upstream's NEW in-memory pass now
+runs on our measured close-fill path) and upstream restart at ~12789 (`journal_only=True`).** =
+OUTCOME A, the silent cancel, exactly as predicted. Step 3 above is necessary, not optional.
+
+**Fork invariant confirmed by reading structure (not defaults):** a BARE `_cleanup_position_tracking(pid)`
+on our fork CANCELS on DNSE — the only preserve exit is `if flat_evidence_unconfirmed:`; otherwise
+`venue_flattened_externally` → `_dispatch_cancel_strict`, else `elif not self._oca_cancel_native` →
+`_dispatch_cancel`, and DNSE declares `oca_cancel=SOFTWARE` so `_oca_cancel_native` is False. Upstream
+6.9.4 adds ZERO bare call sites (merged multiset 8 = 8), so no third hazard — but any FUTURE upstream
+caller of that function is a cancel on DNSE by default.
+
+`_build_envelope` resolved text at the consumer (~14990): `self._persisted_entry_anchor_is_spent(intent,
+anchor)`; the old name has 0 defs / 0 calls; predicate = prior row filled AND (`row.side != intent.side`
+OR **`row.closed_ts_ms is not None`** — new).
+
 ## Second silent merge — `_build_envelope` (45bc8103, live DISPATCH path)
 
 No fork commit touches `_build_envelope`, so upstream's rename
