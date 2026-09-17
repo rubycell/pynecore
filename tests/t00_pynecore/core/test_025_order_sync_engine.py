@@ -17214,3 +17214,215 @@ def __test_124_fresh_entry_fill_clears_stale_flat_marker_for_reused_id__():
     assert engine.order_mapping.get("P\0L")
     assert "L" in pos.entry_orders
     assert ("P", "L") in pos.exit_orders
+
+
+def __test_122_reemitted_entry_is_deferred_while_its_remainder_cancel_is_parked__():
+    """A Pine re-emission must DEFER while the key carries a parked cancel.
+
+    Finding 28, face 1. The entry-remainder park deliberately keeps the
+    intent ACTIVE, so an ordinary re-emission at a new price (limit chasing)
+    reaches the diff's modify branch while the park is live. ``modify_entry``
+    defaults to cancel + re-execute: it would re-point ``_order_mapping[key]``
+    at the REPLACEMENT while the park still names the predecessor's
+    obligation. The parked retry's cancel would then land on the replacement,
+    pop its mapping and release the park — and because ``_active_intents[key]``
+    still equals the Pine order, the diff would see no change and never
+    re-dispatch. The entry is silently dead for the rest of the run while
+    Pine believes it is working.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 2.0, limit=50_000.0)
+    engine.sync(BAR_TS)
+    mapping_before = list(engine._order_mapping["L"])
+    engine._route_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="L", leg=LegType.ENTRY,
+        event_type='partial', filled_qty=1.0, remaining_qty=1.0,
+    ))
+
+    # The venue refuses every cancel, so the remainder's park stays live.
+    async def _venue_refuses_every_cancel(envelope):
+        b.cancel_calls.append(envelope)
+        return False
+
+    b.execute_cancel = _venue_refuses_every_cancel
+    engine._accept_confirmed_external_flatten()
+    assert "L" in engine._forced_cancel_pending, "park taken on the remainder"
+
+    # Pine re-emits the SAME entry at a new price — an ordinary modify.
+    pos.entry_orders["L"] = _entry_order("L", 2.0, limit=49_000.0)
+    modifies_before = len(b.modify_entry_calls)
+    engine.sync(BAR_TS + 60_000)
+
+    assert len(b.modify_entry_calls) == modifies_before, (
+        "the re-emission was dispatched as a modify while a forced cancel "
+        "was parked on the key — cancel+re-execute re-points the mapping at "
+        "the replacement and the park is left naming an order we no longer "
+        "track"
+    )
+    assert engine._order_mapping.get("L") == mapping_before, (
+        "the parked cancel's target was re-pointed at a replacement order"
+    )
+    assert "L" in engine._forced_cancel_pending, (
+        "the obligation must survive the deferred modify"
+    )
+
+    # The venue accepts again: the park lands, and the re-emission is then
+    # free to dispatch — the entry must NOT be left silently dead.
+    del b.execute_cancel
+    engine.sync(BAR_TS + 120_000)
+    assert "L" not in engine._forced_cancel_pending, (
+        "the parked cancel should have landed once the venue accepted"
+    )
+    assert (len(b.modify_entry_calls) > modifies_before
+            or len(b.entry_calls) > 1), (
+        "after the park cleared, the re-emitted entry was never dispatched — "
+        "the strategy's entry is dead while Pine believes it is working"
+    )
+
+
+def __test_122_parked_remainder_still_releases_as_moot_after_a_deferred_reemit__():
+    """Finding 28, face 2: the moot release must judge the ORIGINAL order.
+
+    With the modify deferred, the fill ledger keeps describing the order the
+    park actually names. Had the modify gone through, ``modify_entry`` would
+    have reset the ledger to 0.0 for a FRESH replacement, and that
+    replacement's own fills would then drive the ledger up to the parked qty
+    — firing the moot release against an order that never filled at all.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 2.0, limit=50_000.0)
+    engine.sync(BAR_TS)
+    engine._route_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="L", leg=LegType.ENTRY,
+        event_type='partial', filled_qty=1.0, remaining_qty=1.0,
+    ))
+
+    async def _venue_refuses_every_cancel(envelope):
+        b.cancel_calls.append(envelope)
+        return False
+
+    b.execute_cancel = _venue_refuses_every_cancel
+    engine._accept_confirmed_external_flatten()
+    assert "L" in engine._forced_cancel_pending
+
+    pos.entry_orders["L"] = _entry_order("L", 2.0, limit=49_000.0)
+    engine.sync(BAR_TS + 60_000)
+    assert "L" in engine._forced_cancel_pending, "modify deferred, park intact"
+    # The face-2 PRECONDITION, asserted directly: a cancel+re-execute modify
+    # resets this ledger to 0.0 for the fresh replacement. While the modify is
+    # deferred the ledger must keep describing the order the park names — it
+    # is the only evidence the moot release consults, so a reset here would
+    # let the REPLACEMENT's fills release the predecessor's obligation.
+    assert engine._active_entry_filled_qty.get("L") == 1.0, (
+        "the fill ledger was reset by a modify that should have deferred — "
+        "the moot release would then judge the parked obligation by a "
+        "different order's fills"
+    )
+
+    # The ORIGINAL remainder fills: the obligation is genuinely moot now.
+    engine._active_entry_filled_qty["L"] = 2.0
+    cancels_before = len(b.cancel_calls)
+    engine._retry_forced_cancels()
+
+    assert "L" not in engine._forced_cancel_pending, (
+        "a genuinely complete entry must still release its moot park"
+    )
+    assert len(b.cancel_calls) == cancels_before, (
+        "a moot park was re-driven against a done order instead of released"
+    )
+
+
+def __test_122_park_guard_precedes_every_early_modify_path__():
+    """The park guard must run BEFORE any path that re-points the mapping.
+
+    Finding 28, placement. `_dispatch_modify` has several paths that cancel,
+    re-dispatch and re-point ``_order_mapping[key]`` BEFORE the kind
+    branches — including the "keyed close directly over a consumed entry"
+    early return, which calls `_dispatch_new` and moves the parked key's
+    mapping onto the CLOSE order. The parked retry then cancels by pine id
+    and takes the close order with it. A guard placed after that exemption
+    (or inside the kind branches) never sees these paths.
+
+    The guard also has to precede `_build_envelope`, which carries a
+    ``record_complete`` that can purge this key's own durable park row — so
+    a "deferred" modify guarded below it would still have done durable damage.
+    """
+    from pynecore.core.broker import sync_engine as _se
+
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 2.0, limit=50_000.0)
+    engine.sync(BAR_TS)
+    mapping_before = list(engine._order_mapping["L"])
+    entry_intent = engine._active_intents["L"]
+
+    # A CONSUMED entry with a park still outstanding on its key.
+    engine._active_entry_filled_qty["L"] = 2.0
+    engine._park_forced_cancel("L", entry_intent)
+    closes_before = len(b.close_calls)
+
+    keyed_close = CloseIntent(pine_id="L", symbol=SYMBOL, side="sell", qty=2.0)
+    try:
+        engine._dispatch_modify(entry_intent, keyed_close,
+                                defer_if_forced_cancel_parked=True)
+    except _se._PartialBracketModifyDeferred:
+        pass
+    else:
+        raise AssertionError(
+            "the keyed-close early path dispatched while a forced cancel was "
+            "parked on the key — it re-points the park's mapping onto the "
+            "CLOSE order, and the parked retry then cancels the close"
+        )
+
+    assert engine._order_mapping.get("L") == mapping_before, (
+        "the parked key's mapping was re-pointed by an early modify path"
+    )
+    assert len(b.close_calls) == closes_before, (
+        "a close was dispatched for a key whose cancel obligation is unresolved"
+    )
+    assert "L" in engine._forced_cancel_pending, "the park must survive"
+
+
+def __test_122_fill_path_callers_never_receive_the_park_deferral__():
+    """A parked key must NOT raise into callers that cannot catch it.
+
+    Finding 28, the contract. `_dispatch_modify` is not diff-only: the
+    OCA-reduce cascade and the bracket-amend-after-fill both call it from
+    inside `_route_event`, whose drain has ``try/finally`` and no ``except``.
+    Neither catches `_PartialBracketModifyDeferred` — the OCA cascade has no
+    ``try`` at all and has already mutated the Pine order's size before the
+    call. An unconditional guard therefore turns a dead ENTRY into a dead
+    RUN on a fill event, which is the #120 polarity family.
+
+    So the deferral is opt-in per caller: only the diff, which handles it.
+    """
+    import dataclasses
+
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 2.0, limit=50_000.0)
+    engine.sync(BAR_TS)
+    entry_intent = engine._active_intents["L"]
+    engine._park_forced_cancel("L", entry_intent)
+
+    # Exactly how a fill-path caller invokes it: no opt-in, no raise.
+    replacement = dataclasses.replace(entry_intent, qty=1.0)
+    engine._dispatch_modify(entry_intent, replacement)
+
+    # Second half on a FRESH engine, so the assertion measures fill routing
+    # and not the after-effects of the modify above: the drain must complete
+    # over a parked key. An escaping deferral would abort it here.
+    b2 = MockBroker()
+    engine2, pos2 = _mk_engine(b2)
+    pos2.entry_orders["L"] = _entry_order("L", 2.0, limit=50_000.0)
+    engine2.sync(BAR_TS)
+    engine2._park_forced_cancel("L", engine2._active_intents["L"])
+    engine2._route_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="L", leg=LegType.ENTRY,
+        event_type='partial', filled_qty=1.0, remaining_qty=1.0,
+    ))
+    assert engine2._active_entry_filled_qty.get("L", 0.0) > 0.0, (
+        "fill routing did not complete over a parked key"
+    )
