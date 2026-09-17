@@ -16421,6 +16421,76 @@ def __test_122_external_flatten_keeps_tracking_when_the_cancel_did_not_land__():
     )
 
 
+def __test_122_partial_entry_remainder_is_cancelled_on_external_flatten__():
+    """A partially filled entry's LIVE REMAINDER must be cancelled, not disowned.
+
+    #122 finding 25: the entry teardown popped intent/mapping/envelope after
+    the park consult but never asked whether the ENTRY ORDER itself still had
+    a working remainder. Entry E qty 2, partial fill 1 → E's venue order rests
+    with remaining 1; a confirmed external flatten then cancelled the exits
+    with full strict/park discipline and dropped E's tracking WITHOUT
+    cancelling the remainder — a later fill reopens exposure with no handle
+    and no protection. The exits loop earned this discipline across findings
+    5-9; the entry never did. Every prior external-flatten pin used a fully
+    filled entry, which is why nothing caught it.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 2.0, limit=50_000.0)
+    engine.sync(BAR_TS)
+    assert engine.order_mapping.get("L"), "the entry is mapped"
+    engine._route_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="L", leg=LegType.ENTRY,
+        event_type='partial', filled_qty=1.0, remaining_qty=1.0,
+    ))
+    cancels_before = list(b.cancel_calls)
+
+    # the venue flattened the filled slice elsewhere; the remainder rests
+    engine._accept_confirmed_external_flatten()
+
+    new_cancels = b.cancel_calls[len(cancels_before):]
+    assert any(getattr(c.intent, "pine_id", None) == "L" for c in new_cancels), (
+        "the partially filled entry's working remainder was left LIVE at the "
+        "venue while its tracking was dropped — unowned; a later fill reopens "
+        "exposure with no handle and no protection"
+    )
+    assert "L" not in engine._active_intents, (
+        "cancel landed, so the entry tracking should be retired"
+    )
+
+
+def __test_122_partial_entry_remainder_keep_tracking_when_cancel_not_landed__():
+    """An unresolved remainder cancel keeps the ENTRY tracking + its park.
+
+    Same discipline the exits loop has: a cancel that answers False (order
+    still live) must not cost us the only handle on the order; the park taken
+    before the round-trip re-drives it via `_retry_forced_cancels`.
+    """
+    b = MockBroker()
+    engine, pos = _mk_engine(b)
+    pos.entry_orders["L"] = _entry_order("L", 2.0, limit=50_000.0)
+    engine.sync(BAR_TS)
+    engine._route_event(_fill_event(
+        "buy", qty=1.0, price=50_000.0, pine_id="L", leg=LegType.ENTRY,
+        event_type='partial', filled_qty=1.0, remaining_qty=1.0,
+    ))
+    b.false_on_next_cancel = True          # the venue refuses: order stays live
+
+    engine._accept_confirmed_external_flatten()
+
+    assert "L" in engine._active_intents, (
+        "a not-landed remainder cancel dropped the entry intent — the only "
+        "in-memory handle on a live order"
+    )
+    assert engine.order_mapping.get("L"), (
+        "a not-landed remainder cancel dropped the mapping"
+    )
+    assert "L" in engine._forced_cancel_pending, (
+        "the park must survive a not-landed cancel so _retry_forced_cancels "
+        "can re-drive it"
+    )
+
+
 def __test_122_ambiguous_cancel_must_not_strand_the_protective_order__():
     """An AMBIGUOUS cancel must keep its tracking, even though
     `_dispatch_cancel` returns True for it.

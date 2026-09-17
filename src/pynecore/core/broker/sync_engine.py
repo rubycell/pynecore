@@ -9560,6 +9560,49 @@ class OrderSyncEngine:
             return 'the cancel disposition is still UNKNOWN (cancel-tentative)'
         return None
 
+    def _cancel_working_entry_remainder(self, closed_entry_id: str) -> str | None:
+        """Cancel a partially filled entry's live remainder before its
+        tracking is dropped (#122 finding 25).
+
+        Returns ``None`` when the entry tracking may be dropped (no working
+        remainder, or the cancel provably landed — the park taken below is
+        released), or a keep-tracking REASON when the cancel did not provably
+        land — mirroring the exits loop's discipline exactly: park FIRST
+        (write-ahead, so a crash mid-round-trip leaves a journal row that
+        re-drives the cancel), strict dispatch, and on ``False`` or a caught
+        ``(ExchangeConnectionError, OrderDispositionUnknownError)`` keep the
+        tracking and let :meth:`_retry_forced_cancels` re-drive.
+
+        Discrimination: a fully filled entry has ``filled >= qty`` in the
+        fill ledger (:attr:`_active_entry_filled_qty`) and dispatches
+        NOTHING — no spurious cancel on a terminal order. An entry with no
+        mapping has no handle to cancel (nothing to do).
+        """
+        entry_intent = self._active_intents.get(closed_entry_id)
+        if not isinstance(entry_intent, EntryIntent):
+            return None
+        if not self._order_mapping.get(closed_entry_id):
+            return None
+        entry_filled = self._active_entry_filled_qty.get(closed_entry_id, 0.0)
+        if entry_filled >= entry_intent.qty:
+            return None
+        self._park_forced_cancel(closed_entry_id, entry_intent)
+        try:
+            if not self._dispatch_cancel_strict(entry_intent):
+                return (
+                    "its partially filled remainder's cancel did NOT land "
+                    "(order still live at the broker) — parked for retry"
+                )
+        except (ExchangeConnectionError, OrderDispositionUnknownError):
+            return (
+                "its partially filled remainder's cancel did not complete "
+                "(connection error or UNKNOWN disposition) — parked for retry"
+            )
+        # Provably gone: release the park taken above (the durable row is
+        # purged by `_drop_envelope`'s `record_complete` in the caller).
+        self._forced_cancel_pending.pop(closed_entry_id, None)
+        return None
+
     def _cleanup_position_tracking(
             self,
             closed_entry_id: str,
@@ -9637,6 +9680,18 @@ class OrderSyncEngine:
         )
         # Entry intent + its mapping/envelope.
         entry_blocked = self._tracking_is_still_needed(closed_entry_id)
+        if entry_blocked is None and venue_flattened_externally:
+            # #122 finding 25: a PARTIALLY FILLED entry still has a WORKING
+            # REMAINDER resting at the venue. The exits loop below earned the
+            # park-first strict-cancel discipline across five findings; the
+            # entry's own order never did — its tracking was popped without a
+            # cancel, leaving the remainder unowned (a later fill reopens
+            # exposure with no handle and no protection). Scoped to external
+            # flattens: on every our-fill path the entry is terminal by
+            # construction, and the fill ledger discriminates (filled >= qty
+            # dispatches nothing).
+            entry_blocked = self._cancel_working_entry_remainder(
+                closed_entry_id)
         if entry_blocked is None:
             self._active_intents.pop(closed_entry_id, None)
             self._order_mapping.pop(closed_entry_id, None)
