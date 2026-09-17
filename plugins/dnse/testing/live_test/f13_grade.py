@@ -53,6 +53,7 @@ _BAR_STAMP = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{4}\]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 _ENTRY_FILL = re.compile(r"event FILLED id=(?P<id>\S+).*?leg=entry")
+_ENTRY_DISPATCH = re.compile(r"dispatched ENTRY [A-Z]+ ")
 _DISPATCH_EXIT = re.compile(r"dispatched EXIT id='(?P<pine>[^']*)'.*?->\s*\[(?P<ids>[^\]]*)\]")
 _WS_FRAME = re.compile(r"order frame via WS: id=(?P<id>\S+) status=(?P<status>\S+)")
 _FIRST_FRAME = re.compile(r"WS ORDER SOURCE FIRST LIVE FRAME")
@@ -107,7 +108,8 @@ def parse_run(path: Path) -> dict:
     usable, why = clock_verdict(lines)
     run: dict = {
         "log": path.name, "clock_usable": usable, "clock_why": why,
-        "entry_fill": None, "entry_id": None, "exit_dispatch": None,
+        "entry_fill": None, "entry_id": None, "entry_dispatch": None,
+        "exit_dispatch": None,
         "exit_child_ids": [], "ws_frames": [], "first_live_frame": False,
         "ws_disabled": False, "no_sample": False, "fallback": False,
     }
@@ -120,6 +122,8 @@ def parse_run(path: Path) -> dict:
             run["no_sample"] = True
         if _FALLBACK.search(text):
             run["fallback"] = True
+        if _ENTRY_DISPATCH.search(text) and run["entry_dispatch"] is None:
+            run["entry_dispatch"] = epoch
         fill = _ENTRY_FILL.search(text)
         if fill and run["entry_fill"] is None:
             run["entry_fill"] = epoch
@@ -175,6 +179,60 @@ def venue_fill_epoch(venue: dict, entry_id: str | None) -> tuple[float | None, s
     return (value / 1000.0 if value > 1e11 else value), note
 
 
+def venue_child_id(venue: dict, entry_id: str | None) -> str | None:
+    """The entry conditional's NORMAL-book child, per the venue record."""
+    if not venue or not entry_id:
+        return None
+    record = venue.get(str(entry_id)) or {}
+    child = record.get("externalOrderId")
+    return str(child) if child else None
+
+
+def match_child_frame(frames: list, child_id: str, entry_dispatch_t: float | None):
+    """-> (matched, how). Does any WS frame name this child?
+
+    ``ws_order_source`` logs MASKED ids (``id=**9736``), so an exact compare is
+    impossible for them — but the first cut's loose substring test was far
+    worse than imprecise, it was WRONG: ``f["id"].lstrip("*") in cid or cid in
+    f["id"]`` matches an unrelated frame ``**5973`` against child ``1597312``,
+    because "5973" appears inside it. A four-character needle in a
+    six-or-more-character haystack finds itself almost anywhere.
+
+    So: a full id matches exactly. A masked id must have its visible suffix
+    EQUAL the child's last characters, and its frame must arrive at or after
+    the entry DISPATCH — a masked suffix alone is weak evidence and the
+    timestamp is the cheap corroboration we already hold. The caller labels the
+    result so the table never presents a suffix match as an exact one.
+
+    The corroborating anchor is the DISPATCH, not the fill, and the difference
+    is not cosmetic: the child's frame is what CAUSES our `event FILLED` line,
+    so it necessarily PRECEDES it. Anchoring on the fill (the first cut here)
+    rejected every genuine frame and would have reported "WS did not attribute
+    the child" on runs where it plainly did — a false FAIL on the exact
+    measurement the ws-vs-poll decision rests on. Caught by this module's own
+    over-block control.
+    """
+    for frame in frames:
+        ident = str(frame.get("id") or "")
+        if not ident:
+            continue
+        if "*" not in ident:
+            if ident == child_id:
+                return True, "exact id"
+            continue
+        suffix = ident.lstrip("*")
+        if not suffix or len(suffix) < 4:
+            continue                       # too little to claim anything
+        if not child_id.endswith(suffix):
+            continue
+        stamp = frame.get("t")
+        if (entry_dispatch_t is not None and stamp is not None
+                and stamp < entry_dispatch_t):
+            continue                  # predates our entry: cannot be its child
+        return True, f"suffix-matched on {suffix!r}, frame at/after the fill"
+    return False, ""
+
+
 def grade(run: dict, arm: str, venue: dict) -> dict:
     """Judgement. Every gate answers PASS / FAIL / COULD-NOT-DETERMINE."""
     gates: list[tuple[str, str, str]] = []          # (name, verdict, detail)
@@ -193,17 +251,28 @@ def grade(run: dict, arm: str, venue: dict) -> dict:
                       "FIRST LIVE FRAME present" if run["first_live_frame"] else
                       "WS delivered nothing: no FIRST LIVE FRAME line. The "
                       "subscribe line is NOT evidence of delivery (#134)."))
-        child_named = [f for f in run["ws_frames"]
-                       if f["id"] and any(f["id"].lstrip("*") in cid or
-                                          cid in (f["id"] or "")
-                                          for cid in run["exit_child_ids"])]
-        if run["exit_child_ids"]:
+        # F3: the question #130 asks is whether the ENTRY conditional's
+        # normal-book CHILD is attributed over WS. The first cut compared
+        # against the BRACKET's ids from the `dispatched EXIT -> [...]` line,
+        # which is a different order entirely — a PASS there answered a
+        # question nobody asked, and an OCO umbrella (Activated from birth with
+        # its own child) would likely have produced a false FAIL as well.
+        entry_child = venue_child_id(venue, run["entry_id"])
+        if entry_child:
+            matched, how = match_child_frame(
+                run["ws_frames"], entry_child, run["entry_dispatch"])
             gates.append(("#130 child frame",
-                          "PASS" if child_named else "FAIL",
-                          f"a WS frame names the child id" if child_named else
-                          f"no WS frame names any of {run['exit_child_ids']} — "
-                          f"the conditional's normal-book child was not "
+                          "PASS" if matched else "FAIL",
+                          f"a WS frame names the entry's normal-book child "
+                          f"{entry_child} ({how})" if matched else
+                          f"no WS frame names the entry's child {entry_child} "
+                          f"— the conditional's normal-book child was not "
                           f"attributed over WS"))
+        else:
+            gates.append(("#130 child frame", "COULD-NOT-DETERMINE",
+                          "the entry's externalOrderId child is unknown (no "
+                          "venue record supplied for the entry) — cannot ask "
+                          "the #130 question of this run"))
     elif arm == "poll":
         pure = run["ws_disabled"] and not run["ws_frames"]
         gates.append(("poll purity",

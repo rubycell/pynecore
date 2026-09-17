@@ -257,23 +257,60 @@ def _detail_history(b: DNSEBroker, oid: str, days: int = 7):
     return None, None
 
 
+#: Fields ``--json`` emits. The DATES are the point (#146): they are the only
+#: VENUE-CLOCK timestamps available to a latency grade — our own log lines are
+#: stamped with the Pine BAR time, so they cannot supply one.
+_JSON_FIELDS = ("id", "orderStatus", "side", "quantity", "fillQuantity",
+                "price", "stopPrice", "averagePrice", "createdDate",
+                "modifiedDate", "externalOrderId", "orderCategory")
+
+
+def _json_record(oid: str, book, row: dict) -> dict:
+    record = {key: row.get(key) for key in _JSON_FIELDS}
+    record["id"] = record.get("id") or oid
+    record["_book"] = book
+    return record
+
+
 def cmd_order(args) -> int:
     b = broker(args.symbol)
     worst = EXIT_OK
-    for oid in args.ids:
+    captured: dict = {}
+    for oid in list(args.ids):
         ob, book, row, alt_checked = _detail_any_market(b, oid)
         if row is None:
             book, row = _detail_history(b, oid)
         if row is None:
-            print(f"{oid}: NOT FOUND in any book or in 7 days of history — "
-                  f"UNDETERMINED (not proof it never existed)"
-                  f"{_market_hint(b, alt_checked)}")
+            if not getattr(args, "json", False):
+                print(f"{oid}: NOT FOUND in any book or in 7 days of history — "
+                      f"UNDETERMINED (not proof it never existed)"
+                      f"{_market_hint(b, alt_checked)}")
             worst = max(worst, EXIT_UNKNOWN)
+            continue
+        if getattr(args, "json", False):
+            captured[str(oid)] = _json_record(str(oid), book, row)
+            # #41: an Activated conditional never fills — its NORMAL-book CHILD
+            # does. A grade that stopped at the umbrella would time the
+            # conditional's own creation and call it the fill, so the child is
+            # captured in the SAME call rather than left to the caller to
+            # remember.
+            child = row.get("externalOrderId")
+            if child and str(child) not in captured:
+                _cb, cbook, crow, _alt = _detail_any_market(b, str(child))
+                if crow is None:
+                    cbook, crow = _detail_history(b, str(child))
+                if crow is not None:
+                    captured[str(child)] = _json_record(str(child), cbook, crow)
+                else:
+                    worst = max(worst, EXIT_UNKNOWN)
             continue
         print(f"{oid} [{book}]: status={row.get('orderStatus')} "
               f"price={row.get('price')} stop={row.get('stopPrice')} "
               f"qty={row.get('quantity')} filled={row.get('fillQuantity')} "
               f"child={row.get('externalOrderId')}")
+    if getattr(args, "json", False):
+        import json as _json
+        print(_json.dumps(captured, indent=1, default=str))
     return worst
 
 
@@ -375,6 +412,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status")
     sub.add_parser("flat")
     p_order = sub.add_parser("order"); p_order.add_argument("ids", nargs="+")
+    p_order.add_argument("--json", action="store_true",
+                         help="emit the records as JSON keyed by id, including "
+                              "the venue-clock createdDate/modifiedDate and, for "
+                              "an Activated conditional, its externalOrderId "
+                              "CHILD record as well (#146: the only venue-clock "
+                              "timestamps a latency grade can use)")
     p_cancel = sub.add_parser("cancel"); p_cancel.add_argument("ids", nargs="+")
     p_sweep = sub.add_parser("sweep"); p_sweep.add_argument("--yes", action="store_true")
     p_hist = sub.add_parser("history"); p_hist.add_argument("--date")
