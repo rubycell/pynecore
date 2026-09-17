@@ -119,9 +119,12 @@ queue/drain cost — which says whose fault a disappointing number is.
 
 - Broker WS channel refused (`SUBSCRIBE_FAILED`) — #131, reproduced twice.
 - Conditional-book events never stream — #130. Only NORMAL-book activity appears.
-- `token_status.py` exits 0 even when its VERDICT is NOT GOOD (#133). Read the
-  VERDICT line; L0 is the real backstop. The F13 runner displays it without
-  gating for this reason — add the gate in the same pass as #133's fix.
+- **CORRECTION 2026-09-17 (measured at the source, Worker1 + Worker2):** `token_status.py` has ALWAYS
+  exited non-zero on a NOT GOOD verdict (`return 0 if good else 1`, both return paths). The earlier
+  line here claiming it "exits 0" was wrong and was inherited, not measured — and it was the stated
+  reason the F13 runner did not gate on it. As of #146 (d2d48fc4+) the runner DOES gate on the exit
+  status (stdin from /dev/null, `^VERDICT: GOOD` also required); L0 remains a second backstop, not the
+  only one. Callers must capture `$?` — never pipe the tool into `tail` and read the pipe's status.
 - The toml carries a commented `#enable_ws_order_events = true` template line.
   It is inert; the runner's guard is line-start anchored and ignores it.
 
