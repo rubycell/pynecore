@@ -13,3 +13,7 @@ ec98c5b26c89e2c740a8ae098eb1d48b811cb89871b6f2302d92d270b23cb8ba  plugins/dnse/t
 3e8e25a38c9caa68471fe7bc5a0d832cc6db11fbeafc9de4361d0aa8eae865e5  .claude/hooks/enforce_code_review.py  # hook self-approval after the pytest-bypass patch (re-blocks on any later edit)
 436f4fe766f5865afff4238ba8825f168442c0587be9918126e40d2d6b18e34d  .claude/hooks/enforce_code_review.py  # docstring: --deselect still imports; use --ignore or -k
 4ba84e036a944d9bb7df61a7aef0a885803158d97f1e883b7230753d084a08b4  tests/t00_pynecore/core/test_025_order_sync_engine.py  # #147 placement pin (restart COID anchor), pre-mutant approval
+# 2026-09-17 #132-W0 fixes F1/F2/F3/N1 + stall/interval (Worker3) — pre-verification approval; review at commit
+ee9515104339d5e67868ed158129ba813cd8403ffb91f359c6669bdb076366b6  plugins/dnse/tools/naked_position.py
+3df4ec0e2885b426dac25969fd1f7104ec01117c8e472eb99b71ed367de069ea  plugins/dnse/tools/naked_watch.py
+a52d80ebcd4675dbde5f6c59ea134af5989267e3ab92104bebc2b2fdeeafa75c  plugins/dnse/tests/test_naked_watch.py
