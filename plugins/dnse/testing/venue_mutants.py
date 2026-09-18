@@ -552,6 +552,116 @@ CONTROLS: dict[str, tuple[str, object]] = {
 }
 
 
+
+# --------------------------------------------------------------------------- the 1m-derived day
+
+def _mutant_derived_day_is_just_synthetic(venue_core):
+    """WRONG: a day built from downloaded history is labelled SYNTHETIC.
+
+    The tidy-looking option, and the one that loses the whole point: SYNTHETIC means derived
+    from bars already tracked in this repo, and a reader could no longer tell that apart from a
+    dated download of a real session at the venue.
+    """
+    import venue_day
+    original = venue_day.derive_day_from_1m_bars
+
+    def patched(bars, **kwargs):
+        day = original(bars, **kwargs)
+        day.label = venue_day.DayLabel.SYNTHETIC
+        return day
+
+    venue_day.derive_day_from_1m_bars = patched
+    _ = venue_core
+
+
+def _mutant_derived_day_needs_no_provenance(venue_core):
+    """WRONG: the new label loads with no provenance behind it.
+
+    The label then claims a specific session downloaded at a specific time while carrying
+    nothing that could be checked — a longer string pretending to be evidence.
+    """
+    import venue_day
+    original = venue_day.VenueDay.from_dict.__func__
+
+    def patched(cls, raw):
+        raw = dict(raw)
+        if raw.get("label") == venue_day.DayLabel.DERIVED_FROM_1M.value:
+            raw["provenance"] = dict(raw.get("provenance") or {},
+                                     **{key: "?" for key in venue_day.REQUIRED_PROVENANCE})
+        return original(cls, raw)
+
+    venue_day.VenueDay.from_dict = classmethod(patched)
+    _ = venue_core
+
+
+def _mutant_derived_day_accepts_coarse_bars(venue_core):
+    """WRONG: 5m bars are stamped DERIVED-FROM-1M.
+
+    The derived day then replays a fifth of the price path it claims to carry, so every stop the
+    real session triggered between the sampled minutes never triggers in the replay.
+    """
+    import venue_day
+    original = venue_day.derive_day_from_1m_bars
+
+    def patched(bars, **kwargs):
+        bar_list = [dict(b) for b in bars]
+        first = bar_list[0]["timestamp"] if bar_list else 0
+        squeezed = [dict(b, timestamp=first + index * venue_day.MINUTE_MS)
+                    for index, b in enumerate(bar_list)]
+        return original(squeezed, **kwargs)
+
+    venue_day.derive_day_from_1m_bars = patched
+    _ = venue_core
+
+
+def _mutant_history_keeps_venue_seconds(venue_core):
+    """WRONG: the history parser leaves the venue's SECONDS unconverted.
+
+    Measured consequence, not a theoretical one: a day stamped in seconds replays its whole
+    session inside a second of wall clock, the engine's wall-clock anchoring sees a missed
+    timeframe boundary every real minute, and it substitutes flat synthetic bars for the entire
+    run. The run looks healthy and produces no trades.
+    """
+    import venue_day_from_history as helper
+    original = helper.bars_from_ohlc_body
+
+    def patched(body):
+        return [dict(bar, timestamp=bar["timestamp"] // 1000) for bar in original(body)]
+
+    helper.bars_from_ohlc_body = patched
+    _ = venue_core
+
+
+def _mutant_history_reads_empty_as_a_quiet_day(venue_core):
+    """WRONG: a 200 answer with no bars is read as a session in which nothing traded.
+
+    Measured 2026-09-18: that is how /price/ohlc reports a symbol it does not serve — the dated
+    contract code answers 200 with every array empty. Reading it as a quiet day writes files for
+    sessions that never happened.
+    """
+    import venue_day_from_history as helper
+    original = helper.bars_from_ohlc_body
+
+    def patched(body):
+        if isinstance(body, dict) and body.get("t") == []:
+            return []
+        return original(body)
+
+    helper.bars_from_ohlc_body = patched
+    _ = venue_core
+
+
+def _mutant_history_writes_anywhere(venue_core):
+    """WRONG: the destination guard accepts a path inside workdir/data.
+
+    That directory holds the tracked .ohlcv bar stores every offline backtest in this repo
+    reads, and they are shared with the main checkout's working tree.
+    """
+    import venue_day_from_history as helper
+    helper.refuse_bar_store_paths = lambda target: target
+    _ = venue_core
+
+
 MUTANTS: dict[str, tuple[str, object]] = {
     "oco_spawns": ("__test_the_oco_stop_leg_amends_the_existing_child_in_place_and_never_spawns__",
                    _mutant_oco_spawns),
@@ -647,6 +757,25 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "fake_broker_skips_config_endpoint_check": (
         "test_venue_http.py::__test_the_fake_broker_refuses_a_production_endpoint_from_the_config__",
         _mutant_fake_broker_skips_config_endpoint_check),
+    # the 1m-derived day and its downloader
+    "derived_day_is_just_synthetic": (
+        "test_venue_day_derived.py::__test_a_day_built_from_downloaded_1m_history_is_labelled_derived_from_1m__",
+        _mutant_derived_day_is_just_synthetic),
+    "derived_day_needs_no_provenance": (
+        "test_venue_day_derived.py::__test_a_derived_day_with_no_provenance_is_REFUSED_on_load__",
+        _mutant_derived_day_needs_no_provenance),
+    "derived_day_accepts_coarse_bars": (
+        "test_venue_day_derived.py::__test_a_file_of_five_minute_bars_is_REFUSED_rather_than_stamped_1m__",
+        _mutant_derived_day_accepts_coarse_bars),
+    "history_keeps_venue_seconds": (
+        "test_venue_day_from_history.py::__test_the_venue_seconds_become_milliseconds__",
+        _mutant_history_keeps_venue_seconds),
+    "history_reads_empty_as_a_quiet_day": (
+        "test_venue_day_from_history.py::__test_a_200_answer_with_no_bars_at_all_is_REFUSED__",
+        _mutant_history_reads_empty_as_a_quiet_day),
+    "history_writes_anywhere": (
+        "test_venue_day_from_history.py::__test_an_output_path_under_the_shared_bar_store_is_REFUSED__",
+        _mutant_history_writes_anywhere),
 }
 
 

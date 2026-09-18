@@ -19,7 +19,8 @@ One state machine, two adapters, one replayable day.
 |---|---|---|
 | state machine | `venue_core.py` | the venue itself: two books, activation, fills, refusal codes. Pure Python, no socket, no clock |
 | socket adapter | `venue_http.py` | serves that machine over loopback HTTP so the real client, the real vendored SDK and real urllib3 run unmodified |
-| the day | `venue_day.py` | the per-print stream plus 1m bars for one session, RECORDED from the venue or SYNTHETIC from tracked bars |
+| the day | `venue_day.py` | the per-print stream plus 1m bars for one session, RECORDED from the venue, SYNTHETIC from tracked bars, or DERIVED-FROM-1M from downloaded history |
+| the downloader | `venue_day_from_history.py` | builds DERIVED-FROM-1M days from the venue's 1m history, read-only |
 | the broker | `../pynecore_dnse/fake_broker.py` | entry point `dnse_fake`; replays the day as data while routing orders to the machine |
 | the controls | `venue_mutants.py` | a deliberately wrong venue per pinned fact, so the pins are proven able to fail |
 
@@ -101,6 +102,53 @@ from bar data, so only a RECORDED day can answer questions about the order trade
 `DayRecorder` builds a RECORDED day from a live feed; its frame source is injected, so it is
 testable without the venue. Joining a session late marks the day PARTIAL and records where it
 joined, so a late start is never read as a whole session.
+
+## Building days from the venue's own 1m history
+
+```bash
+.venv/bin/python plugins/dnse/testing/venue_day_from_history.py --symbol VN30F1M --sessions 5
+```
+
+One request, `GET /price/ohlc`, read-only: no orders, no trading token, no account endpoint. It
+writes one `DERIVED-FROM-1M_<symbol>_<date>.json.gz` per session under `fixtures/venue_day/`,
+with prints reconstructed from each bar's OHLC path exactly as a synthetic day's are.
+
+It deliberately does NOT use the provider's own `download_ohlcv`, because that persists through
+`save_ohlcv_data`, which truncates and rewrites the shared `.ohlcv` file for that (provider,
+symbol, timeframe) — the same damage `pyne run --from` does. Everything stays in memory, and any
+destination inside a `workdir/data` directory is refused outright.
+
+**A derived day is a third provenance, not a synonym for SYNTHETIC.** Its prices are the venue's
+own and it is dated, like a RECORDED day; its intrabar sequence is reconstructed from bar data,
+like a SYNTHETIC one. So it carries SYNTHETIC's limitation unchanged — no day of this kind can
+answer questions about the order in which trades arrived — and it must state where it came from.
+A file carrying the label with no provenance behind it is refused rather than loaded.
+
+### Three things measured against production while building this (2026-09-18)
+
+| what was asked | what the venue answered |
+|---|---|
+| `/price/ohlc` for `VN30F1M` | 200, full sessions of 241 1m bars |
+| `/price/ohlc` for the dated contract `41I1GA000` | **200 with every array empty** and no error field |
+| `/price/ohlc` for the retired contract `41I1G9000` | 400 |
+
+So the endpoint serves the rolling ALIASES only, and its way of saying "not a symbol I serve" is
+a silent empty rather than an error. That is why a 200 with no bars is refused here: read as a
+quiet day, it would write files for sessions that never happened.
+
+**The alias series splices at the roll, so a day cannot claim a dated contract.** Asked over the
+same fortnight, `VN30F1M` and `VN30F2M` return different closes for the same past sessions,
+because each alias means whichever contract was front or next AT THE TIME. On 2026-09-18
+`VN30F1M` resolved to `41I1GA000` and `VN30F2M` to `41I1GB000` — the roll had happened that
+morning — so four of the five most recent `VN30F1M` sessions belong to the contract that expired
+the day before. Each day therefore records the alias it was fetched under, the dated contract
+that alias resolved to, and the date that resolution was taken, and asserts nothing about which
+contract a past session belonged to.
+
+Two sanity checks worth knowing, both visible in the files built on 2026-09-18: a derivative day
+runs 09:00 to 14:45 while a stock day runs 09:15 to 14:45 (the two ATO windows differ), and every
+full session reports exactly **2 gaps** — the lunch break and the 14:30-to-14:45 auction pause.
+The gap count is why the resolution check tests the DOMINANT step rather than every step.
 
 ## The replay is re-stamped onto the wall clock
 
