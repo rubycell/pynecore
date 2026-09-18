@@ -200,6 +200,19 @@ cf1ecb2756a3ddca8d4093a29c6518a8f6475b544724696f0c4c6c394403d162  tests/t00_pyne
 21abbe34a092a70e4ba075894960061d5f00719efd46febc4023a4770971655b  plugins/dnse/tests/test_oco_visibility.py
 # 2026-09-18 #152 step 1 consumer: venue.py status prints umbrellas (stop first), flat: unreadable/UNKNOWN -> exit 2, ARMED -> not clean, SPENT -> phantom — 13/13, suite 779; reviewed by Fable
 ec76febf9900e78cfb1a8adc49ac3ffc715540375163d11f57554fd6f36d3d96  plugins/dnse/tools/venue.py
+# 2026-09-18 #152 step 2 pins (W0 alarm eligibility: armed umbrella -> OK; TP cover + OCO read + no armed stop -> NAKED; OCO unread -> UNSTOPPED unchanged; wrong-side umbrella -> NAKED; ladder arms) — reviewed by Fable
+c64060fa54be36c1b355f60c430045989517bc41afc206b7277c4f032c23c1ef  plugins/dnse/tests/test_naked_watch.py
+# 2026-09-18 #152 step 2 pins rev 2: fixture helper and ladder kwarg corrected (first red was construction errors, non-discriminating) — reviewed by Fable
+1a48f780d2ee58397aa301ed7e7bc1c61d5597470260ccb5ff687cf75ba8ee98  plugins/dnse/tests/test_naked_watch.py
+# 2026-09-18 #152 step 2 grace pins (50): recorded 10:46 episode as fixture; grace 300 silent (control), grace 30 arms by +45.6, declared grace beats bar period, back-compat, floored — reviewed by Fable
+54fa733b12409a4ca26764d7f0fe00c4534f5a7ba5bd7f2e7c00f51933d5b7c4  plugins/dnse/tests/test_naked_watch.py
+# 2026-09-18 #152 step 2 impl: CoverUmbrella + Observation.umbrellas (None = NOT READ), shell reads the OCO book, --arm-grace (None keeps max(30, bar) byte-for-byte; declared wins, floored 30) — 50 pins, suite 789; reviewed by Fable
+257dda9b078e19faad55009425924d2fbb436233f2fcd8061453653a3054cc4a  plugins/dnse/tools/naked_position.py
+22069e80f23ff43c232a4041aff41f908a3daff1542f50e7f23839bff4fbb9b4  plugins/dnse/tools/naked_watch.py
+# 2026-09-18 #152 step 4 pins (owned_live_ids learns order_refs: umbrella ref owned, none -> not owned, other account foreign, prior-day string id still ours, no order_refs table still answers) — reviewed by Fable
+4b8c5bb2f0e3fd8ede4928a59ebaf19fb7b8d15cc4d5287935ca1f2aa74b92e1  plugins/dnse/tests/test_flatten_tool.py
+# 2026-09-18 #152 step 4 pins rev 2 (local time import; first red was a uniform NameError, non-discriminating) — reviewed by Fable
+cb9f3fe5fec0370efe549f31f15ae75b0a7278f1b0400c705f8ba83de9bee2ab  plugins/dnse/tests/test_flatten_tool.py
 # 2026-09-18 L0 gate: part_limit — far NORMAL-book LO long/short place+cancel (operator request; pre-open behind the same flag) — Worker3, reviewed by Fable 08:22
 0f5bf6fa47f8e89b2abc0d6b147a624a0ef71d360d101141ed93aa4b585c1b9d  plugins/dnse/testing/live_test/level0_venue_semantics/l0_order_semantics.py
 # 2026-09-18 #151 stage 3 (i) step 1 — landing worktree land-694: restart test rewritten to preserve + four #151 pins (record mirrored into land-694's manifest by the landing session)
