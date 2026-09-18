@@ -174,3 +174,20 @@ ec23c30094d0cef173a4c13e342bf3f73bd62ff9facdc8aa907244196add7395  plugins/dnse/t
 67b7294da7875b0ba0a876642e80eae327f2cb68493e6424f09cd061c8fa0359  .claude/hooks/enforce_ownership.py
 # 2026-09-18 ownership hook rev: captures de-duplicated (longest wins) so a computed target is reported once, whole
 98bc7b2c67fbb8a05d93ef895d7d92f6956ae9fa6df346865d8fa6c03000b7fd  .claude/hooks/enforce_ownership.py
+# 2026-09-18 #151 stage 3 (i) step 1 — landing worktree land-694: restart test rewritten to preserve + four #151 pins (record mirrored into land-694's manifest by the landing session)
+bb6f50f195d93e7388e92feb399d4462fa1bd3b0583ddab2dc31b0f5b2a91bc3  tests/t00_pynecore/core/test_025_order_sync_engine.py
+# 2026-09-18 #151 stage 3 (i) step 2 — land-694: venue_confirmed kw; restart path preserves via _unconfirmed_flat_pending; close-fill caller venue_confirmed=True
+c5f7bef8895a02604e9af5b75606088d93acc02cf00157997b088523f114a617  src/pynecore/core/broker/sync_engine.py
+# 2026-09-18 #151 stage 3 (ii) — land-694: DNSE-shape control pin (filled-not-closed anchor keeps the same coid)
+22d217a97222d46ee18e33f0a47930d31952423ea25624f6dafa6f628ffca6e2  tests/t00_pynecore/core/test_025_order_sync_engine.py
+# 2026-09-18 #151 stage 3 (iii) — land-694: four #83/#84 fix-detectors inverted into fix-pins (pine probe re-transpiled)
+bd7ee0eacd75b765e40c66e9d8399b90439b1450ea40889e689c63b37f5e3eed  tests/t01_lib/t30_strategy/test_134_closed_trade_list_overflow.py
+5cb4e2e97116db65824371506c2b62e6e457d06dba62a1e2a68228ffba13d852  tests/t01_lib/t30_strategy/test_131_strategy_namespace_liveness.py
+385e92628e2167fec52c006d478e5d62c6fbf3f487eaad9c9effad4361249c94  tests/t01_lib/t30_strategy/data/closed_trade_list_overflow.pine
+133e2fb1f222c5b90cec9aa69917bb9c5f813a2be7250d9fabf6c7cda4897216  tests/t01_lib/t30_strategy/data/closed_trade_list_overflow.py
+# 2026-09-18 #151 stage 3 (iv) — land-694: P5 liveness pin (pine-authored probe + control, SIM only, in-file red-first via _finalize_bar_pnl wrapper) — reviewed by Fable
+0f5a3b27b0bb296767a0799da523a6e06cafc7211e5f0758b0213d6d89646680  tests/t01_lib/t30_strategy/test_135_p5_drawdown_liveness.py
+1299c8c9b328daa1606d41f646ef44f1b261cb235cceb19708770185460caf5d  tests/t01_lib/t30_strategy/data/p5_drawdown_liveness.pine
+9387c425c9771811d676c6bc7fc233daa72d5acea28ddb50f2ceff066d89850d  tests/t01_lib/t30_strategy/data/p5_drawdown_liveness.py
+1f938c0d15a10f227dbf7ac5055b3dcd0a1d4fa1bcb78a5d83cd509445f6d62b  tests/t01_lib/t30_strategy/data/p5_drawdown_control.pine
+95b1b51d913d41387317ed06a1549c050638168ad77661ebd0b4c1613a7ff68e  tests/t01_lib/t30_strategy/data/p5_drawdown_control.py
