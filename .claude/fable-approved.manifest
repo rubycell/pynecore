@@ -219,6 +219,10 @@ cb9f3fe5fec0370efe549f31f15ae75b0a7278f1b0400c705f8ba83de9bee2ab  plugins/dnse/t
 fd673359d00c584d4e7413e1da3218b34d3c5a9a0a109bc8b4e2a8a757270957  plugins/dnse/testing/venue_core.py
 78f05c4075779f535b8eaa843ae73318a2ec2502a252f68352a570bc9ab74740  plugins/dnse/testing/venue_mutants.py
 c30cb7214ef770cb841adeca7f81f11c54ae294056e90e06af0ce1f52689b91c  plugins/dnse/tests/test_fake_venue_conformance.py
+# 2026-09-18 #157 stage B (Worker4, autonomous; appended by Fable without review)
+24b972538fd4e29e8441a4839ec3dc0f37588442446efd36119a9d72073364a8  plugins/dnse/testing/venue_day.py
+df19c9009f08c2515cbd4abbf90aa0ec76ceb532661e5865f587e48fe66cf13f  plugins/dnse/testing/venue_mutants.py
+164a3bfc6b5a7573c789f6604fe50993db44e23f6c70f81f91d3080757619415  plugins/dnse/tests/test_venue_day.py
 # 2026-09-18 #151 stage 3 (i) step 1 — landing worktree land-694: restart test rewritten to preserve + four #151 pins (record mirrored into land-694's manifest by the landing session)
 bb6f50f195d93e7388e92feb399d4462fa1bd3b0583ddab2dc31b0f5b2a91bc3  tests/t00_pynecore/core/test_025_order_sync_engine.py
 # 2026-09-18 #151 stage 3 (i) step 2 — land-694: venue_confirmed kw; restart path preserves via _unconfirmed_flat_pending; close-fill caller venue_confirmed=True
