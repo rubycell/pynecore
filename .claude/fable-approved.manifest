@@ -193,6 +193,13 @@ b39827e37a7fe9810dda6786f9e6ab0ab0c934a4ed912959f2dc7feb37bfc7d9  plugins/dnse/t
 # 2026-09-18 #152 rev 2: the OCO listing carries no externalOrderId (measured), so one detail read per umbrella is the floor; 8 pins; venue.py gains UmbrellaState/Umbrella/oco_umbrellas — reviewed by Fable
 1d4cd1e18c34d404eb5b97913d98663868d79dbcba9e9107af333fac28de6433  plugins/dnse/tests/test_oco_visibility.py
 43e7015d39eaeb374bc08be089a28c1c0c9bca395c5fe2585f245a0ad69f828b  plugins/dnse/tools/venue.py
+# 2026-09-18 #162 S1 moot-release: _release_park_if_target_terminal (ExitIntent-scoped, additive on the boolean, UNKNOWN still parks) + three pins incl. the two controls — applied diff matches the card; reviewed by Fable
+f7937c5f6f0a0ee58aa842d20ba1730e5cd9b1f4bcb20c258c1c897e01d53df4  src/pynecore/core/broker/sync_engine.py
+cf1ecb2756a3ddca8d4093a29c6518a8f6475b544724696f0c4c6c394403d162  tests/t00_pynecore/core/test_025_order_sync_engine.py
+# 2026-09-18 #152 step 1 pins (13; 5 new red-first: flat refuses ARMED, clean on SPENT, exit 2 on unreadable/UNKNOWN, status prints umbrellas) — reviewed by Fable
+21abbe34a092a70e4ba075894960061d5f00719efd46febc4023a4770971655b  plugins/dnse/tests/test_oco_visibility.py
+# 2026-09-18 #152 step 1 consumer: venue.py status prints umbrellas (stop first), flat: unreadable/UNKNOWN -> exit 2, ARMED -> not clean, SPENT -> phantom — 13/13, suite 779; reviewed by Fable
+ec76febf9900e78cfb1a8adc49ac3ffc715540375163d11f57554fd6f36d3d96  plugins/dnse/tools/venue.py
 # 2026-09-18 L0 gate: part_limit — far NORMAL-book LO long/short place+cancel (operator request; pre-open behind the same flag) — Worker3, reviewed by Fable 08:22
 0f5bf6fa47f8e89b2abc0d6b147a624a0ef71d360d101141ed93aa4b585c1b9d  plugins/dnse/testing/live_test/level0_venue_semantics/l0_order_semantics.py
 # 2026-09-18 #151 stage 3 (i) step 1 — landing worktree land-694: restart test rewritten to preserve + four #151 pins (record mirrored into land-694's manifest by the landing session)
