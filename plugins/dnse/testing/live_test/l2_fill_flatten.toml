@@ -8,6 +8,7 @@
 #pyramiding = 1
 #calc_on_order_fills = false
 #calc_on_every_tick = false
+#calc_on_every_history_tick = false
 #max_bars_back = 0
 #timeframe =
 #timeframe_gaps = true
@@ -24,7 +25,7 @@
 #default_qty_value = 1
 #initial_capital = 500000000
 #currency = "NONE"
-#slippage = 0
+#slippage = 1
 #commission_type = "percent"
 #commission_value = 0.0
 #process_orders_on_close = false
