@@ -97,6 +97,22 @@ DNSEPlugin           = "leader — review, adjudication, runbook"
 # So the control surface belongs to the leader: the map, the identity file,
 # the settings that register hooks, and the hooks themselves.
 "plugins/dnse/testing/live_test/FRIDAY_2026-09-18_RUNBOOK.md" = "DNSEPlugin"
+# #159 OCO-execution vehicle (2026-09-18): Worker1 authors it inside Worker3's live_test tree.
+"plugins/dnse/testing/live_test/l2c_oco_execution.pine"       = "WorkerForDNSEPlugin"
+"plugins/dnse/testing/live_test/l2c_oco_execution.py"         = "WorkerForDNSEPlugin"
+"plugins/dnse/testing/live_test/l2c_oco_execution.toml"       = "WorkerForDNSEPlugin"
+"docs/plan/sep18-oco-execution-plan.md"                       = "WorkerForDNSEPlugin"
+"CLAUDE.md"                                                   = "DNSEPlugin"
+# #157/#160 (2026-09-18): Worker4 owns the fake-venue tree and the WS client-factory seam.
+"plugins/dnse/testing/fake_venue.py"                          = "Worker4Isolated"
+"plugins/dnse/testing/fake_dnse.py"                           = "Worker4Isolated"
+"plugins/dnse/testing/fake_dnse_ws.py"                        = "Worker4Isolated"
+"plugins/dnse/testing/venue_core.py"                          = "Worker4Isolated"
+"plugins/dnse/testing/fake_venue/**"                          = "Worker4Isolated"
+"plugins/dnse/testing/fixtures/**"                            = "Worker4Isolated"
+"plugins/dnse/testing/README.md"                              = "Worker4Isolated"
+"plugins/dnse/pynecore_dnse/ws_order_source.py"               = "Worker4Isolated"
+"plugins/dnse/pynecore_dnse/tick_source.py"                   = "Worker4Isolated"
 ".claude/fable-approved.manifest"                             = "DNSEPlugin"
 ".claude/ownership.toml"                                      = "DNSEPlugin"
 ".claude/session-names.json"                                  = "DNSEPlugin"
