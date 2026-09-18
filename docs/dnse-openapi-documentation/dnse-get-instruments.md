@@ -5,7 +5,7 @@
 
 <span id="getInstruments"></span>
 
-### `GET /instruments`
+### `GET /market/instruments`
 
 Truy vấn danh sách thông tin cơ bản của các mã chứng khoán theo điều kiện lọc.
 
@@ -49,7 +49,7 @@ Truy vấn danh sách thông tin cơ bản của các mã chứng khoán theo đ
 
 ```shell
 # You can also use wget
-curl -X GET https://openapi.dnse.com.vn/instruments \
+curl -X GET https://openapi.dnse.com.vn/market/instruments \
   -H 'Accept: application/json' \
   -H 'X-API-Key: eyJvcmciOiJkbnNlIiwiaWQiOiI5YmMzYmViN2JjY2U0MmE0Yjk1NDE0MTA2YTMzODIxNyIsImgiOiJtdXJtdXIxMjgifQ==' \
   -H 'X-Aux-Date: Mon, 19 Jan 2026 07:45:23 +0000' \
@@ -59,7 +59,7 @@ curl -X GET https://openapi.dnse.com.vn/instruments \
 ```
 
 ```http
-GET https://openapi.dnse.com.vn/instruments HTTP/1.1
+GET https://openapi.dnse.com.vn/market/instruments HTTP/1.1
 Host: openapi.dnse.com.vn
 Accept: application/json
 X-API-Key: eyJvcmciOiJkbnNlIiwiaWQiOiI5YmMzYmViN2JjY2U0MmE0Yjk1NDE0MTA2YTMzODIxNyIsImgiOiJtdXJtdXIxMjgifQ==
@@ -88,7 +88,7 @@ func main() {
     }
 
     data := bytes.NewBuffer([]byte{jsonReq})
-    req, err := http.NewRequest("GET", "https://openapi.dnse.com.vn/instruments", data)
+    req, err := http.NewRequest("GET", "https://openapi.dnse.com.vn/market/instruments", data)
     req.Header = headers
 
     client := &http.Client{}
@@ -108,7 +108,7 @@ const headers = {
   'version':'2026-07-23'
 };
 
-fetch('https://openapi.dnse.com.vn/instruments',
+fetch('https://openapi.dnse.com.vn/market/instruments',
 {
   method: 'GET',
 
@@ -132,14 +132,14 @@ headers = {
   'version': '2026-07-23'
 }
 
-r = requests.get('https://openapi.dnse.com.vn/instruments', headers = headers)
+r = requests.get('https://openapi.dnse.com.vn/market/instruments', headers = headers)
 
 print(r.json())
 
 ```
 
 ```java
-URL obj = new URL("https://openapi.dnse.com.vn/instruments");
+URL obj = new URL("https://openapi.dnse.com.vn/market/instruments");
 HttpURLConnection con = (HttpURLConnection) obj.openConnection();
 con.setRequestMethod("GET");
 int responseCode = con.getResponseCode();

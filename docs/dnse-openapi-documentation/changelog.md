@@ -1,6 +1,47 @@
 
 # Changelog
 
+## [2026-09-15]
+
+### 🚀 Added
+- **[REST API]**: Thêm endpoint mới
+  - <a href="https://developers.dnse.com.vn/docs/dnse/get-loans">**GET Loans (Danh sách khoản vay)**</a>: Lấy danh sách các khoản vay trên tiểu khoản, hiện tại áp dụng cho giao dịch cơ sở (STOCK)
+  - <a href="https://developers.dnse.com.vn/docs/dnse/reverse-position">**Reverse Position (Đảo vị thế)**</a>: Đóng toàn bộ vị thế phái sinh hiện tại và mở ngay vị thế mới theo hướng ngược lại, chỉ áp dụng cho phái sinh (DERIVATIVE)
+
+### 🧩 Update
+- Cập nhật <a href="https://developers.dnse.com.vn/docs/dnse/get-instruments">**Get Instruments (Chi tiết mã chứng khoán)**</a>
+  - Bổ sung Endpoint mới `POST /market/instruments`
+
+## [2026-09-10]
+
+### 🚀 Added
+- **[REST API]**: Thêm endpoint mới
+  - <a href="https://developers.dnse.com.vn/docs/dnse/get-pnl-configs-account">**GET PNL Configs Account (Cấu hình chốt lời, cắt lỗ của tiểu khoản)**</a>: Lấy cấu hình chốt lời, cắt lỗ của tiểu khoản (`accountNo`), chỉ áp dụng cho phái sinh (DERIVATIVE)
+  - <a href="https://developers.dnse.com.vn/docs/dnse/patch-pnl-configs-account">**PATCH PNL Configs Account (Cài đặt chốt lời, cắt lỗ cho tiểu khoản)**</a>: Cài đặt chốt lời, cắt lỗ cho tiểu khoản (`accountNo`), chỉ áp dụng cho phái sinh (DERIVATIVE)
+  - <a href="https://developers.dnse.com.vn/docs/dnse/get-market-index">**GET Market Index (Lịch sử chỉ số)**</a>: Lấy dữ liệu lịch sử các chỉ số thị trường
+
+- **[WEBSOCKET]**
+  - Thêm function mới: <a href="https://developers.dnse.com.vn/docs/guide/market-data/broker_connect">**Top cổ phiếu ảnh hưởng chỉ số (Market Index Influence)**</a>: Cung cấp dữ liệu thống kê top các cổ phiếu có mức độ ảnh hưởng tới các chỉ số thị trường theo từng khung thời gian xác định
+
+### 🧩 Update
+- **[REST API]**:
+  - Cập nhật <a href="https://developers.dnse.com.vn/docs/dnse/get-order-detail">**GET order detail (Chi tiết lệnh theo Id)**</a>: Hỗ trợ truy vấn chi tiết lệnh dừng có điều kiện (`STOP`) và lệnh OCO
+
+## [2026-09-08]
+
+### 🚀 Added
+- **[SANDBOX]**: Ra mắt môi trường thử nghiệm tách biệt cho OpenAPI DNSE — cho phép người dùng và đối tác tích hợp kiểm thử toàn bộ luồng giao dịch mà không ảnh hưởng đến tài khoản thực.
+
+  **Base URL Sandbox: `https://sb-openapi.dnse.com.vn`**
+
+  Chi tiết hướng dẫn <a href="https://developers.dnse.com.vn/docs/guide/sandbox">**tại đây**</a>
+
+### 🧩 Update
+- **[WEBSOCKET]** Cập nhật giới hạn kết nối:
+
+  Tối đa 10 connections/user và 200 streams/connection
+
+----
 ## [2026-08-06]
 
 ### 🚀 Added

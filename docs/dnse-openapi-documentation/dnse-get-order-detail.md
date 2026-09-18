@@ -224,3 +224,5 @@ Status Code **500**
 |» code|string|false|none|none|
 |» message|string|false|none|none|
 |» status|integer|false|none|none|
+
+<h1 id="openapi-v2-spec-260730-trading">trading</h1>

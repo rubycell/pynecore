@@ -26,6 +26,7 @@ Tài liệu này hướng dẫn cách thiết lập kết nối đến DNSE WebS
     - Client được phép gửi PONG message ngay cả khi không nhận được PING từ Server, để chủ động duy trì kết nối.
       Cách này giúp client giữ kết nối trong các trường hợp PING message bị miss do network issue hoặc các gián đoạn
       tạm thời khác.
+- Giới hạn: Tối đa 10 connections/user và 200 streams/connection      
 
 <details>
   <summary>Ví dụ</summary>
@@ -66,7 +67,7 @@ Tài liệu này hướng dẫn cách thiết lập kết nối đến DNSE WebS
 ### Tổng quan các kênh dữ liệu
 
 | Kênh dữ liệu <br/>(Function)                | Mô tả <br/>(Description)                                                                                   | Phân loại <br/>(Type) | Tần suất gửi dữ liệu <br/>(Frequency)                          |
-|---------------------------------------------|------------------------------------------------------------------------------------------------------------|-----------------------|----------------------------------------------------------------|
+|-----------------------------------|------------------------------------------|-----------------------|----------------------------------------------------------------|
 | [Security Definition](#security-definition) | Thông tin giao dịch chứng khoán (giá trần/sàn, trạng thái),<br/>dùng để lấy thông tin biên độ giá đầu ngày | Batch (BOD)           | Gửi 1 lần trước giờ giao dịch (≈ 08:00)                        |
 | [Trade](#trade)                             | Dữ liệu khớp lệnh theo thời gian thực                                                                      | Real-time             | Cập nhật khi có thay đổi dữ liệu trong phiên liên tục          |
 | [Trade Extra](#trade)                       | Dữ liệu khớp lệnh nâng cao (chiều mua/bán, giá trung bình)                                                 | Real-time             | Cập nhật khi có thay đổi dữ liệu trong phiên liên tục          |
@@ -77,8 +78,8 @@ Tài liệu này hướng dẫn cách thiết lập kết nối đến DNSE WebS
 | [Market Index](#market-index)               | Thông tin chỉ số thị trường (VNINDEX, HNX…)                                                                | Periodic              | Cập nhật theo chu kỳ 5 giây + tổng hợp cuối ngày               |
 | [Foreign Investor](#foreign-investor)       | Dữ liệu giao dịch của nhà đầu tư nước ngoài theo từng mã                                                   | Real-time             | Cập nhật khi có thay đổi dữ liệu                               |
 | [Estimated VN30](#estimated-vn30)           | Dữ liệu dự tính của chỉ số VN30                                                                            | Real-time             | Cập nhật khi có thay đổi dữ liệu                               |
-| [Thông tin phiên](#session)                 | Dữ liệu dự tính của chỉ số VN30                                                                            | Real-time             | Cập nhật khi có thay đổi dữ liệu                               |
-
+| [Thông tin phiên](#session)                 | Dữ liệu thông tin phiên                                                                            | Real-time             | Cập nhật khi có thay đổi dữ liệu                               |
+| [Top cổ phiếu ảnh hưởng chỉ số](#market-index-influence) | Top cổ phiếu ảnh hưởng chỉ số                | Real-time             | Cập nhật khi có thay đổi dữ liệu         |
 ---
 
 ### Phân loại dữ liệu (Data Classification)
@@ -113,7 +114,7 @@ Một số input dùng chung cho các channel:
 - **market_index**: Tên chỉ số thị trường
 
   | Giá trị     | Mô tả                                              |
-    |-------------|----------------------------------------------------|
+  |-------------|----------------------------------------------------|
   | HNX30       | Chỉ số Top 30 cổ phiếu sàn HNX                     |
   | VN30        | Chỉ số Top 30 cổ phiếu sàn HOSE                    |
   | HNX         | Chỉ số sàn HNX                                     |
@@ -486,7 +487,7 @@ và thanh khoản. Dữ liệu được cập nhật liên tục trong phiên gi
   "blkTrdAccTrdVol": 100381155, // integer // Tổng khối lượng giao dịch theo phương thức thỏa thuận
   "grossTradeAmount": 18650.46734291, // float // Tổng giá trị giao dịch trong ngày
   "totalVolumeTraded": 706563754, // integer // Tổng khối lượng giao dịch trong ngày
-  "marketIndexClass": 1, // integer // Phân loại chỉ số
+  "marketIndexClass": "HSX", // string // Phân loại chỉ số
   "marketId": "STO", // string // Mã thị trường
   "tradingSessionId": "40", // string // Mã phiên giao dịch hiện tại
   "transactTime": {    // Thời gian trong các message giá của sàn trả về
@@ -587,3 +588,47 @@ Cung cấp thông tin phiên giao dịch của các sàn theo bảng giao dịch
   "time":"2025-10-01T02:15:00.487Z" //string  // Thời điểm cập nhật dữ liệu
 }
 ```
+
+### Top cổ phiếu ảnh hưởng chỉ số (Market Index Influence) {#market-index-influence}
+
+Cung cấp dữ liệu thống kê top các cổ phiếu có mức độ ảnh hưởng (đóng góp tăng hoặc giảm điểm số) tới các chỉ số thị trường chính (VNINDEX, VN30, VN100, HNX, HNX30) theo từng khung thời gian xác định (1 ngày, 7 ngày, 14 ngày, 30 ngày).
+
+#### Channel
+
+>  **market_index_influence.\{market_index\}.\{resolution\}.\{encoding\}**
+
+#### Input
+
+- `market_index`: Tên chỉ số thị trường, hỗ trợ: VNINDEX, VN30, VN100, HNX, HNX30
+- `resolution`: Khung thời gian thống kê tính theo số ngày
+  - 1: Thống kê trong ngày giao dịch hiện tại (1 ngày)
+  - 7: Thống kê xu hướng tích lũy trong 7 ngày
+  - 14: Thống kê xu hướng tích lũy trong 14 ngày
+  - 30: Thống kê xu hướng tích lũy trong 30 ngày
+
+  Lưu ý: VNINDEX & HNX chỉ hỗ trợ resolution = 1
+
+#### Payload
+
+```json lines
+{
+  "index_name": "VN30",                   // string   // Tên chỉ số thị trường
+  "data": [                                // array    // Danh sách cổ phiếu ảnh hưởng tới chỉ số
+    {
+    "symbol": "STB",                     // string   // Mã cổ phiếu
+    "time": {                            // object   // Thời gian cập nhật dữ liệu của cổ phiếu từ sàn
+      "Seconds": 1760080137,             // integer  // Unix timestamp seconds
+      "Nanos": 346281171                 // integer  // Nanoseconds fraction
+    },
+    "influence": 2.415,                  // float    // Số điểm đóng góp vào chỉ số (dương: kéo tăng, âm: kéo giảm)
+    "influenceRatio": 23.36,             // float    // Tỷ lệ (%) đóng góp vào biến động của chỉ số
+    "proportion": 4.12,                  // float    // Tỷ trọng vốn hóa của mã trong rổ chỉ số (%)
+    "changeRatio": 3.83,                 // float    // Tỷ lệ (%) thay đổi giá so với giá tham chiếu
+    "changeValue": 1.2,                  // float    // Mức thay đổi giá tuyệt đối so với giá tham chiếu
+    "price": 32.5,                       // float    // Giá khớp hiện tại (hoặc giá đóng cửa gần nhất)
+    "totalVolumeTraded": 185000000,      // float   // Tổng khối lượng giao dịch tích lũy trong khung thời gian tính
+    "grossTradeAmount": 5700000          // float    // Tổng giá trị giao dịch tích lũy trong khung thời gian tính (VND)
+    }
+  ]  
+}
+```        

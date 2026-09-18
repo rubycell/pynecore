@@ -4,33 +4,41 @@ sidebar_position: 4
 
 
 # Lệnh giao dịch
+
+Trước khi gọi Endpoint đặt lệnh, hãy tham khảo nội dung này để hiểu đúng loại lệnh cần dùng và tránh các lỗi phổ biến khi tích hợp.
+
+Đặc tả kỹ thuật đầy đủ (params, type, curl, code example) xem tại <a href="https://developers.dnse.com.vn/docs/dnse/place-order">Endpoint Đặt lệnh.</a>
+
 ---
 
 ## Tổng quan
 
-### Phân loại theo thị trường (`marketType`)
+**Endpoint:** Các loại lệnh dùng chung một endpoint `POST /accounts/:accountNo/orders`
+- **Path Variables:** `accountNo` là bắt buộc, lấy từ Endpoint <a href="https://developers.dnse.com.vn/docs/dnse/get-accounts">Tài khoản giao dịch.</a>
+- **Query params** `orderCategory` và `marketType` dùng để phân biệt thị trường và loại lệnh giao dịch
 
-| marketType | Mô tả                           |
-|------------|---------------------------------|
-| STOCK      | Giao dịch chứng khoán cơ sở     |
-| DERIVATIVE | Giao dịch chứng khoán phái sinh |
-| BOND       | Giao dịch trái phiếu niêm yết   |
+  | Params          | Lệnh thường                     | Lệnh dừng có điều kiện | Lệnh OCO     |
+  |-----------------|---------------------------------|------------------------|--------------|
+  | `orderCategory` | `NORMAL`                        | `STOP`                 | `OCO`        |
+  | `marketType`    | `STOCK` / `DERIVATIVE` / `BOND` | `STOCK` / `DERIVATIVE` | `DERIVATIVE` |
 
-### Phân loại theo loại lệnh (`orderCategory`)
+- **Body request:**
 
-| orderCategory | Mô tả                            |
-|---------------|----------------------------------|
-| NORMAL        | Lệnh thông thường                |
-| STOP          | Lệnh dừng có điều kiện           |
-| OCO           | Lệnh OCO (One Cancels the Other) |
+  | Trường              | NORMAL                  | STOP                                   | OCO                              |
+    |---------------------|-------------------------|----------------------------------------|----------------------------------|
+  | `symbol`            | Required                | Required                               | Required                         |
+  | `loanPackageId`     | Required                | Required                               | Required                         |
+  | `side`              | Required                | Required                               | Required                         |
+  | `quantity`          | Required                | Required                               | Required                         |
+  | `orderType`         | Required — theo sàn     | Required — `LO` hoặc `MTL`             | `LO`                             |
+  | `price`             | Required — giá đặt lệnh | Required — giá đặt lệnh thường sẽ sinh | Required — giá đặt lệnh chốt lời |
+  | `stopPrice`         | —                       | Required — giá kích hoạt               | Required — giá kích hoạt cắt lỗ  |
+  | `conditionOperator` | —                       | Required — `>=` hoặc `<=`              | —                                |
+  | `stopOrderPrice`    | —                       | —                                      | Required — giá đặt lệnh cắt lỗ   |
+  | `durationType`      | —                       | Required — `GTD`                       | Required — `DAY`                 |
+  | `durationDateTime`  | —                       | Required — ISO 8601                    | —                                |
 
-### Bảng hỗ trợ
-
-| marketType | NORMAL | STOP | OCO |
-|------------|:------:|:----:|:---:|
-| STOCK      |   ✅    |  ✅   |  ❌  |
-| DERIVATIVE |   ✅    |  ✅   |  ✅  |
-| BOND       |   ✅    |  ❌   |  ❌  |
+  Lưu ý:  **`loanPackageId`**: Gói vay giao dịch, xem thêm thông tin về gói vay <a href="https://developers.dnse.com.vn/docs/dnse/get-loan-packages">tại đây.</a>
 
 ## Lệnh thường (NORMAL)
 
@@ -60,29 +68,24 @@ Vòng đời lệnh thường mô tả các trạng thái mà một lệnh có t
 | **doneForDay**      | Lệnh đã được giải tỏa | Lệnh kết thúc vòng đời trong ngày giao dịch                                               |
 
 
-### Đặt lệnh thường
+### Loại lệnh theo sàn
 
-Dưới đây là các thông tin bắt buộc cần gửi đối với một yêu cầu (Request) đặt lệnh.
-- **`marketType`**: Phân loại giao dịch
-    - `STOCK`: giao dịch chứng khoán cơ sở
-    - `DERIVATIVE`: giao dịch chứng khoán phái sinh
-    - `BOND`: giao dịch trái phiếu niêm yết
-- **`orderCategory`**: Loại lệnh thường trong ngày (NORMAL)
-- **`accountNo`:** Tiểu khoản giao dịch, được trả trong response Endpoint <a href="https://developers.dnse.com.vn/docs/dnse/get-accounts">Tài khoản giao dịch.</a>
-- **`symbol`**: Mã chứng khoán giao dịch
-- **`loanPackageId`**: Gói vay giao dịch, xem thêm thông tin về gói vay <a href="https://developers.dnse.com.vn/docs/guide/trading-api/dnse_margin#gói-vay-loan-packages">tại đây.</a>
-- **`side`**: Chiều Mua (NB) hoặc Bán (NS)
-- **`orderType`**: Loại lệnh tương ứng với sàn giao dịch
-    - Sàn HOSE: ATO, ATC, LO, MTL
-    - Sàn HNX: LO, MTL, MOK, MAK, ATC, PLO
-    - Sàn Upcom: LO
+Giá trị hợp lệ của `orderType` phụ thuộc vào sàn của mã chứng khoán:
+
+| Sàn | Loại lệnh hỗ trợ |
+|---|---|
+| HOSE | `ATO`, `ATC`, `LO`, `MTL` |
+| HNX | `ATC`, `LO`, `MAK`, `MOK`, `MTL`, `PLO` |
+| UPCOM | `LO` |
+
+### Quy tắc giá và khối lượng
+
 - **`quantity`**: Khối lượng đặt
-    - Khối lượng đặt không vượt quá khối lượng tối đa có thể mua (`qmaxBuy`)hoặc có thể bán (`qmaxSell`) trên tiểu khoản giao dịch, người dùng truy vấn thông tin đối với từng mã chứng khoán qua Endpoint <a href="https://developers.dnse.com.vn/docs/dnse/get-ppse">/Sức mua, sức bán.</a>
-    - Với giao dịch cơ sở, khối lượng đặt là lô chẵn (100,200,...) hoặc lô lẻ (1,2,..99). Khối lượng lẻ lô (101,102,...) là không hợp lệ.
+  - Khối lượng đặt không vượt quá khối lượng tối đa có thể mua (`qmaxBuy`)hoặc có thể bán (`qmaxSell`) trên tiểu khoản giao dịch, lấy từ Endpoint <a href="https://developers.dnse.com.vn/docs/dnse/get-ppse">/Sức mua, sức bán.</a>
+  - Với giao dịch cơ sở, khối lượng đặt là lô chẵn (100,200,...) hoặc lô lẻ (1,2,..99). Khối lượng lẻ lô (101,102,...) là không hợp lệ.
 - **`price`**: Giá đặt
-    - Nếu loại lệnh là LO, giá đặt phải > 0 và phải nằm trong khoảng giá trần sàn của mã chứng khoán tại phiên giao dịch đó.
-    - Nếu loại lệnh khác LO, giá đặt truyền lên luôn = 0.
-
+  - Nếu `orderType`=`LO`, giá đặt phải > 0 và phải nằm trong khoảng giá trần sàn của mã chứng khoán tại phiên giao dịch đó.
+  - Nếu `orderType`≠`LO`, giá đặt truyền lên luôn = 0.
 
 <details>
   <summary>VD Request đặt lệnh thường NORMAL</summary>
@@ -114,9 +117,12 @@ Dưới đây là các thông tin bắt buộc cần gửi đối với một y�
 ```
 </details>
 
-Khi lệnh khớp mua, hệ thống hình thành các vị thế Positions (hay còn gọi là danh mục tài sản) theo cặp `symbol` - `loanPackage`. Nếu mua cùng mã nhưng khác gói vay → tạo Positions tách biệt (rủi ro được quản trị riêng).
+
+Khi lệnh khớp mua, hệ thống hình thành các vị thế Positions (hay còn gọi là danh mục tài sản) theo cặp `symbol` - `loanPackageId`. Nếu mua cùng mã nhưng khác gói vay → tạo Positions tách biệt (rủi ro được quản trị riêng).
 
 ### Sửa lệnh
+
+Chỉ áp dụng cho lệnh thường (`orderCategory`=`NORMAL`)
 
 **Điều kiện chung:**
 - Chỉ được sửa lệnh LO trong phiên giao dịch liên tục và áp dụng cho lệnh ở trạng thái Chờ khớp (New) hoặc Đã khớp một phần (PartiallyFilled)
@@ -161,7 +167,31 @@ Khi lệnh khớp mua, hệ thống hình thành các vị thế Positions (hay 
 
 ## Lệnh STOP
 
-Lệnh STOP là lệnh điều kiện, khi giá thị trường đạt đến mức giá kích hoạt (stopPrice), hệ thống sẽ tự động tạo một lệnh giao dịch thông thường (NORMAL) với thông số mà người dùng đã thiết lập trước và gửi lên Sở giao dịch để thực hiện khớp lệnh.
+Lệnh STOP là lệnh dừng có điều kiện, khi giá thị trường đạt đến mức giá kích hoạt (stopPrice), hệ thống sẽ tự động tạo một lệnh giao dịch thông thường (NORMAL) với thông số mà người dùng đã thiết lập trước và gửi lên Sở giao dịch để thực hiện khớp lệnh.
+
+### Phân biệt hai nhóm trường trong request
+
+Đây là điểm dễ nhầm nhất khi tích hợp lệnh STOP. Body request chứa hai nhóm trường với ngữ nghĩa khác nhau:
+
+**Thuộc về lệnh STOP** — kiểm soát điều kiện kích hoạt:
+
+| Trường              | Mô tả                                                                                                                                 |
+|---------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `symbol`            | Mã chứng khoán                                                                                                                        |
+| `stopPrice`         | Giá kích hoạt lệnh                                                                                                                    |
+| `conditionOperator` | `>=`: kích hoạt khi giá thị trường lớn hơn hoặc bằng `stopPrice`<br/>`<=`: kích hoạt khi giá thị trường nhỏ hơn hoặc bằng `stopPrice` |
+| `durationType`      | Loại thời hạn hiệu lực, chỉ nhận `GTD`                                                                                                |
+| `durationDateTime`  | Thời điểm hết hiệu lực theo ISO 8601. Quá thời điểm này mà lệnh chưa kích hoạt<br/> → chuyển trạng thái `expired`                     |
+
+**Thuộc về lệnh thường NORMAL** sẽ được sinh ra — thông số của lệnh gửi lên Sở khi kích hoạt:
+
+| Trường          | Mô tả                                               |
+|-----------------|-----------------------------------------------------|
+| `side`          | Chiều mua (NB) hoặc bán (NS) của lệnh thường        |
+| `orderType`     | Chỉ nhận `LO` hoặc `MTL`                            |
+| `price`         | Giá đặt. Nếu lệnh `LO`: > 0; lệnh `MTL`: truyền `0` |
+| `quantity`      | Khối lượng. Quy tắc lô tương tự lệnh NORMAL         |
+| `loanPackageId` | Gói vay giao dịch                                   |
 
 ### Trạng thái lệnh
 
@@ -176,31 +206,6 @@ Lệnh STOP là lệnh điều kiện, khi giá thị trường đạt đến m�
 | **expired**                | Hết hiệu lực         | Lệnh hết thời hạn hiệu lực và chưa được kích hoạt                                          | 
 
 Sau khi lệnh STOP chuyển sang trạng thái `activated`, hệ thống sẽ sinh lệnh giao dịch thông thường (NORMAL). Từ thời điểm này, lệnh NORMAL sẽ tuân theo vòng đời và trạng thái của lệnh giao dịch thông thường.
-
-### Đặt lệnh STOP
-
-Dưới đây là các thông tin bắt buộc cần gửi đối với một yêu cầu (Request) đặt lệnh STOP.
-- **`marketType`**: Phân loại giao dịch
-    - `STOCK`: giao dịch cơ sở
-    - `DERIVATIVE`: giao dịch phái sinh
-- **`orderCategory`**: STOP (lệnh dừng có điều kiện)
-- **`accountNo`:** Tiểu khoản giao dịch, được trả trong response Endpoint <a href="https://developers.dnse.com.vn/docs/dnse/get-accounts">Tài khoản giao dịch.</a>
-- **`symbol`**: Mã chứng khoán giao dịch
-- **`loanPackageId`**: Gói vay giao dịch, xem thêm thông tin về gói vay <a href="https://developers.dnse.com.vn/docs/guide/trading-api/dnse_margin#gói-vay-loan-packages">tại đây.</a>
-- **`stopPrice`**: Giá kích hoạt lệnh STOP. Khi giá thị trường thỏa mãn điều kiện kích hoạt (`conditionOperator`), hệ thống sẽ tự động tạo và gửi lệnh giao dịch thông thường (NORMAL).
-- **`conditionOperator`**: Điều kiện so sánh giữa giá thị trường và `stopPrice` để kích hoạt lệnh. Giá trị hỗ trợ:
-    - `>=`: Kích hoạt khi giá thị trường lớn hơn hoặc bằng `stopPrice`.
-    - `<=`: Kích hoạt khi giá thị trường nhỏ hơn hoặc bằng `stopPrice`.
-- **`side`**: Chiều mua (NB) hoặc bán (NS) của lệnh thường
-- **`orderType`**: LO hoặc MTL
-- **`quantity`**: Khối lượng đặt thường
-    - Với giao dịch cơ sở, khối lượng đặt là lô chẵn (100,200,...) hoặc lô lẻ (1,2,..99). Khối lượng lẻ lô (101,102,...) là không hợp lệ.
-- **`price`**: Giá đặt lệnh thường
-    - Nếu loại lệnh là LO, giá đặt phải > 0
-    - Nếu loại lệnh là MTL, giá đặt truyền lên luôn = 0
-- **`durationType`**: Loại thời hạn hiệu lực của lệnh STOP
-    - `GTD`: Lệnh có hiệu lực đến thời điểm được chỉ định tại `durationDateTime`.
-- **`durationDateTime`**: Thời điểm hết hiệu lực của lệnh STOP theo định dạng ISO 8601 (yyyy-MM-dd'T'HH:mm:ss.SSSXXX). Sau thời điểm này, nếu lệnh chưa được kích hoạt thì trạng thái sẽ chuyển sang `expired`.
 
 <details>
   <summary>VD Yêu cầu đặt lệnh STOP</summary>
@@ -238,36 +243,33 @@ Dưới đây là các thông tin bắt buộc cần gửi đối với một y�
 
 ## Lệnh OCO
 
-Lệnh OCO (One Cancels the Other) là lệnh điều kiện kết hợp giữa chốt lời (Take Profit) và cắt lỗ (Stop Loss) trong cùng một yêu cầu đặt lệnh.
+Lệnh OCO (One Cancels the Other) là lệnh điều kiện kết hợp giữa chốt lời (Take Profit) và cắt lỗ (Stop Loss) trong cùng một yêu cầu đặt lệnh. **Chỉ áp dụng cho phái sinh `DERIVATIVE`.**
 
-Cơ chế hoạt động:
+### Cơ chế hoạt động:
 
-- Người dùng gửi yêu cầu đặt lệnh OCO.
-- Khi lệnh OCO được kích hoạt, hệ thống tạo một lệnh LO với giá chốt lời và gửi lên Sở giao dịch.
+- Người dùng gửi yêu cầu đặt lệnh OCO, hệ thống ghi nhận
+- Khi lệnh OCO được kích hoạt, hệ thống gửi một lệnh thường (NORMAL) loại lệnh LO với **giá chốt lời (`price`)** lên Sở trong giờ giao dịch
 - Trong thời gian lệnh LO đang chờ khớp, hệ thống tiếp tục theo dõi giá thị trường.
-- Nếu giá thị trường đạt điều kiện cắt lỗ trước khi lệnh LO được khớp toàn bộ, hệ thống tự động sửa giá của lệnh LO sang giá cắt lỗ.
+- Nếu giá thị trường đạt điều kiện cắt lỗ (`stopPrice`) trước khi lệnh LO khớp toàn bộ → hệ thống tự động sửa giá lệnh LO sang giá cắt lỗ (`stopOrderPrice`).
 - Tại một thời điểm chỉ có một lệnh LO được gửi lên Sở giao dịch.
 
-### Đặt lệnh OCO
+### Quy tắc giá theo chiều lệnh
 
-Dưới đây là các thông tin bắt buộc cần gửi đối với một yêu cầu (Request) đặt lệnh OCO.
-- **`marketType`**: Phân loại giao dịch
-    - `DERIVATIVE`: chỉ áp dụng giao dịch phái sinh
-- **`orderCategory`**: `OCO`
-- **`accountNo`:** Tiểu khoản giao dịch, được trả trong response Endpoint <a href="https://developers.dnse.com.vn/docs/dnse/get-accounts">Tài khoản giao dịch.</a>
-- **`symbol`**: Mã chứng khoán giao dịch
-- **`loanPackageId`**: Gói vay giao dịch, xem thêm thông tin về gói vay <a href="https://developers.dnse.com.vn/docs/guide/trading-api/dnse_margin#gói-vay-loan-packages">tại đây.</a>
-- **`side`**: Chiều mua (NB) hoặc bán (NS) của lệnh thường
-- **`quantity`**: Khối lượng đặt
-- **`price`**: Giá chốt lời
-    - Với lệnh Mua (NB): Giá chốt lời phải < Giá thị trường
-    - Với lệnh Bán (NS): Giá chốt lời phải > Giá thị trường
-- **`stopPrice`**: Giá kích hoạt lệnh cắt lỗ
-- **`stopOrderPrice`**: Giá đặt cắt lỗ:
-    - Với lệnh Mua (NB): Giá đặt cắt lỗ > Giá thị trường
-    - Với lệnh Bán (NS): Giá đặt cắt lỗ < Giá thị trường
-- **`durationType`**: Loại thời hạn hiệu lực của lệnh STOP
-    - `DAY`: Lệnh có hiệu lực trong ngày
+| Trường                            | Lệnh mua (`NB`)       | Lệnh bán (`NS`)       |
+|-----------------------------------|-----------------------|-----------------------|
+| `price` — giá chốt lời            | Phải < giá thị trường | Phải > giá thị trường |
+| `stopOrderPrice` — giá đặt cắt lỗ | Phải > giá thị trường | Phải < giá thị trường |    
+
+### Trạng thái lệnh
+
+| Trạng thái    | Giải nghĩa         | Chú thích                                                                                  |
+|---------------|--------------------|--------------------------------------------------------------------------------------------|
+| **new**       | Lệnh mới tạo       | Lệnh OCO được tạo thành công và đang chờ điều kiện kích hoạt                               |
+| **activated** | Đã kích hoạt       | Đạt điều kiện kích hoạt, hệ thống tạo và gửi lệnh thường (NORMAL) lên Sở giao dịch         |
+| **cancelled** | Đã hủy             | Lệnh đã hủy thành công                                                                     |
+| **rejected**  | Từ chối            | Lệnh không được hệ thống chấp nhận khi tạo                                                 |
+| **failed**    | Kích hoạt thất bại | Điều kiện kích hoạt đã xảy ra nhưng hệ thống không thể tạo hoặc gửi lệnh NORMAL thành công |
+| **expired**   | Hết hiệu lực       | Lệnh hết thời hạn hiệu lực và chưa được kích hoạt                                          |
 
 <details>
   <summary>VD Request đặt lệnh OCO</summary>
@@ -286,7 +288,7 @@ Dưới đây là các thông tin bắt buộc cần gửi đối với một y�
     "trading-token": "7ceef658-9f01-414e-8b3e-faa77bb9061e",    // Token đặt lệnh         
     "date": "Fri, 16 Jan 2026 07:11:30 +0000",    // Thời gian tạo yêu cầu (UTC)
     "version": "2026-07-23" // API version (YYYY-MM-DD)
-},
+  },
   "body": {
     "symbol": "41I1G900",          // Mã chứng khoán đặt lệnh
     "side": "NB",             // Chiều lệnh 
@@ -296,7 +298,7 @@ Dưới đây là các thông tin bắt buộc cần gửi đối với một y�
     "stopPrice": 1934,        // Giá kích hoạt lệnh cắt lỗ
     "stopOrderPrice": 1936,    // Giá đặt cắt lỗ
     "durationType": "DAY"      // Loại thời hạn hiệu lực
-  }    
+  }
 }
 ```
 </details>
