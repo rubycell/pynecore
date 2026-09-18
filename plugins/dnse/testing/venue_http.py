@@ -25,6 +25,7 @@ import os
 import re
 from pathlib import Path
 import threading
+import time as _time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -82,7 +83,13 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         # Served because the engine's 429 path can only ever be exercised here: no 429 has been
         # recorded live, and the SDK drops headers, so this is where that gap gets closed.
+        #
+        # All THREE documented headers, not just Remaining. The error guide tells a client to
+        # read Remaining and Reset on a 429 and wait until the reset before retrying, so serving
+        # only one of them left the documented wait unexercisable offline.
+        self.send_header("X-RateLimit-Limit", "100000")
         self.send_header("X-RateLimit-Remaining", "9999")
+        self.send_header("X-RateLimit-Reset", str(int(_time.time()) + 3600))
         self.end_headers()
         self.wfile.write(body)
 
@@ -253,12 +260,18 @@ class _Handler(BaseHTTPRequestHandler):
             # order for that symbol. A package that does not say what it is FOR cannot be checked
             # against, so the answer names both rather than ignoring them.
             query = parse_qs(parsed.query)
-            return self._send(200, {"loanPackages": [{
-                "id": 1, "name": "FAKE-MARGIN",
-                "symbol": (query.get("symbol") or [self.catalogue["contract"]])[0],
-                "marketType": (query.get("marketType") or ["DERIVATIVE"])[0],
-                "initialRate": 1.0, "interestRate": 0.0,
-            }]})
+            symbol = (query.get("symbol") or [self.catalogue["contract"]])[0]
+            market_type = (query.get("marketType") or ["DERIVATIVE"])[0]
+            common = {"symbol": symbol, "marketType": market_type, "interestRate": 0.0}
+            # FAQ #31: a stock order is offered at most two packages, a CASH one (type N) and a
+            # MARGIN one (type M), and choosing between them is the documented purpose of the
+            # call. The cash package is FIRST on purpose: a caller taking packages[0] without
+            # reading further gets the one that borrows nothing.
+            packages = [dict(common, id=1, name="FAKE-CASH", type="N", initialRate=1.0)]
+            if market_type == "STOCK":
+                packages.append(dict(common, id=2, name="FAKE-MARGIN", type="M",
+                                     initialRate=0.5, maintenanceRate=0.35, liquidRate=0.3))
+            return self._send(200, {"loanPackages": packages})
 
         if parsed.path.endswith("/positions"):
             # Positions are VENUE-DERIVED from fills (CLAUDE.md), so they are computed from the
@@ -380,10 +393,13 @@ class _Handler(BaseHTTPRequestHandler):
             derivative = str(self.catalogue["contract"]).upper().startswith(("VN30F", "41I"))
             basic = round((band[0] + band[1]) / 2, 1)
             return self._send(200, [{
-                "marketId": "STO",
+                # Published enum tables: marketId DVX is the HNX derivatives market and STO is
+                # HOSE stocks; productGrpId FIO is an index future. This stamped STO on
+                # everything, so a derivative described itself as a HOSE-listed share.
+                "marketId": "DVX" if derivative else "STO",
                 "boardId": (parse_qs(parsed.query).get("boardId") or ["G1"])[0],
                 "symbol": self.catalogue["contract"],
-                "productGrpId": "STO",
+                "productGrpId": "FIO" if derivative else "STO",
                 "securityGroupId": "FU" if derivative else "ST",
                 "basicPrice": basic,
                 "ceilingPrice": band[0],

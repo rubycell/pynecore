@@ -389,6 +389,32 @@ class FakeVenue:
             raise VenueServerError(500, "conditional amend is not supported")
 
         if self.market_type != "STOCK":
+            # DOCUMENTED, NOT MEASURED (FAQ #33, "Sua lenh co so va phai sinh khac nhau nhu the
+            # nao"): a derivative amend changes price OR quantity, never both, and the amended
+            # quantity must exceed what has already filled. A stock amend may change both,
+            # which IS measured (#117, prod 2026-09-15) and agrees with the same FAQ row.
+            #
+            # Flagged as documentation-sourced because the project rule is that a measurement
+            # beats a document. Nothing has been measured against this restriction, so a live
+            # amend sending both fields on a derivative would overturn it — and whoever measures
+            # that should delete this branch rather than argue with it.
+            # The rule is about what CHANGES, not about which fields are PRESENT. The plugin
+            # sends the full order on a PUT, so an unchanged quantity travels alongside a changed
+            # price on every amend — and Live-L1-T06-AmendNormal, which PASSED on the venue
+            # 2026-08-14, is exactly that shape. A first draft of this guard refused on presence
+            # and broke that measured pin: stricter than the venue, from a rule that never said
+            # so. Compare against the order's current values instead.
+            changes_price = price is not None and price != order["price"]
+            changes_qty = qty is not None and qty != order["quantity"]
+            if changes_price and changes_qty:
+                raise VenueReject(
+                    "INPUT_INVALID",
+                    "a DERIVATIVE amend changes price OR quantity, not both (FAQ #33)")
+            if qty is not None and qty <= float(order.get("fillQuantity") or 0):
+                raise VenueReject(
+                    "INVALID_QUANTITY",
+                    f"amended quantity {qty} must exceed the filled quantity "
+                    f"{order.get('fillQuantity')}")
             # Normal-book derivative: amended in place, same id.
             if price is not None:
                 order["price"] = price

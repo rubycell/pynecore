@@ -835,6 +835,45 @@ def _mutant_close_position_only_acknowledges(venue_core):
     _ = venue_core
 
 
+
+def _mutant_derivative_amend_changes_both(venue_core):
+    """WRONG: a derivative amend changes price AND quantity in one request.
+
+    DOCUMENTED rule (FAQ #33), not a measured one. The mutant matters because the fake was this
+    permissive until the FAQ was read, and a permissive fake is the direction that costs a live
+    session: the engine learns a single-request amend the venue refuses.
+    """
+    original = venue_core.FakeVenue.amend
+
+    def patched(self, order_id, *, price=None, qty=None, category=None):
+        if self.market_type != "STOCK" and price is not None and qty is not None:
+            order = self._orders.get(order_id)
+            if order is not None and price != order["price"] and qty != order["quantity"]:
+                qty = None          # let the price through, drop the restriction
+        return original(self, order_id, price=price, qty=qty, category=category)
+
+    venue_core.FakeVenue.amend = patched
+
+
+def _mutant_secdef_stamps_hose_on_everything(venue_core):
+    """WRONG: every instrument reports marketId STO and productGrpId STO.
+
+    STO is the HOSE stock market, so a derivative described itself as a HOSE-listed share. It is
+    the shape of error that reads as plausible in a payload nobody cross-checks against the
+    published enum tables.
+    """
+    import venue_http
+    original = venue_http._Handler._send
+
+    def patched(self, status, payload):
+        if isinstance(payload, list) and payload and "securityGroupId" in payload[0]:
+            payload = [dict(row, marketId="STO", productGrpId="STO") for row in payload]
+        return original(self, status, payload)
+
+    venue_http._Handler._send = patched
+    _ = venue_core
+
+
 MUTANTS: dict[str, tuple[str, object]] = {
     "oco_spawns": ("__test_the_oco_stop_leg_amends_the_existing_child_in_place_and_never_spawns__",
                    _mutant_oco_spawns),
@@ -973,6 +1012,12 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "close_position_only_acknowledges": (
         "test_venue_http_sdk_guide_endpoints.py::__test_closing_a_position_places_the_opposing_order_and_flattens_it__",
         _mutant_close_position_only_acknowledges),
+    "derivative_amend_changes_both": (
+        "test_venue_amend_rules_and_enums.py::__test_a_derivative_amend_cannot_change_price_and_quantity_at_once__",
+        _mutant_derivative_amend_changes_both),
+    "secdef_stamps_hose_on_everything": (
+        "test_venue_amend_rules_and_enums.py::__test_a_derivative_carries_the_derivative_market_and_product_group__",
+        _mutant_secdef_stamps_hose_on_everything),
 }
 
 
