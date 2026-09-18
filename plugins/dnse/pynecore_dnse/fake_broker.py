@@ -1,0 +1,243 @@
+"""TESTING ONLY (#157): the offline fake-venue broker — opt-in by NAME.
+
+DATA comes from a recorded or synthetic venue day; ORDERS go to a local fake venue served over
+loopback HTTP by :mod:`venue_http`, which is one adapter over the single state machine in
+:mod:`venue_core`. Production ``dnse_broker`` runs are structurally untouched: this is a separate
+class reached only via ``dnse_fake:...``, exactly like ``dnse_event`` and ``dnse_replay_sandbox``,
+and it reads its OWN config file so the live one is never involved.
+
+What this buys over the Sandbox Replay E2E (#114): conditional orders. The sandbox rejects the
+STOP and OCO categories outright and has no price simulation, so activation, the normal-book
+child, partial fills by traded volume and the measured refusal codes could only ever be exercised
+against production. Here they run offline and deterministically.
+
+The bars and the order book advance TOGETHER. Each bar's prints are fed into the venue before the
+bar is handed to the engine, so a conditional triggers on the same trade the market printed —
+which is the whole reason the venue is driven by prints rather than by a clock.
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Callable
+
+from pynecore.core.plugin import override
+from pynecore.types.ohlcv import OHLCV
+
+from .broker import DNSEBroker
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "testing"))
+from venue_core import FakeVenue                                      # noqa: E402
+from venue_day import load_day                                        # noqa: E402
+from venue_http import VenueHTTP                                      # noqa: E402
+
+#: Environment pin naming the day to replay. No default: a run must say which day it replayed,
+#: and a silently chosen fixture is how a result gets attributed to the wrong data.
+_DAY_ENV = "FAKE_VENUE_DAY"
+
+
+class FakeVenueBroker(DNSEBroker):
+    """Replays a venue day while routing orders to a local fake venue."""
+
+    _bars: list[OHLCV]
+    _idx: int
+
+    # ----------------------------------------------------------------- wiring
+
+    def _repair_config_if_degraded(self) -> None:
+        """Rebuild this run's config when the framework handed us the PARENT class's instance.
+
+        Framework defect, measured 2026-09-18 and filed separately. ``core/config.py``'s
+        ``ensure_config`` caches on ``config_cls._ensured`` and tests for it with ``hasattr``,
+        which follows inheritance. So once ``DNSEConfig`` has been ensured, every SUBCLASS —
+        including ``DNSEBrokerConfig`` — silently receives the parent's instance, missing every
+        field the subclass adds. The symptom is an ``AttributeError`` on ``config.account_no``
+        deep inside the broker contract check, which reads as a broker bug and is not one.
+
+        This repairs only THIS run's object, from THIS broker's own toml. It does not touch the
+        framework, which is out of scope here; the one-line fix (read ``__dict__`` rather than
+        ``hasattr``) is proposed on the card instead.
+        """
+        from .config import DNSEBrokerConfig
+
+        # Two degradations, not one. The class can be wrong (the inherited-cache defect), and
+        # the CONTENT can be wrong: measured 2026-09-18, a run arrived with a correctly typed
+        # DNSEBrokerConfig carrying empty credentials, meaning the framework had resolved a
+        # different file than this broker's own. Either way the run cannot proceed, and either
+        # way the fix is the same: rebuild from the tracked example, which nothing rewrites.
+        if isinstance(self.config, DNSEBrokerConfig) and getattr(self.config, "api_key", ""):
+            return
+
+        import dataclasses
+        import tomllib
+
+        # Read the TRACKED example, not the workdir copy. Measured 2026-09-18: the same
+        # framework defect does not merely return the parent's instance, it REWRITES the config
+        # file to the parent's schema, deleting every key the subclass adds — account_no,
+        # trading_token, token_file and the poll intervals all vanished from the workdir file
+        # after one run. So the workdir copy cannot be trusted as the source of truth here.
+        source = Path(__file__).resolve().parents[1] / "testing" / "dnse_fake.toml.example"
+        raw: dict = {}
+        if source.exists():
+            with source.open("rb") as handle:
+                raw = tomllib.load(handle)
+
+        known = {f.name for f in dataclasses.fields(DNSEBrokerConfig)}
+        carried = {}
+        if self.config is not None:                     # keep whatever the parent did load
+            for field in dataclasses.fields(type(self.config)):
+                if field.name in known:
+                    carried[field.name] = getattr(self.config, field.name)
+        carried.update({k: v for k, v in raw.items() if k in known})
+
+        self.config = DNSEBrokerConfig(**carried)
+
+        import logging
+        logging.getLogger(__name__).warning(
+            "[FAKE VENUE] rebuilt a degraded config: the framework returned %s because "
+            "ensure_config's cache is inherited by subclasses; see the card.",
+            type(self.config).__name__)
+
+    def _ensure_venue(self) -> None:
+        """Start the fake venue and repoint this run's endpoints at it, once."""
+        if getattr(self, "_server", None) is not None:
+            return
+
+        self._repair_config_if_degraded()
+
+        path = os.environ.get(_DAY_ENV)
+        if not path:
+            raise RuntimeError(
+                f"{_DAY_ENV} is unset — point it at a venue day (RECORDED or SYNTHETIC). "
+                f"There is no default on purpose: a run must state which day it replayed.")
+
+        day = load_day(path)
+        self._day = day
+        self._bars = [OHLCV(timestamp=int(b["timestamp"]), open=float(b["open"]),
+                            high=float(b["high"]), low=float(b["low"]),
+                            close=float(b["close"]), volume=float(b["volume"]))
+                      for b in day.bars]
+        # SPLIT the day into warmup and live. The first attempt replayed every bar as warmup,
+        # which left watch_ohlcv with nothing to yield: the engine then filled the silence with
+        # synthesised idle bars forever (1280 of them before the run was killed) and the
+        # strategy never saw a live tick. The replay fixture carries separate warmup and live
+        # lists for exactly this reason; a day is one stream, so the split is made here.
+        live_count = max(1, int(os.environ.get("FAKE_VENUE_LIVE_BARS", "120")))
+        if len(self._bars) <= live_count:
+            live_count = max(1, len(self._bars) // 2)
+        self._warmup_bars = self._bars[:-live_count]
+        self._live_bars = self._bars[-live_count:]
+        self._idx = 0
+
+        contract = day.symbol
+        reference = self._bars[0].close if self._bars else 2000.0
+        venue = FakeVenue(symbol=contract, market_type="DERIVATIVE",
+                          last_price=reference, seed=1157)
+        self._venue = venue
+        self._server = VenueHTTP(
+            venue, contract=contract, bars=day.bars,
+            band=(round(reference * 1.07, 1), round(reference * 0.93, 1)),
+        ).start()
+
+        # Repoint THIS run only. The live config file is never touched: this broker reads its
+        # own, and the endpoints are overwritten in memory after it is loaded.
+        self.config.base_url = self._server.base_url
+        self.config.ws_url = f"ws://127.0.0.1:{self._server.port}"
+
+        import logging
+        logging.getLogger(__name__).warning(
+            "[FAKE VENUE] day=%s label=%s partial=%s bars=%d prints=%d rest=%s "
+            "finalTradeDate=%s (served in the REAL future so the GTD clamp admits conditionals)",
+            Path(path).name, day.label.value, day.partial, len(day.bars), len(day.prints),
+            self._server.base_url, self._server.served_final_trade_date)
+        logging.getLogger(__name__).warning(
+            "[FAKE VENUE] split: %d warmup bar(s), %d live bar(s) (FAKE_VENUE_LIVE_BARS)",
+            len(self._warmup_bars), len(self._live_bars))
+
+    @property
+    def client(self):
+        """Repair the config before the first client build.
+
+        The degraded-config defect bites at whichever boundary touches the config FIRST, and
+        that is not always a method this class overrides — the broker contract check reaches
+        ``account_id`` and then the client on its own. Repairing here covers every path, because
+        nothing can reach the venue without going through this property.
+        """
+        self._repair_config_if_degraded()
+        return super().client
+
+    # ----------------------------------------------------------------- data
+
+    @override
+    def download_ohlcv(self, time_from: datetime, time_to: datetime,
+                       on_progress: Callable[[datetime], None] | None = None,
+                       limit: int | None = None, with_extra: bool = False):
+        """Warm up from the day's bars. The window is ignored: the day IS the history."""
+        self._ensure_venue()
+        for bar in self._warmup_bars:
+            self.save_ohlcv_data(bar)
+        if on_progress is not None:
+            on_progress(time_to)
+
+    @override
+    async def connect(self) -> None:
+        self._ensure_venue()
+        self._idx = 0
+        self._exhausted = asyncio.Event()
+        self._connected = True
+
+    @override
+    async def disconnect(self) -> None:
+        self._connected = False
+        server = getattr(self, "_server", None)
+        if server is not None:
+            server.stop()
+            self._server = None
+
+    @property
+    @override
+    def is_connected(self) -> bool:
+        return bool(getattr(self, "_connected", False))
+
+    @override
+    async def watch_ohlcv(self, symbol: str, timeframe: str) -> OHLCV:
+        """Feed this bar's prints into the venue, THEN hand the bar to the engine.
+
+        Order matters. Feeding first means a conditional triggers on the trade that actually
+        printed inside the bar, so intrabar activation and fills are reproduced rather than
+        deferred to a bar boundary — the behaviour a bar-close-only fake would silently lose.
+        """
+        self._ensure_venue()
+        if self._idx < len(self._live_bars):
+            bar = self._live_bars[self._idx]
+            self._idx += 1
+            self._day.replay_bar(bar.timestamp, into=self._venue)
+            return bar
+        await self._exhausted.wait()
+        return self._live_bars[-1]
+
+    # ----------------------------------------------------------------- venue shape
+
+    @override
+    def get_symbol_info(self, force_update: bool = False):
+        """24/7 for a deterministic replay: an empty session calendar keeps the idle
+        synthesiser and the market-closed stream pauses out of the way, as the replay provider
+        contract already does (``replay_sandbox.py:141-148``)."""
+        import dataclasses
+        info = super().get_symbol_info(force_update=force_update)
+        return dataclasses.replace(info, opening_hours=[], session_starts=[], session_ends=[])
+
+    @override
+    def resolve_contract(self, symbol: str | None = None) -> str:
+        self._ensure_venue()
+        return self._day.symbol
+
+    @override
+    def classify_market_type(self, symbol: str | None = None) -> "tuple[str, bool]":
+        # AUTHORITATIVE, as the sandbox probe's env pin is: the fake's catalogue states the
+        # market type, so the classifier is not guessing, and the price-unit guard (#119) needs
+        # an authoritative answer before it will write.
+        return "DERIVATIVE", True

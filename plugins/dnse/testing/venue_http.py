@@ -43,6 +43,18 @@ class ProductionRefused(RuntimeError):
     """Raised rather than risk the fake and production being confused for one another."""
 
 
+def _default_final_trade_date() -> str:
+    """A final trade date comfortably in the REAL future.
+
+    Deliberately not derived from the replayed day. The plugin computes GTD from
+    ``datetime.now()`` and clamps it into ``[next open day, final trade date]``, so a date taken
+    from a historical session would be in the past and every conditional would be refused with a
+    venue error that has nothing to do with the behaviour under test.
+    """
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(days=90)).strftime("%Y-%m-%d")
+
+
 class _Handler(BaseHTTPRequestHandler):
     """Translates HTTP into state-machine calls. Holds no venue state of its own."""
 
@@ -104,6 +116,47 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):                                           # noqa: N802
         parsed = urlparse(self.path)
 
+        if parsed.path == "/accounts":
+            return self._send(200, {"accounts": [{"accountNo": self.catalogue["account_no"],
+                                                  "custodyCode": "FAKE"}]})
+
+        if parsed.path == "/market/instruments":
+            # The instrument catalogue drives resolve_contract, the monthly roll (#113) and the
+            # GTD clamp (#118). finalTradeDate is served from the catalogue rather than computed,
+            # and the value served is RECORDED (see VenueHTTP.served_final_trade_date) because
+            # the plugin computes GTD from the REAL clock (broker.py:1244) while the day being
+            # replayed may be historical. A mismatch there refuses every conditional before the
+            # fake is ever reached, which looks like a fake bug and is not one.
+            # The plugin reads rows from "data" and matches on symbolType (provider.py:285-288),
+            # so that is the shape served. A first attempt used an "instruments" key: the run
+            # still worked, but the plugin found no finalTradeDate and fell back to a COMPUTED
+            # third-Thursday date that was PAST — the exact silent degradation the GTD acceptance
+            # line exists to prevent, and it was visible only in a log line, not in a failure.
+            row = {"symbolType": "VN30F1M", "symbol": self.catalogue["contract"],
+                   "marketType": "DERIVATIVE",
+                   "finalTradeDate": self.catalogue["final_trade_date"]}
+            return self._send(200, {"data": [row], "total": 1})
+
+        if parsed.path.endswith("/loan-packages"):
+            return self._send(200, {"loanPackages": [{"id": 1, "name": "FAKE-MARGIN"}]})
+
+        if parsed.path.endswith("/positions"):
+            # Positions are VENUE-DERIVED from fills (CLAUDE.md), so they are computed from the
+            # state machine's filled orders rather than stored separately. `total` is served
+            # because the plugin PROVES completeness against it and refuses to conclude from a
+            # possibly truncated page (#57/#62) — omitting it would make every read inconclusive.
+            rows = self._positions()
+            return self._send(200, {"positions": rows, "total": len(rows)})
+
+        if parsed.path == "/price/ohlc":
+            return self._send(200, {"data": self.catalogue["bars"]})
+
+        if parsed.path.endswith("/secdef"):
+            band = self.catalogue["band"]
+            return self._send(200, {"symbol": self.catalogue["contract"],
+                                    "ceilingPrice": band[0], "floorPrice": band[1],
+                                    "securityStatus": "UNSPECIFIED"})
+
         if _EXEC_PATH.match(parsed.path):
             # Production answers 404 for executions on this account (CLAUDE.md), and the plugin
             # books at cumulative VWAP because of it. Inventing a payload here would send the
@@ -138,6 +191,29 @@ class _Handler(BaseHTTPRequestHandler):
             return self._reject(exc)
         return self._send(200, cancelled)
 
+    def _positions(self) -> list[dict]:
+        """Net position per symbol, derived from filled NORMAL orders.
+
+        The venue creates positions from fills; we create orders. So this reads the fills rather
+        than tracking a position object, and a flat account legitimately returns an EMPTY list —
+        which the engine treats as proof of absence, not as a failed read.
+        """
+        net = 0.0
+        for order in self.venue.orders(book="NORMAL"):
+            filled = float(order.get("fillQuantity") or 0)
+            if filled:
+                net += filled if order["side"] == "buy" else -filled
+        if not net:
+            return []
+        return [{
+            "id": "900000000000001",
+            "symbol": self.catalogue["contract"],
+            "side": "NB" if net > 0 else "NS",
+            "status": "OPEN",
+            "accumulateQuantity": abs(net), "closedQuantity": 0.0,
+            "openQuantity": abs(net), "tradeQuantity": abs(net), "overNightQuantity": 0.0,
+        }]
+
     def _not_found(self, path: str):
         """Anything the plugin does not call answers 404 rather than a plausible fiction.
 
@@ -154,13 +230,30 @@ def _as_float(value):
 class VenueHTTP:
     """Serves one :class:`~venue_core.FakeVenue` over loopback HTTP."""
 
-    def __init__(self, venue, *, host: str = "127.0.0.1", port: int = 0):
+    def __init__(self, venue, *, host: str = "127.0.0.1", port: int = 0,
+                 contract: str = "41I1G9000", account_no: str = "0001000000",
+                 bars: list | None = None, band: tuple[float, float] | None = None,
+                 final_trade_date: str | None = None):
         if host not in ("127.0.0.1", "localhost", "::1"):
             raise ProductionRefused(
                 f"refusing to bind {host!r}: the fake venue serves loopback only. A fake bound "
                 f"to a routable interface is an order endpoint with no authentication.")
         self.venue = venue
-        handler = type("_BoundHandler", (_Handler,), {"venue": venue})
+        # The GTD clamp reads the REAL clock (broker.py:1244) and compares it against the
+        # catalogue's finalTradeDate, so a historical replay must still serve a date in the
+        # real future or every conditional is refused before the fake is reached. The served
+        # value is recorded on the instance so a run can state which date it used rather than
+        # leaving a reader to infer it.
+        self.served_final_trade_date = final_trade_date or _default_final_trade_date()
+        self.catalogue = {
+            "contract": contract,
+            "account_no": account_no,
+            "bars": bars or [],
+            "band": band or (2200.0, 1800.0),
+            "final_trade_date": self.served_final_trade_date,
+        }
+        handler = type("_BoundHandler", (_Handler,),
+                       {"venue": venue, "catalogue": self.catalogue})
         self._server = ThreadingHTTPServer((host, port), handler)
         self._thread: threading.Thread | None = None
         self.host, self.port = self._server.server_address[:2]

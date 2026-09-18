@@ -34,6 +34,10 @@ dnse_event = "pynecore_dnse.event_clock:EventClockBroker"
 # TESTING ONLY (#114): Sandbox Replay E2E — replay-fed data + sandbox orders;
 # opt-in by NAME; production dnse_broker runs are structurally untouched.
 dnse_replay_sandbox = "pynecore_dnse.replay_sandbox:ReplaySandboxBroker"
+# TESTING ONLY (#157): the offline fake DNSE venue — a recorded/synthetic day for data
+# and a local fake venue for orders; opt-in by NAME, reads its OWN dnse_fake.toml so the
+# live config is never involved. Production dnse_broker runs are structurally untouched.
+dnse_fake = "pynecore_dnse.fake_broker:FakeVenueBroker"
 
 [tool.setuptools.packages.find]
 include = ["pynecore_dnse*"]
