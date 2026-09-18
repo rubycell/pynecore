@@ -1,0 +1,35 @@
+//@version=6
+// #157 R10 — the trade-list PARITY vehicle.
+//
+// Deliberately the simplest strategy that can close trades in BOTH engines, because the point
+// is to compare the engines, not to test a strategy. Every gate that would make one side empty
+// is therefore absent:
+//
+//   * NO `barstate.isrealtime` gate. The l2b vehicle has one, and its own header states the
+//     consequence: "warmup never trades (a plain backtest places ZERO = proof)". That makes l2b
+//     structurally unusable for this comparison — the backtest arm is empty by design, so a
+//     parity assertion on it would be 0 == 0 and would pass no matter how wrong the fake was.
+//   * NO trade window. winStart/winEnd are absolute wall-clock times, and against a replayed
+//     past day any window either opens during warmup or never opens at all.
+//   * NO conditional orders. A market entry exercises the path both engines share; the
+//     conditional lifecycle is pinned directly against the venue in the conformance suite.
+//
+// One lot, pyramiding 0, enter-once-per-flat, close after a fixed number of bars, so the trade
+// list is a deterministic function of the bar series alone.
+strategy("R10 parity vehicle", overlay = true,
+         default_qty_type = strategy.fixed, default_qty_value = 1,
+         pyramiding = 0, initial_capital = 10000000000,
+         calc_on_every_tick = false)
+
+holdBars = input.int(3, "Bars to hold")
+
+// Enter on a green bar whenever flat. Market, so it fills in the backtest at the next bar's
+// open and on the fake at the next print, which is exactly the difference the tolerance covers.
+if strategy.opentrades == 0 and close > open
+    strategy.entry("E", strategy.long, comment = "parity entry")
+
+// Close after holdBars bars. bar_index arithmetic only, so both engines see the same trigger.
+if strategy.opentrades == 1 and (bar_index - strategy.opentrades.entry_bar_index(0)) >= holdBars
+    strategy.close("E", comment = "parity exit")
+
+plot(close, "close")

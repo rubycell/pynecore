@@ -104,10 +104,14 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             order = self.venue.place(
                 category=category,
-                side=_SIDE.get(str(payload.get("side", "")).upper(), "buy"),
+                side=str(payload.get("side", "")).upper() or "NB",
                 qty=float(payload.get("quantity") or 0),
                 price=_as_float(payload.get("price")),
                 stop_price=_as_float(payload.get("stopPrice")),
+                # R2: the plugin computes this THROUGH the trigger and sends it
+                # (broker.py:1496). Discarding it makes the gap-through-unfilled case
+                # unreachable, which is the case _stop_fill_price exists for.
+                stop_order_price=_as_float(payload.get("stopOrderPrice")),
             )
         except VenueReject as exc:
             return self._reject(exc)
@@ -180,7 +184,8 @@ class _Handler(BaseHTTPRequestHandler):
 
         match = _ORDER_PATH.match(parsed.path)
         if match:
-            found = self.venue.order(match.group("order_id"))
+            category = (parse_qs(parsed.query).get("orderCategory") or [None])[0]
+            found = self.venue.order(match.group("order_id"), category=category)
             if found is None:
                 return self._send(404, {"code": "RESOURCE_NOT_FOUND",
                                         "message": match.group("order_id")})
@@ -200,8 +205,9 @@ class _Handler(BaseHTTPRequestHandler):
         match = _ORDER_PATH.match(parsed.path)
         if not match:
             return self._not_found(parsed.path)
+        category = (parse_qs(parsed.query).get("orderCategory") or [None])[0]
         try:
-            cancelled = self.venue.cancel(match.group("order_id"))
+            cancelled = self.venue.cancel(match.group("order_id"), category=category)
         except VenueReject as exc:
             return self._reject(exc)
         return self._send(200, cancelled)
@@ -217,7 +223,7 @@ class _Handler(BaseHTTPRequestHandler):
         for order in self.venue.orders(book="NORMAL"):
             filled = float(order.get("fillQuantity") or 0)
             if filled:
-                net += filled if order["side"] == "buy" else -filled
+                net += filled if order["side"] == "NB" else -filled
         if not net:
             return []
         return [{

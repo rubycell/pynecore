@@ -122,10 +122,10 @@ def __test_the_fake_broker_refuses_a_production_endpoint_from_the_config__(tmp_p
     not a safety property: a mis-edited config must stop the run.
     """
     from pynecore_dnse.fake_broker import FakeVenueBroker
-    from pynecore_dnse.config import DNSEBrokerConfig
+    from pynecore_dnse.fake_broker import FakeVenueConfig
 
     broker = FakeVenueBroker.__new__(FakeVenueBroker)
-    broker.config = DNSEBrokerConfig(api_key="k", api_secret="s",
+    broker.config = FakeVenueConfig(api_key="k", api_secret="s",
                                      base_url="https://openapi.dnse.com.vn",
                                      ws_url="ws://127.0.0.1:1")
     broker._server = None
@@ -140,11 +140,11 @@ def __test_the_fake_broker_accepts_a_loopback_config__(tmp_path, monkeypatch):
     make the fake unrunnable. A loopback config must get PAST the endpoint check — it then fails
     on the missing day file, which proves the endpoint guard was not what stopped it."""
     from pynecore_dnse.fake_broker import FakeVenueBroker
-    from pynecore_dnse.config import DNSEBrokerConfig
+    from pynecore_dnse.fake_broker import FakeVenueConfig
     from venue_day import MalformedDay
 
     broker = FakeVenueBroker.__new__(FakeVenueBroker)
-    broker.config = DNSEBrokerConfig(api_key="k", api_secret="s",
+    broker.config = FakeVenueConfig(api_key="k", api_secret="s",
                                      base_url="http://127.0.0.1:0", ws_url="ws://127.0.0.1:0")
     broker._server = None
     monkeypatch.setenv("FAKE_VENUE_DAY", str(tmp_path / "missing.json.gz"))
@@ -172,3 +172,86 @@ def __test_a_cancel_refusal_carries_the_venue_code_over_the_wire__(served):
 
     assert status >= 400
     assert "ORDER_CANCEL_STATUS_REJECTED" in str(body)
+
+def __test_a_wire_round_trip_reads_back_a_sell_as_a_sell__(served):
+    """R1. The pin that would have caught the worst defect in this fake.
+
+    The plugin's read funnel is a lookup with a "buy" DEFAULT (broker.py:1134), so a row whose
+    side it cannot parse is booked as a BUY and every position sign derived from it is wrong
+    while nothing raises. Reading back only id and status — as this file first did — cannot see
+    that. So the assertion goes all the way through the plugin's own parser."""
+    venue, server = served
+    from pynecore_dnse.client import DNSEClient
+
+    client = DNSEClient("key", "secret", base_url=server.base_url)
+    _, placed = client.post_order(
+        "0001000000", "DERIVATIVE",
+        {"symbol": "41I1G9000", "side": "NS", "orderType": "LO",
+         "price": 2100.0, "quantity": 1, "loanPackageId": 1},
+        "trading-token", order_category="NORMAL")
+    _, detail = client.get_order_detail("0001000000", placed["id"], "DERIVATIVE")
+
+    assert detail["side"] == "NS", "the venue speaks NB/NS on the wire, never buy/sell"
+    from pynecore_dnse.broker import _DNSE_TO_SIDE
+    assert _DNSE_TO_SIDE.get(detail["side"], "buy") == "sell", (
+        "and the plugin's own map must resolve it to sell rather than falling to its buy default")
+
+
+def __test_the_listing_hides_external_order_id_and_the_detail_shows_it__(served):
+    """R3. Measured: externalOrderId is a DETAIL field. A listing that volunteers it lets an
+    engine path find the child without the detail read production forces, so a #39-class
+    regression could pass offline and fail live."""
+    venue, server = served
+    oco = venue.place(category="OCO", side="NS", qty=1, price=2100.0, stop_price=1900.0,
+                      stop_order_price=1899.8)
+
+    listing = venue.orders(book="STOP")
+    detail = venue.order(oco["id"])
+
+    assert all("externalOrderId" not in row for row in listing), "listing must not carry it"
+    assert detail["externalOrderId"], "detail must"
+    for internal in ("parent_id", "book", "_category"):
+        assert all(internal not in row for row in listing), f"{internal} is bookkeeping, not wire"
+
+
+def __test_an_id_looked_up_on_the_wrong_book_is_not_found__(served):
+    """R4. The books are separate, and the venue says so by answering RESOURCE_NOT_FOUND."""
+    venue, server = served
+    from pynecore_dnse.client import DNSEClient
+
+    client = DNSEClient("key", "secret", base_url=server.base_url)
+    _, placed = client.post_order(
+        "0001000000", "DERIVATIVE",
+        {"symbol": "41I1G9000", "side": "NB", "orderType": "LO",
+         "price": 1975.0, "quantity": 1, "loanPackageId": 1},
+        "trading-token", order_category="NORMAL")
+
+    ok, _ = client.get_order_detail("0001000000", placed["id"], "DERIVATIVE",
+                                    order_category="NORMAL")
+    wrong, _ = client.get_order_detail("0001000000", placed["id"], "DERIVATIVE",
+                                       order_category="STOP")
+
+    assert ok == 200, "the right book resolves"
+    assert wrong == 404, "the wrong book does not"
+
+
+def __test_a_filled_row_carries_an_average_price__(served):
+    """R5. Without averagePrice the plugin books fill_price None on every fill
+    (broker.py:3086), because the executions endpoint 404s on this account."""
+    venue, server = served
+    from pynecore_dnse.client import DNSEClient
+
+    client = DNSEClient("key", "secret", base_url=server.base_url)
+    _, placed = client.post_order(
+        "0001000000", "DERIVATIVE",
+        {"symbol": "41I1G9000", "side": "NB", "orderType": "LO",
+         "price": 1980.0, "quantity": 1, "loanPackageId": 1},
+        "trading-token", order_category="NORMAL")
+    venue.feed_print(price=1979.0, volume=5)
+
+    _, detail = client.get_order_detail("0001000000", placed["id"], "DERIVATIVE")
+
+    assert detail["orderStatus"] == "Filled"
+    assert detail["averagePrice"] == 1979.0, "filled rows must carry the price they filled at"
+    for field in ("symbol", "orderCategory", "orderType", "canceledQuantity"):
+        assert field in detail, f"{field} is part of the venue row"

@@ -356,6 +356,145 @@ def _mutant_terminal_cancel_refusal_is_transient(venue_core):
     _ = venue_core
 
 
+def _mutant_wire_side_is_internal_vocabulary(venue_core):
+    """WRONG (R1): rows carry buy/sell instead of NB/NS.
+
+    The plugin's read funnel defaults an unknown side to "buy" (broker.py:1134), so this mutant
+    does not raise anywhere — it silently books every SELL as a BUY. That is what made the
+    stage-D "position=flat" claim untrustworthy.
+    """
+    original = venue_core.FakeVenue._make
+
+    def patched(self, order_id, book, wire_side, qty, price, stop_price,
+                stop_order_price, status, category=None):
+        order = original(self, order_id, book, wire_side, qty, price, stop_price,
+                         stop_order_price, status, category)
+        order["side"] = "buy" if wire_side == venue_core.BUY else "sell"
+        return order
+
+    venue_core.FakeVenue._make = patched
+
+
+def _mutant_stop_amends_to_the_print(venue_core):
+    """WRONG (R2): the triggered child is rewritten to the PRINT, so it always fills.
+
+    The gap-through case then becomes unreachable and "triggered, unfilled, still exposed" can
+    never be reproduced. This is the model the first version of this fake shipped.
+    """
+    original = venue_core.FakeVenue._trigger_conditionals
+
+    def patched(self, price):
+        for order in list(self._orders.values()):
+            if (order["book"] == "STOP_BOOK" and order["_category"] == "OCO"
+                    and order["stopPrice"] is not None and self._crossed(order, price)):
+                order["stopOrderPrice"] = price
+        original(self, price)
+
+    venue_core.FakeVenue._trigger_conditionals = patched
+
+
+def _mutant_listing_leaks_external_order_id(venue_core):
+    """WRONG (R3): the LISTING volunteers externalOrderId, which is detail-only."""
+    venue_core.FakeVenue._listing = venue_core.FakeVenue._detail
+
+
+def _mutant_wrong_book_resolves(venue_core):
+    """WRONG (R4): orderCategory is ignored, so an id resolves on either book."""
+    venue_core.FakeVenue._on_book = staticmethod(lambda order, category: True)
+
+
+def _mutant_filled_rows_have_no_average_price(venue_core):
+    """WRONG (R5): filled rows omit averagePrice, so fill_price is None on every fill."""
+    original = venue_core.FakeVenue._detail
+
+    def patched(self, order):
+        row = original(self, order)
+        row["averagePrice"] = None
+        return row
+
+    venue_core.FakeVenue._detail = patched
+
+
+def _mutant_oco_spawns_two_legs_at_birth(venue_core):
+    """WRONG: an OCO places a TP order AND a stop order at birth — the two-leg model.
+
+    The plausible wrong venue, and until now nothing pinned against it: oco_spawns proved the
+    AMEND pin, but the one-child-at-birth pin had no mutant at all.
+    """
+    original = venue_core.FakeVenue.place
+
+    def patched(self, *, category, side, qty, price=None, stop_price=None,
+                stop_order_price=None):
+        row = original(self, category=category, side=side, qty=qty, price=price,
+                       stop_price=stop_price, stop_order_price=stop_order_price)
+        if category == "OCO":
+            self._make(self._new_normal_id(), "NORMAL", venue_core._TO_WIRE.get(side, side),
+                       qty, stop_price, None, None, venue_core.NEW)
+        return row
+
+    venue_core.FakeVenue.place = patched
+
+
+def _mutant_activated_conditional_can_be_cancelled(venue_core):
+    """WRONG: an Activated conditional accepts a cancel instead of answering CO-ORD-013."""
+    original = venue_core.FakeVenue.cancel
+
+    def patched(self, order_id, *, category=None):
+        order = self._orders.get(order_id)
+        if order is not None and order["orderStatus"] == venue_core.ACTIVATED:
+            order["orderStatus"] = venue_core.CANCELED
+            return self._detail(order)
+        return original(self, order_id, category=category)
+
+    venue_core.FakeVenue.cancel = patched
+
+
+def _mutant_stop_entry_does_not_spawn_a_child(venue_core):
+    """WRONG: a STOP entry activates without creating its normal-book child (#39 blindness)."""
+    original = venue_core.FakeVenue._trigger_conditionals
+
+    def patched(self, price):
+        for order in list(self._orders.values()):
+            if (order["book"] == "STOP_BOOK" and order["_category"] != "OCO"
+                    and order["stopPrice"] is not None and self._crossed(order, price)
+                    and order["orderStatus"] == venue_core.NEW):
+                order["orderStatus"] = venue_core.ACTIVATED
+                self._record(order)
+                return
+        original(self, price)
+
+    venue_core.FakeVenue._trigger_conditionals = patched
+
+
+def _mutant_partial_fill_ignores_volume(venue_core):
+    """WRONG: a resting order fills completely regardless of the print's traded volume."""
+    original = venue_core.FakeVenue._match_resting
+
+    def patched(self, price, volume):
+        original(self, price, max(volume, 1e9))
+
+    venue_core.FakeVenue._match_resting = patched
+
+
+def _mutant_closed_session_accepts_orders(venue_core):
+    """WRONG: placement succeeds after the close instead of being refused."""
+    venue_core._CLOSED_PHASES.clear()
+
+
+def _mutant_atc_allows_cancels(venue_core):
+    """WRONG: ATC accepts a cancel; measured is a refusal."""
+    original = venue_core.FakeVenue.cancel
+
+    def patched(self, order_id, *, category=None):
+        saved, self.phase = self.phase, "continuous"
+        try:
+            return original(self, order_id, category=category)
+        finally:
+            self.phase = saved
+
+    venue_core.FakeVenue.cancel = patched
+
+
 def _control_noop(venue_core):
     """NOT a mutant: changes nothing. Its targeted test must still PASS.
 
@@ -428,6 +567,39 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "terminal_cancel_refusal_is_transient": (
         "test_162_park_replay.py::__test_the_forced_cancel_is_refused_and_stays_refused__",
         _mutant_terminal_cancel_refusal_is_transient),
+    "wire_side_is_internal_vocabulary": (
+        "test_venue_http.py::__test_a_wire_round_trip_reads_back_a_sell_as_a_sell__",
+        _mutant_wire_side_is_internal_vocabulary),
+    "stop_amends_to_the_print": (
+        "__test_a_gap_through_the_stop_limit_leaves_the_child_resting_and_unprotecting__",
+        _mutant_stop_amends_to_the_print),
+    "listing_leaks_external_order_id": (
+        "test_venue_http.py::__test_the_listing_hides_external_order_id_and_the_detail_shows_it__",
+        _mutant_listing_leaks_external_order_id),
+    "wrong_book_resolves": (
+        "test_venue_http.py::__test_an_id_looked_up_on_the_wrong_book_is_not_found__",
+        _mutant_wrong_book_resolves),
+    "filled_rows_have_no_average_price": (
+        "test_venue_http.py::__test_a_filled_row_carries_an_average_price__",
+        _mutant_filled_rows_have_no_average_price),
+    "oco_spawns_two_legs_at_birth": (
+        "__test_an_oco_umbrella_is_activated_from_birth_and_spawns_exactly_one_child__",
+        _mutant_oco_spawns_two_legs_at_birth),
+    "activated_conditional_can_be_cancelled": (
+        "__test_cancelling_an_activated_conditional_is_refused_as_done__",
+        _mutant_activated_conditional_can_be_cancelled),
+    "stop_entry_does_not_spawn_a_child": (
+        "__test_a_print_through_the_trigger_activates_the_stop_and_spawns_a_normal_child__",
+        _mutant_stop_entry_does_not_spawn_a_child),
+    "partial_fill_ignores_volume": (
+        "__test_a_resting_limit_partially_fills_by_print_volume_then_completes__",
+        _mutant_partial_fill_ignores_volume),
+    "closed_session_accepts_orders": (
+        "__test_placing_after_the_close_is_refused_with_the_measured_code__",
+        _mutant_closed_session_accepts_orders),
+    "atc_allows_cancels": (
+        "__test_cancelling_during_atc_is_refused_with_the_measured_code__",
+        _mutant_atc_allows_cancels),
     "fake_broker_skips_config_endpoint_check": (
         "test_venue_http.py::__test_the_fake_broker_refuses_a_production_endpoint_from_the_config__",
         _mutant_fake_broker_skips_config_endpoint_check),
