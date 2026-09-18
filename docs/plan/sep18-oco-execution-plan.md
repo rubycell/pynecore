@@ -194,15 +194,28 @@ No other vehicle uses a unary minus on a parenthesised expression (`grep -rnE "=
 over the live_test `.pine` files returns only this file), so the blast radius is limited to
 what was built today.
 
-## STANDING RESTRICTION until #162 is fixed
+## STANDING RESTRICTION until #164 lands
 
-**No live bracket vehicle may re-enter after a stop within the same run.** Measured
-2026-09-18: when the venue amends an OCO child in place and fills it, the engine's forced
-cancel on that now-terminal id is refused permanently, the park never clears, and every
-later exit dispatch is deferred behind it. A re-entry after a stop therefore opens a
-position the engine will not bracket — measured naked for 66 seconds, ended only by a
-manual flatten. This applies to any vehicle, not just l2c; the enter-once latch is a
-vehicle-level mitigation, not the fix.
+**No live bracket vehicle may re-enter after a stop within the same run until #164 lands.
+#162 is necessary, NOT sufficient — measured in vitro.**
+
+Measured live 2026-09-18: when the venue amends an OCO child in place and fills it, the
+engine's forced cancel on that now-terminal id is refused permanently, the park never
+clears, and every later exit dispatch is deferred behind it. A re-entry after a stop
+therefore opened a position the engine never bracketed — naked for 66 seconds, ended only
+by a manual flatten.
+
+**#162 (committed `1cb440b8`) fixes the park and does NOT close this.** Reproduced on a
+real `OrderSyncEngine` by two reviewers independently: with the plugin reporting
+`ALREADY_FILLED` — the #162 path, already in the tree — the park clears, no deferral
+occurs, **and the position is still never armed**. The cause is #164:
+`_armed_protective_venue_qty` is a write-only ledger, so the engine computes zero
+protection deficit and declines to arm, believing itself protected throughout. A
+discriminating control confirms ownership — clearing only that stale belief, with the park
+still live and the cancel still failing, makes the arm path dispatch.
+
+So the restriction is lifted by **#164**, not by #162. This applies to ANY bracket vehicle,
+not just l2c; the enter-once latch is a vehicle-level mitigation, not the fix.
 
 ## Preconditions and the abort rule
 
