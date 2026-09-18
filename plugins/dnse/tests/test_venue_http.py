@@ -257,10 +257,14 @@ def __test_a_filled_row_carries_an_average_price__(served):
         assert field in detail, f"{field} is part of the venue row"
 
 
-def __test_a_derivative_amend_answers_500_not_a_coded_rejection__(served):
-    """The measured amend-500. A derivative PUT is refused by the venue with a SERVER error, and
-    that is why the plugin does its own cancel+replace rather than trusting a PUT. Serving a
-    coded 400 here would look tidier and would teach the engine the wrong recovery."""
+def __test_a_normal_book_derivative_amend_succeeds_IN_PLACE__(served):
+    """Live-L1-T06-AmendNormal, PASS 2026-08-14 re-verified 08-17: a NORMAL-book amend on the
+    derivative SUCCEEDS at the venue, same id, new price.
+
+    This pin exists because the fake got it WRONG in the other direction first: it answered 500
+    for every derivative amend, which made the staged probe park on a refusal the real venue
+    would never have sent. A fake that refuses where the venue accepts teaches the engine to
+    take a recovery path it does not need."""
     venue, server = served
     from pynecore_dnse.client import DNSEClient
 
@@ -271,10 +275,27 @@ def __test_a_derivative_amend_answers_500_not_a_coded_rejection__(served):
          "price": 1975.0, "quantity": 1, "loanPackageId": 1},
         "trading-token", order_category="NORMAL")
 
-    status, _ = client.put_order("0001000000", placed["id"], "DERIVATIVE",
-                                 {"price": 1976.0, "quantity": 1}, "trading-token")
+    status, amended = client.put_order("0001000000", placed["id"], "DERIVATIVE",
+                                       {"price": 1976.0, "quantity": 1}, "trading-token")
 
-    assert status == 500, "a derivative amend is a 5xx, not a coded rejection"
+    assert status == 200, "a NORMAL-book derivative amend succeeds"
+    assert amended["id"] == placed["id"], "and it is amended IN PLACE, keeping its id"
+    assert amended["price"] == 1976.0
+    assert amended["orderStatus"] == "New"
+
+
+def __test_a_conditional_amend_answers_500_whatever_the_asset__(served):
+    """Live-L1-T07-AmendConditional500 (#18): the 500 belongs to the CONDITIONAL book, and it is
+    why broker.py:2278 routes a conditional modify away from a PUT entirely — a conditional entry
+    becomes the plugin's own cancel+replace, a conditional exit becomes a park."""
+    venue, server = served
+    stop = venue.place(category="STOP", side="NB", qty=1, stop_price=1990.0,
+                       price=1990.2, stop_order_price=1990.4)
+
+    from venue_core import VenueServerError
+    with pytest.raises(VenueServerError) as excinfo:
+        venue.amend(stop["id"], price=1991.0)
+    assert excinfo.value.status == 500
 
 
 def __test_a_stock_amend_returns_a_NEW_id_and_cancels_the_old_one__():

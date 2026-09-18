@@ -496,18 +496,35 @@ def _mutant_atc_allows_cancels(venue_core):
 
 
 
-def _mutant_derivative_amend_succeeds_in_place(venue_core):
-    """WRONG: a derivative amend succeeds in place instead of answering 500.
+def _mutant_normal_amend_answers_500(venue_core):
+    """WRONG: a NORMAL-book amend answers 500 — the model the fake shipped for one revision.
 
-    The tidy-looking version. It would teach the engine that a PUT works on derivatives, so its
-    own cancel+replace fallback — which exists BECAUSE the venue 500s — would never be exercised
-    offline and would only be tested with real money.
+    It is the plausible wrong answer, because a 500 on amend IS a measured venue fact; it just
+    belongs to the CONDITIONAL book. Serving it on the normal book makes the plugin park on a
+    refusal the venue never sends, which is exactly what the staged probe did at T6.
     """
     original = venue_core.FakeVenue.amend
 
     def patched(self, order_id, *, price=None, qty=None, category=None):
         order = self._orders.get(order_id)
-        if order is not None and self.market_type == "DERIVATIVE":
+        if order is not None and order["book"] == "NORMAL":
+            raise venue_core.VenueServerError(500, "amend is not supported")
+        return original(self, order_id, price=price, qty=qty, category=category)
+
+    venue_core.FakeVenue.amend = patched
+
+
+def _mutant_conditional_amend_succeeds_in_place(venue_core):
+    """WRONG in the other direction: a CONDITIONAL amend succeeds instead of answering 500.
+
+    The tidy version. It would leave the plugin's conditional cancel+replace and its exit park —
+    both of which exist BECAUSE the venue 500s there — untested offline.
+    """
+    original = venue_core.FakeVenue.amend
+
+    def patched(self, order_id, *, price=None, qty=None, category=None):
+        order = self._orders.get(order_id)
+        if order is not None and order["book"] == "STOP_BOOK":
             if price is not None:
                 order["price"] = price
             return self._detail(order)
@@ -621,9 +638,12 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "atc_allows_cancels": (
         "__test_cancelling_during_atc_is_refused_with_the_measured_code__",
         _mutant_atc_allows_cancels),
-    "derivative_amend_succeeds_in_place": (
-        "test_venue_http.py::__test_a_derivative_amend_answers_500_not_a_coded_rejection__",
-        _mutant_derivative_amend_succeeds_in_place),
+    "normal_amend_answers_500": (
+        "test_venue_http.py::__test_a_normal_book_derivative_amend_succeeds_IN_PLACE__",
+        _mutant_normal_amend_answers_500),
+    "conditional_amend_succeeds_in_place": (
+        "test_venue_http.py::__test_a_conditional_amend_answers_500_whatever_the_asset__",
+        _mutant_conditional_amend_succeeds_in_place),
     "fake_broker_skips_config_endpoint_check": (
         "test_venue_http.py::__test_the_fake_broker_refuses_a_production_endpoint_from_the_config__",
         _mutant_fake_broker_skips_config_endpoint_check),

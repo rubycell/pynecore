@@ -276,16 +276,22 @@ class FakeVenue:
 
     def amend(self, order_id, *, price: float | None = None, qty: float | None = None,
               category: str | None = None) -> dict:
-        """Amend an order — and the two asset types behave COMPLETELY differently.
+        """Amend an order. Three outcomes, and the discriminator is the BOOK, not the asset.
 
-        * DERIVATIVE: the venue answers HTTP 500. Measured and long-standing ("amend-500" in the
-          venue facts), which is why the plugin does its own cancel+replace for derivatives
-          rather than trusting a PUT. Reproduced as a server error, not a coded rejection,
-          because the engine branches on that difference.
-        * STOCK: the venue answers 200 with a **NEW order id**, having cancelled the old one
-          itself — the old id reads ``Canceled`` untouched (#117, measured on prod 2026-09-15).
-          Both price AND quantity in one PUT are accepted. Any caller that keeps tracking the
-          OLD id after a stock amend goes blind, which is the #39 family of failure.
+        * CONDITIONAL book (STOP/OCO), any asset: HTTP 500. Measured as
+          Live-L1-T07-AmendConditional500 (#18), and it is why the plugin routes a conditional
+          modify away from a PUT entirely at broker.py:2278 — a conditional ENTRY becomes its
+          own outcome-gated cancel+replace, a conditional EXIT becomes a park.
+        * NORMAL book, DERIVATIVE: 200, amended IN PLACE, same id with the new price and
+          quantity. Measured as Live-L1-T06-AmendNormal, PASS 2026-08-14, re-verified 08-17.
+        * NORMAL book, STOCK: 200 with a NEW order id, the venue having cancelled the old one
+          itself so it reads Canceled untouched (#117, prod 2026-09-15). Both price and quantity
+          land in one PUT, and anything still tracking the OLD id goes blind.
+
+        An earlier version of this method gated on ASSET TYPE and answered 500 for every
+        derivative amend. That was wrong and it made the fake teach a venue that does not exist:
+        the staged probe's T6 parked on a 500 the real venue would never have sent for a
+        normal-book order.
         """
         order = self._orders.get(order_id)
         if order is None or (category is not None and not self._on_book(order, category)):
@@ -293,8 +299,18 @@ class FakeVenue:
         if order["orderStatus"] in _TERMINAL:
             raise VenueReject("ORDER_IS_DONE", "order is done")
 
-        if self.market_type == "DERIVATIVE":
-            raise VenueServerError(500, "amend is not supported for derivatives")
+        if order["book"] == "STOP_BOOK":
+            raise VenueServerError(500, "conditional amend is not supported")
+
+        if self.market_type != "STOCK":
+            # Normal-book derivative: amended in place, same id.
+            if price is not None:
+                order["price"] = price
+            if qty is not None:
+                order["quantity"] = qty
+            order["orderStatus"] = NEW
+            self._record(order)
+            return self._detail(order)
 
         order["orderStatus"] = CANCELED
         order["canceledQuantity"] = order["quantity"] - order["fillQuantity"]

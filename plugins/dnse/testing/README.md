@@ -124,32 +124,40 @@ dates never opens.
 
 That was the real cause of the staged no-fill probe appearing to place nothing.
 
-**Measured end to end, 2026-09-18**, window at launch plus 100 s, 250 live bars, 0.3 s pacing:
+**Measured end to end, 2026-09-18**, window at launch plus 100 s, 300 live bars, 0.25 s pacing:
 
 | observation | result |
 |---|---|
 | idle-bar synth lines | 0 |
-| states reached | 0 through 13 (of 0–14) |
-| dispatches | 18 |
-| venue events | 21 CREATED, 21 CANCELLED |
-| stopped by | the 280 s harness timeout, still progressing — NOT an error |
+| states reached | 0 through 15 — every state |
+| dispatches | 20 |
+| venue events | 23 CREATED, 23 CANCELLED |
+| parked modifies | 0 |
 
-So the probe runs against the fake. It has not been observed completing state 14, and that is
-because the run was cut short rather than because anything failed; a longer budget is the way to
-confirm the last state.
-
-**One finding from that run worth keeping.** At T6 the derivative amend answers HTTP 500 as the
-venue does, and the plugin does NOT simply cancel and replace: it logs
-`amend code=HTTP-500 http=500 -> park+verify` and then `modify parked (unknown disposition)`.
-Park-and-verify is its real response to an amend whose outcome it cannot determine, and this run
-is the first time that path has been exercised offline rather than against production.
+An earlier run of this table said states 0 to 13 with a park at T6, and that was an artefact of a
+bug in this fake, not a property of the plugin. The fake had gated the amend on ASSET TYPE and
+answered 500 for every derivative amend; the plugin then parked on a refusal the real venue would
+never have sent. With the amend gated on the BOOK — which is what the registry says — T6 amends
+in place and the probe reaches every state. A fake that refuses where the venue accepts teaches
+the engine to take a recovery path it does not need, and it is worth knowing that the wrong
+version looked entirely plausible: a 500 on amend IS a measured fact, it just belongs to the
+conditional book.
 
 ## Amends are asymmetric by asset type
 
-A DERIVATIVE amend answers HTTP 500, which is why the plugin performs its own cancel-and-replace
-rather than trusting a PUT. A STOCK amend answers 200 with a NEW id, the old one reading
-`Canceled`, and both price and quantity land in one request. Anything that keeps tracking the old
-id after a stock amend goes blind, which is the same failure family as a stop entry's child.
+The discriminator is the BOOK, not the asset — which is the opposite of what this fake assumed
+for one revision.
+
+| what is amended | outcome | source |
+|---|---|---|
+| CONDITIONAL book (STOP/OCO), any asset | HTTP 500 | `Live-L1-T07-AmendConditional500` (#18) |
+| NORMAL book, derivative | 200, amended IN PLACE, same id | `Live-L1-T06-AmendNormal`, PASS 08-14, re-verified 08-17 |
+| NORMAL book, stock | 200 with a NEW id, the old one `Canceled` | #117, prod 2026-09-15 |
+
+The conditional 500 is why the plugin routes a conditional modify away from a PUT entirely: a
+conditional entry becomes its own cancel-and-replace, a conditional exit becomes a park. On the
+normal book none of that applies and the venue simply accepts the change. After a stock amend,
+anything still tracking the old id goes blind — the same failure family as a stop entry's child.
 
 ## Trade-list parity
 
