@@ -350,3 +350,5 @@ bff1e21c7bd34b155b76933906f1524ee5187f81fc3f24dfe3c62c7ae09dab95  plugins/dnse/t
 # 2026-09-18 #157 SDK-guide endpoints (Worker4): ppse/position-by-id/close-position, the changelog category matrix (STOCK refuses OCO), history paging
 # 2026-09-18 #157 SDK-guide endpoints (Worker4, rebased): ppse / position-by-id / close-position, category matrix guard on DERIVATIVE, history paging
 5cbbd9e1be9dce8e8e6b6658643bc45e1947118856d1979771d907ccf3df9369  plugins/dnse/tests/test_venue_http_sdk_guide_endpoints.py
+# 2026-09-18 #157 amend rules + enums (Worker4): derivative amend = price XOR quantity and qty > filled (FAQ #33, DOCUMENTED not measured), marketId/productGrpId DVX/FIO vs STO, cash+margin loan packages, all three rate-limit headers
+8826fda9546098bc56e291f796ee05bcf76c2fae011fccea0edad202d04d2c35  plugins/dnse/tests/test_venue_amend_rules_and_enums.py
