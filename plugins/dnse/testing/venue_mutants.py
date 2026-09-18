@@ -169,6 +169,71 @@ def _mutant_integer_conditional_ids(venue_core):
     venue_core.FakeVenue._new_conditional_id = patched
 
 
+def _mutant_day_label_defaults(venue_core):
+    """WRONG: a day with no label is assumed RECORDED instead of refused.
+
+    The most dangerous mutant in this file. It does not break anything visibly — it silently
+    converts a synthesised day into a claimed measurement, which is how a fabricated result gets
+    reported as evidence.
+    """
+    import venue_day
+    original = venue_day.VenueDay.from_dict.__func__
+
+    def patched(cls, raw):
+        if "label" not in raw:
+            raw = dict(raw, label="RECORDED")
+        return original(cls, raw)
+
+    venue_day.VenueDay.from_dict = classmethod(patched)
+    _ = venue_core
+
+
+def _mutant_day_closes_only(venue_core):
+    """WRONG: the synthesiser emits only each bar's close, so no intrabar extreme is replayed
+    and a stop the real session triggered never triggers."""
+    import venue_day
+    original = venue_day.synthesise_day
+
+    def patched(bars, *, symbol, session_open_ts=None):
+        day = original(bars, symbol=symbol, session_open_ts=session_open_ts)
+        day.prints = [p for p in day.prints
+                      if any(p["price"] == b["close"] and p["bar_ts"] == b["timestamp"]
+                             for b in day.bars)]
+        return day
+
+    venue_day.synthesise_day = patched
+    _ = venue_core
+
+
+def _mutant_day_volume_invented(venue_core):
+    """WRONG: print volume is invented rather than conserved from the bar, so fills differ."""
+    import venue_day
+    original = venue_day.synthesise_day
+
+    def patched(bars, *, symbol, session_open_ts=None):
+        day = original(bars, symbol=symbol, session_open_ts=session_open_ts)
+        for tick in day.prints:
+            tick["volume"] = 1.0
+        return day
+
+    venue_day.synthesise_day = patched
+    _ = venue_core
+
+
+def _mutant_day_always_partial(venue_core):
+    """WRONG: every day is flagged partial, so the flag stops meaning anything."""
+    import venue_day
+    original = venue_day.synthesise_day
+
+    def patched(bars, *, symbol, session_open_ts=None):
+        day = original(bars, symbol=symbol, session_open_ts=session_open_ts)
+        day.partial = True
+        return day
+
+    venue_day.synthesise_day = patched
+    _ = venue_core
+
+
 def _control_noop(venue_core):
     """NOT a mutant: changes nothing. Its targeted test must still PASS.
 
@@ -209,6 +274,15 @@ MUTANTS: dict[str, tuple[str, object]] = {
                                    _mutant_umbrella_clears_stop_price),
     "integer_conditional_ids": ("__test_normal_order_gets_an_integer_id_and_a_conditional_gets_a_string_id__",
                                 _mutant_integer_conditional_ids),
+    # stage B: the venue day
+    "day_label_defaults": ("test_venue_day.py::__test_a_day_without_a_label_is_REFUSED_rather_than_assumed__",
+                           _mutant_day_label_defaults),
+    "day_closes_only": ("test_venue_day.py::__test_a_synthetic_day_reconstructs_each_bar_from_its_prints__",
+                        _mutant_day_closes_only),
+    "day_volume_invented": ("test_venue_day.py::__test_a_synthetic_day_conserves_each_bar_volume__",
+                            _mutant_day_volume_invented),
+    "day_always_partial": ("test_venue_day.py::__test_a_day_covering_the_session_open_is_not_partial__",
+                           _mutant_day_always_partial),
 }
 
 
@@ -235,8 +309,13 @@ def _run_one(name: str, test_id: str, repo: Path) -> tuple[bool, str]:
     """Run ONE targeted test under ONE mutant. Returns (caught, evidence-line)."""
     env = dict(os.environ, MUTANT=name, PYTHONDONTWRITEBYTECODE="1",
                PYTHONPATH=str(repo / "plugins" / "dnse" / "testing"))
+    # A target may name its own file ("test_venue_day.py::...") or just a test in the default
+    # conformance file. Being explicit beats a clever default that silently targets the wrong
+    # test and reports a mutant as caught by a pin that never saw it.
+    target = (f"plugins/dnse/tests/{test_id}" if test_id.endswith(".py") or "::" in test_id
+              else f"{_TESTS}::{test_id}")
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", f"{_TESTS}::{test_id}", "-q",
+        [sys.executable, "-m", "pytest", target, "-q",
          "-o", "addopts=--import-mode=importlib", "-p", "venue_mutants"],
         cwd=repo, env=env, capture_output=True, text=True)
     summary = next((ln for ln in reversed(proc.stdout.splitlines()) if ln.strip()), "")
