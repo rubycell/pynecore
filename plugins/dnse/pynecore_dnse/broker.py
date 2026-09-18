@@ -815,7 +815,8 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             wire = str(self._secdef(self.symbol or symbol).get("symbol")
                        or self.symbol or symbol)
             source = WSTickSource(self.config.api_key,
-                                  self.config.api_secret, wire)
+                                  self.config.api_secret, wire,
+                                  ws_url=getattr(self.config, "ws_url", None))
             await source.start()
             self._ltf_state = {
                 "source": source,

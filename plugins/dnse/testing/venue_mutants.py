@@ -234,6 +234,27 @@ def _mutant_day_always_partial(venue_core):
     _ = venue_core
 
 
+def _mutant_tick_source_always_sets_base_url(venue_core):
+    """WRONG (#160): the tick source passes base_url ALWAYS, even when nothing is configured.
+
+    This is the plausible over-fix. It satisfies "honour the configured endpoint" while quietly
+    moving the definition of the production host out of the vendored constant and into the
+    plugin, so a config change could repoint production. The control pin exists to catch exactly
+    this, and it passed both before and after the real fix — which proves nothing until this
+    mutant shows it can fail.
+    """
+    from pynecore_dnse import tick_source as ts
+    original = ts.WSTickSource.__init__
+
+    def patched(self, api_key, api_secret, wire_symbol, queue_max=20_000,
+                ws_url=None, client_factory=None):
+        return original(self, api_key, api_secret, wire_symbol, queue_max,
+                        ws_url or "wss://ws-openapi.dnse.com.vn", client_factory)
+
+    ts.WSTickSource.__init__ = patched
+    _ = venue_core
+
+
 def _control_noop(venue_core):
     """NOT a mutant: changes nothing. Its targeted test must still PASS.
 
@@ -283,6 +304,10 @@ MUTANTS: dict[str, tuple[str, object]] = {
                             _mutant_day_volume_invented),
     "day_always_partial": ("test_venue_day.py::__test_a_day_covering_the_session_open_is_not_partial__",
                            _mutant_day_always_partial),
+    # 160: the WS endpoint seam
+    "tick_source_always_sets_base_url": (
+        "test_ws_source_endpoint.py::__test_the_tick_source_omits_base_url_when_none_is_configured__",
+        _mutant_tick_source_always_sets_base_url),
 }
 
 
