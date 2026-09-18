@@ -220,6 +220,22 @@ Live-measured on prod (#117 probe, funded stock account):
 - A rejected-at-entry STOCK buy (no buying power) goes `Rejected` in ~3 ms with
   `canceledQuantity=qty`; the HTTP place still answers 200.
 
+## Which order CATEGORY each market accepts (DNSE changelog 2026-08-06, mirror `changelog.md:23-27`)
+
+| market | NORMAL | STOP | OCO |
+|---|:---:|:---:|:---:|
+| STOCK (cơ sở) | yes | yes | **NO** |
+| DERIVATIVE (phái sinh) | yes | yes | yes |
+| BOND (trái phiếu) | yes | **NO** | **NO** |
+
+So a native OCO bracket is a DERIVATIVES-ONLY construct here: on a stock the engine must build
+protection from a STOP plus its own cancel-the-other, and the fake venue refuses stock OCO for
+that reason (#157). Documented, not yet measured on the live venue.
+
+**The docs mirror is only as fresh as the last `fetch_docs.py` run** — on 2026-09-18 it stopped
+at the 2026-08-06 entry while the site carried 09-08 and 09-15 changes. Check the newest `## [`
+heading in `changelog.md` before treating the mirror as current.
+
 ## DNSE has TWO order books — and a triggered conditional MOVES between them (CRITICAL)
 
 Venue mechanic, operator-confirmed 2026-08-18:
