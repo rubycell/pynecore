@@ -298,6 +298,14 @@ a345cce98f6461da5dc17d94c3e07309163c8ecd9e0c81b29db7c37d07ad60df  plugins/dnse/t
 c517228d73d80c57c00ca79891ace4f927ae0584fc5510c5e334501da5578341  plugins/dnse/testing/venue_mutants.py
 7e037974d5e9251fdb93805905594e808775461739dd8ce69fc529a1676a6198  plugins/dnse/testing/README.md
 21613abd3b3a6d055584eb6d5b80f8dd4537cad14b3fcb47ee2217a62d90bde0  plugins/dnse/tests/test_venue_http.py
+# 2026-09-18 #157 stage B via 1m history at 0d3a368a (Worker4): DERIVED-FROM-1M label with provenance, venue_day_from_history.py (GET /price/ohlc only, refuses workdir/data), ten days VN30F1M + HPG 09-14..09-18; /price/ohlc serves rolling aliases only (dated code -> 200 with empty arrays)
+e7c59456c882e3fdd0ae442ac53571f7fab8f4f0f61604206ea7cb9bf8afd905  plugins/dnse/testing/venue_day_from_history.py
+fdee2b1025567c0a366fe41b9d64c41a113e6c4a9d68a13453418fb90224b36f  plugins/dnse/tests/test_venue_day_derived.py
+2a23fcffbe768da9bb8370b00aeda6aee3cc4649be94168fb67ee0656ac22a3a  plugins/dnse/tests/test_venue_day_from_history.py
+# 2026-09-18 #157 steps 3-4 at a70829d4 (Worker4): l2b end to end against the derived 09-18 day (3 round trips, graded from the venue record file), parity on both days after the window-derivation fix
+3d05ff55854c7aa8f585047fbedfcab460a15b8d2c2d54f63e95d8ff7f87f8d0  plugins/dnse/testing/venue_day_dataset.py
+8661464967d889d6d35c7dfe0293ca01f4eb4eb300b040f306498dbff1f52a51  plugins/dnse/tests/test_venue_record_file.py
+2c72dd6685eb504d0848284d4940691b5a814a137565d85d9305f6141236f710  plugins/dnse/tests/test_venue_day_dataset.py
 6bca480694a87414913f19438078041091c150f28060443c50bd19093348672a  plugins/dnse/testing/venue_mutants.py
 6429f925b1a120cfc1bd876899210cf646bec7a20c08311e75a539b6c2659d5f  plugins/dnse/pynecore_dnse/fake_broker.py
 3542b300c1ec62a1b0f2dacbff057d3cd92b19d4730a15f2d112c98ac37fcee2  plugins/dnse/tests/test_fake_venue_conformance.py
