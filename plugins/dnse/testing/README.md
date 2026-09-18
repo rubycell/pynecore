@@ -122,11 +122,27 @@ vehicle's stages against the backtest engine, which routes no orders. The round-
 stages T1 to T4 fire inside warmup with no broker line at all. A window on the recorded day's
 dates never opens.
 
-That was the real cause of the staged no-fill probe appearing to place nothing. Re-measured
-after the shift with the window set correctly: zero synthetic bars, and it dispatches and
-cancels on the conditional book. It is NOT a clean pass end to end. The checker ran it past T5
-and it needed an amend the server did not serve; amends are now implemented, with the venue's
-own asymmetry.
+That was the real cause of the staged no-fill probe appearing to place nothing.
+
+**Measured end to end, 2026-09-18**, window at launch plus 100 s, 250 live bars, 0.3 s pacing:
+
+| observation | result |
+|---|---|
+| idle-bar synth lines | 0 |
+| states reached | 0 through 13 (of 0–14) |
+| dispatches | 18 |
+| venue events | 21 CREATED, 21 CANCELLED |
+| stopped by | the 280 s harness timeout, still progressing — NOT an error |
+
+So the probe runs against the fake. It has not been observed completing state 14, and that is
+because the run was cut short rather than because anything failed; a longer budget is the way to
+confirm the last state.
+
+**One finding from that run worth keeping.** At T6 the derivative amend answers HTTP 500 as the
+venue does, and the plugin does NOT simply cancel and replace: it logs
+`amend code=HTTP-500 http=500 -> park+verify` and then `modify parked (unknown disposition)`.
+Park-and-verify is its real response to an amend whose outcome it cannot determine, and this run
+is the first time that path has been exercised offline rather than against production.
 
 ## Amends are asymmetric by asset type
 
