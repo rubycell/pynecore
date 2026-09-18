@@ -147,6 +147,44 @@ class RestingOrder:
 
 
 @dataclass(frozen=True)
+class CoverUmbrella:
+    """An OCO umbrella, reduced to what the invariant needs.
+
+    The core stays pure: the SHELL reads the OCO book and maps
+    ``venue.Umbrella`` onto this, exactly as it maps working orders onto
+    :class:`RestingOrder`. ``state`` is the venue-resolved ARMED / SPENT /
+    UNKNOWN, decided by the umbrella's CHILD — never by its own row, which
+    reads ``Activated`` with a populated ``stopPrice`` in all three cases
+    (measured 2026-09-18: armed, spent-by-cancel and spent-by-fill are
+    byte-identical at the umbrella).
+    """
+
+    id: str
+    state: str
+    stop_price: float | None
+    side: str | None
+    qty: float | None
+
+
+def umbrella_covers(u: CoverUmbrella, exposure: float) -> bool:
+    """Does this umbrella actually protect THIS exposure?
+
+    ARMED is necessary and not sufficient: an umbrella on the same side as the
+    exposure would ADD to the position, not reduce it. Direction is the whole
+    content of "cover" — the same reason a reduce-side entry order is not
+    cover in :func:`is_cover`.
+    """
+    if u.state != "ARMED" or not exposure:
+        return False
+    side = (u.side or "").upper()
+    if side in ("NS", "SELL"):
+        return exposure > 0          # a sell protects a long
+    if side in ("NB", "BUY"):
+        return exposure < 0          # a buy protects a short
+    return False                     # unrecognised side -> never assume cover
+
+
+@dataclass(frozen=True)
 class Observation:
     """Everything one evaluation cycle needs, already read.
 
@@ -160,6 +198,11 @@ class Observation:
     resting: tuple[RestingOrder, ...] | None
     bar_period_s: float = 0.0
     contract: str | None = None
+    #: OCO umbrellas read from the venue this cycle, or ``None`` for NOT READ.
+    #: The default is deliberately the doubting value: a caller that forgets to
+    #: supply it gets "we have not consulted the OCO book" rather than "there
+    #: are none", so a missing read can never be mistaken for proven absence.
+    umbrellas: tuple[CoverUmbrella, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -333,12 +376,33 @@ def evaluate(obs: Observation) -> Assessment:
                 f"exposure {exposure:+g} covered by {len(covers)} resting "
                 f"order(s) ({covered_qty:g}), {len(stop_class)} stop-class",
                 exposure, ids, stop_class, covered_qty)
+        # #152: the stop MAY be on the OCO book, which `get_open_orders` never
+        # scans. Resolve it rather than reporting could-not-see as a verdict
+        # the ladder resets on — that combination produced 33 UNSTOPPED lines
+        # and ZERO alarms on 2026-09-18 while a bracket was genuinely absent.
+        if obs.umbrellas is None:
+            return Assessment(
+                Verdict.UNSTOPPED,
+                f"exposure {exposure:+g} has cover ({covered_qty:g}) but NO "
+                f"stop-class leg among it, and the OCO BOOK WAS NOT READ — a "
+                f"take-profit is not a stoploss, and an umbrella's stop leg is "
+                f"invisible to the NORMAL/STOP books. This is could-not-see, "
+                f"NOT proven absence: do not read it as naked.",
+                exposure, ids, (), covered_qty)
+        protecting = tuple(u for u in obs.umbrellas
+                           if umbrella_covers(u, exposure))
+        if protecting:
+            return Assessment(
+                Verdict.OK,
+                f"exposure {exposure:+g} covered by {len(covers)} resting "
+                f"order(s) ({covered_qty:g}); the stop is on the OCO book — "
+                f"umbrella {protecting[0].id} at {protecting[0].stop_price}",
+                exposure, ids, tuple(u.id for u in protecting), covered_qty)
         return Assessment(
-            Verdict.UNSTOPPED,
-            f"exposure {exposure:+g} has cover ({covered_qty:g}) but NO "
-            f"stop-class leg among it — a take-profit is not a stoploss "
-            f"(an OCO umbrella's stop leg is invisible to the books, "
-            f"broker.py:160)",
+            Verdict.NAKED,
+            f"exposure {exposure:+g} has cover ({covered_qty:g}) but it is "
+            f"TAKE-PROFIT ONLY: the OCO book WAS read and holds no armed "
+            f"umbrella protecting this side. Nothing is below this position.",
             exposure, ids, (), covered_qty)
 
     # No proven cover. Before calling it naked, an order we could not
@@ -500,8 +564,33 @@ def stale_numeric_id_verdict(
     return "owned"
 
 
-def confirm_window_s(bar_period_s: float) -> float:
-    """``max(floor, one bar period)`` — see :data:`NAKED_CONFIRM_FLOOR_S`."""
+def confirm_window_s(bar_period_s: float,
+                     arm_grace_s: float | None = None) -> float:
+    """How long a NAKED verdict must persist before it is an alarm.
+
+    ``max(floor, one bar period)`` unless the caller DECLARES its vehicle's arm
+    grace, in which case ``max(floor, that)``.
+
+    WHY THE DECLARATION EXISTS (measured 2026-09-18). Deriving the window from
+    the bar period assumes the vehicle arms its protection a bar late, which is
+    true only of a REACTIVE exit — one gated on ``position_size > 0``, which
+    cannot be placed until the fill is visible. A PRE-PLACED bracket arms on the
+    fill: l2c's umbrella existed **0.874 s** after its entry child. Run A was
+    @5m, so the derived window was **300 s** while the exposure was unprotected
+    for **66.25 s** — a grace 4.5x longer than the entire episode. Four NAKED
+    verdicts were observed, every one withheld, no alarm file was ever created,
+    and the operator learned about the naked position from a human reading a
+    monitor. A grace calibrated for a vehicle shape that is not being run is
+    indistinguishable from having no alarm at all.
+
+    ``None`` means NOT DECLARED and keeps the old derivation exactly, so this
+    cannot silently re-tune a vehicle that genuinely needs a bar. The floor
+    still applies to a declared value: a zero grace would page on the arm gap
+    of every entry, and an alarm that fires on every trade is muted within a
+    day — after which the real one is invisible too.
+    """
+    if arm_grace_s is not None:
+        return max(NAKED_CONFIRM_FLOOR_S, float(arm_grace_s or 0.0))
     return max(NAKED_CONFIRM_FLOOR_S, float(bar_period_s or 0.0))
 
 

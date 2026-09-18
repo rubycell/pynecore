@@ -495,13 +495,27 @@ def evaluate_once(broker, symbol, store_path, account_id, *,
         owned, exposure, per_id = journal_attribution(store_path, account_id)
         if position is not None and owned is not None:
             resting = read_resting(broker, symbol, owned, per_id, phantoms=_PHANTOMS)
+    # #152: the stop leg of an OCO bracket lives on a book `get_open_orders`
+    # never scans, so `resting` alone cannot answer "is this exposure stopped".
+    # Read it here and map it onto the core's own type — the core stays pure and
+    # never imports the toolkit. A FAILED read stays None, which the core treats
+    # as NOT READ (could-not-see), never as proven absence.
+    try:
+        found = venue.oco_umbrellas(broker)
+    except Exception:                                             # noqa: BLE001
+        found = None
+    umbrellas = None if found is None else tuple(
+        core.CoverUmbrella(id=u.id, state=u.state.value, stop_price=u.stop_price,
+                           side=u.side, qty=u.quantity)
+        for u in found)
     return core.evaluate(Observation(
         phase=venue.session_phase(),
         contract_proven=proven,
         position_signed=position,
         owned_exposure=exposure,
         resting=resting,
-        bar_period_s=bar_period_s))
+        bar_period_s=bar_period_s,
+        umbrellas=umbrellas))
 
 
 _PHANTOMS = _PhantomCache()
@@ -533,7 +547,8 @@ def run(args) -> int:
     account_id = getattr(broker, "account_id", None) or ""
     store_path = Path(args.store)
     alarm_log = Path(args.alarm_log)
-    ladder = core.AlarmLadder(window_s=core.confirm_window_s(args.bar_period))
+    ladder = core.AlarmLadder(window_s=core.confirm_window_s(
+        args.bar_period, arm_grace_s=args.arm_grace))
     seen: list[Verdict] = []
 
     print(f"naked_watch: {symbol} every {args.interval:g}s, confirm window "
@@ -610,6 +625,17 @@ def main(argv: "list[str] | None" = None) -> int:
                              "reactively placed exit arms a bar late by design, "
                              "so leaving it 0 at 5m/15m pages on every entry "
                              "(300 / 900 are the values for those timeframes)")
+    parser.add_argument("--arm-grace", type=float, default=None, metavar="SEC",
+                        help="how long this VEHICLE legitimately takes to arm its "
+                             "protection after a fill. Unset (default) derives the "
+                             "window from --bar-period, which assumes a REACTIVE "
+                             "exit arming a bar late. A PRE-PLACED bracket (l2b, "
+                             "l2c) arms on the fill — measured 0.874s — so pass "
+                             "30 for those. Measured 2026-09-18: the derived 300s "
+                             "at 5m silently covered a 66s naked exposure end to "
+                             "end, four NAKED verdicts, zero alarms. Floored at "
+                             f"{core.NAKED_CONFIRM_FLOOR_S:g}s: a zero grace pages "
+                             "on every entry and is muted within a day")
     parser.add_argument("--stall-after", type=float, default=120.0,
                         help="seconds without a completed evaluation before the "
                              "heartbeat reports a STALL and the run exits "

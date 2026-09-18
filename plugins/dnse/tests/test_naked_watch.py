@@ -855,3 +855,152 @@ def __test_empty_instruments_catalogue_is_not_proof_of_sight__(
     proven, detail = watch.prove_sight(broker)
     assert not proven, "an EMPTY catalogue proved sight"
     assert "EMPTY" in detail
+
+
+# === #152 step 2 — resolve UNSTOPPED through the OCO book ==================
+# Modelled on two shapes RECORDED live on 2026-09-18, not invented:
+#
+#   09:50  UNSTOPPED on a genuinely PROTECTED position. Cover was the OCO's
+#          NORMAL-book TP child; the stop lived on umbrella
+#          damadq2vfqkc7397o0tg at stopPrice 1980.8, on a book the order
+#          listing never scans. W0 was right that it could not SEE a stop and
+#          wrong to be read as "there is no stop" — that reading produced a
+#          FLATTEN NOW call on a live, correctly bracketed position.
+#
+#   10:46  NAKED on a genuine absence. The run re-entered after its stop fired
+#          and no bracket of any kind was created: zero orders on OCO, NORMAL
+#          and STOP. 66.25 s unprotected, size 1, on a live account.
+#
+# Both rendered as a verdict that never escalated, because AlarmLadder only
+# ever fired on NAKED and UNSTOPPED RESET it. So a real external cancel of an
+# OCO bracket would have produced silence. These pins make the two states
+# distinguishable AND make the unprotected one alarm-eligible.
+
+_ARMED = dict(id="damadq2vfqkc7397o0tg", state="ARMED", stop_price=1980.8,
+              side="NS", qty=1.0)
+_SPENT = dict(_ARMED, state="SPENT")
+
+
+def _umb(**over):
+    return core.CoverUmbrella(**dict(_ARMED, **over))
+
+
+def __test_armed_umbrella_covering_the_exposure_reads_OK__():
+    """The 09:50 shape. A take-profit child plus an ARMED umbrella IS a
+    stopped position; the stop is merely on a book `get_open_orders` cannot
+    list. This must read OK, or the operator is told to flatten a protected
+    position — which is exactly what happened."""
+    tp = _order(venue_id="39356", side="sell", qty=1.0, leg_kind="TAKE_PROFIT")
+    a = core.evaluate(_obs(position_signed=1.0, owned_exposure=1.0,
+                           resting=(tp,), umbrellas=(_umb(),)))
+    assert a.verdict is core.Verdict.OK, a.reason
+    assert "damadq2vfqkc7397o0tg" in a.reason, "name the umbrella doing the protecting"
+
+
+def __test_take_profit_with_NO_armed_umbrella_is_NAKED_not_a_quiet_UNSTOPPED__():
+    """THE ALARM-ELIGIBILITY PIN. Cover exists but it is take-profit only, and
+    the OCO book was READ and holds no armed stop. That exposure has nothing
+    below it. It must reach a verdict the ladder escalates — a resetting
+    UNSTOPPED here is the silence this card exists to remove."""
+    tp = _order(venue_id="39356", side="sell", qty=1.0, leg_kind="TAKE_PROFIT")
+    a = core.evaluate(_obs(position_signed=1.0, owned_exposure=1.0,
+                           resting=(tp,), umbrellas=(_umb(**_SPENT),)))
+    assert a.verdict is core.Verdict.NAKED, a.reason
+
+
+def __test_unread_OCO_book_stays_UNSTOPPED_and_does_not_escalate__():
+    """Belief may nominate, only the venue may promote — and the same rule in
+    reverse. Without an OCO read we have not established absence either, so
+    this must NOT become NAKED on a guess. UNSTOPPED is the could-not-see
+    verdict and it stays."""
+    tp = _order(venue_id="39356", side="sell", qty=1.0, leg_kind="TAKE_PROFIT")
+    a = core.evaluate(_obs(position_signed=1.0, owned_exposure=1.0,
+                           resting=(tp,), umbrellas=None))
+    assert a.verdict is core.Verdict.UNSTOPPED, a.reason
+
+
+def __test_an_umbrella_on_the_WRONG_SIDE_does_not_protect__():
+    """A sell-side umbrella cannot cover a SHORT. Direction is the whole point
+    of cover; an umbrella that would add to the position is not protection."""
+    tp = _order(venue_id="1", side="buy", qty=1.0, leg_kind="TAKE_PROFIT")
+    a = core.evaluate(_obs(position_signed=-1.0, owned_exposure=-1.0,
+                           resting=(tp,), umbrellas=(_umb(side="NS"),)))
+    assert a.verdict is core.Verdict.NAKED, a.reason
+
+
+def __test_ladder_escalates_on_the_confirmed_unprotected_verdict__():
+    """The defect this card found: AlarmLadder.observe reset on anything that
+    was not NAKED, so 33 UNSTOPPED lines on 09-18 produced ZERO alarms and no
+    alarm-log file. A confirmed-unprotected exposure must arm the ladder."""
+    ladder = core.AlarmLadder(window_s=0.0)
+    line, _ = ladder.observe(core.Verdict.NAKED, 0.0)
+    assert line or ladder._armed, "NAKED must arm the ladder"
+
+
+# === #152 step 2b — the grace must be the VEHICLE's, not one bar period ====
+# Measured 2026-09-18. The 66.25 s naked exposure produced FOUR NAKED verdicts
+# and ZERO alarms, because the confirm window is max(30, one bar period) and
+# the run was @5m: a 300 s grace over a 66 s exposure. It could not have
+# alarmed however long anyone watched. `naked_watch_alarms.log` was never
+# created.
+#
+# The stated rationale — "a reactively placed exit arms a bar late by design"
+# — is true of a REACTIVE vehicle and false of the pre-placed-bracket ones:
+# l2c's umbrella existed 0.874 s after its entry child. So the grace was
+# calibrated for a vehicle shape that was not being run.
+#
+# The recorded sequence, used verbatim as the fixture (seconds from the fill
+# at 10:46:19.360):
+#     10:46:31  +11.6   NAKED
+#     10:46:48  +28.6   NAKED
+#     10:47:05  +45.6   NAKED
+#     10:47:21  +61.6   NAKED
+#     10:47:38  +78.6   OK (flattened)
+
+_RUN_A_NAKED_AT = (11.6, 28.6, 45.6, 61.6)
+
+
+def _replay(ladder, offsets):
+    """-> the offset at which the ladder first emits an alarm line, or None."""
+    for t in offsets:
+        line, _ = ladder.observe(core.Verdict.NAKED, t)
+        if line:
+            return t
+    return None
+
+
+def __test_grace_300_stays_silent_across_the_whole_run_A_episode__():
+    """THE CONTROL, and the half that makes the pair discriminating. Today's
+    default must reproduce today's silence — otherwise the fix would pass on
+    an implementation that simply always alarms."""
+    assert _replay(core.AlarmLadder(window_s=300.0), _RUN_A_NAKED_AT) is None
+
+
+def __test_grace_30_arms_inside_the_same_recorded_episode__():
+    """The vehicle-declared grace. l2b/l2c pre-place the bracket and arm in
+    ~1 s measured, so 30 s is already generous for them; the exposure was
+    unprotected for 66 s and must page."""
+    fired = _replay(core.AlarmLadder(window_s=30.0), _RUN_A_NAKED_AT)
+    assert fired is not None, "a 66 s unprotected exposure must escalate"
+    assert fired <= 45.6, f"should arm by the third cycle, armed at {fired}"
+
+
+def __test_confirm_window_prefers_the_declared_grace_over_the_bar_period__():
+    """The defect in one line: the window came from the BAR PERIOD, so a 5m
+    vehicle inherited a 300 s grace it never needed. An explicitly declared
+    grace must win over that derivation."""
+    assert core.confirm_window_s(300.0, arm_grace_s=30.0) == 30.0
+
+
+def __test_no_declared_grace_keeps_the_old_bar_period_behaviour__():
+    """Back-compat guard: callers that declare nothing get exactly what they
+    got before, so this change cannot silently re-tune a reactive vehicle."""
+    assert core.confirm_window_s(300.0) == 300.0
+    assert core.confirm_window_s(60.0) == 60.0
+    assert core.confirm_window_s(0.0) == core.NAKED_CONFIRM_FLOOR_S
+
+
+def __test_declared_grace_is_still_floored__():
+    """A grace of 0 would page on the arm gap of every single entry. The floor
+    is what stops the tool being muted within a day by its own noise."""
+    assert core.confirm_window_s(300.0, arm_grace_s=0.0) == core.NAKED_CONFIRM_FLOOR_S
