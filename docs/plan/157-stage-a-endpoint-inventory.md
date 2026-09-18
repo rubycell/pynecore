@@ -57,9 +57,15 @@ from its own documentation.
 
 The plugin calls exactly 7 client methods (`grep '_client\.'`): `connect`, `disconnect`,
 `on` (×3), `subscribe_trades`, `subscribe_order_event`, `subscribe_broker_order_event`,
-`subscribe_broker_position_event`. The connection path exists only in the SDK
-(`_vendor/dnse/websocket/client.py`), never in the mirror, so the fake's WS contract must be
-read from the SDK.
+`subscribe_broker_position_event`.
+
+> **CORRECTED 2026-09-18.** This section said the connection path "exists only in the SDK, never
+> in the mirror". That is **false**, verified at the source: `sdk-build_websocket.md:65` gives
+> `wss://ws-openapi.dnse.com.vn/v1/stream?encoding={encoding}` and `:72-145` the full HMAC
+> handshake, and `MEASURED_FACTS.md:124-136` already records that the docs agree. What is true,
+> and what the original claim garbled, is narrower: the three *guide* pages give only the BASE
+> url, so a probe built from those alone 404s. `CLAUDE.md:327-330` carries the same stale
+> sentence and is leader-owned — proposed for correction on the card, not edited here.
 
 ## 3. The measured baseline: what the two existing offline seams actually cover
 
