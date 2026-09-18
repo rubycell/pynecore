@@ -102,6 +102,8 @@ DNSEPlugin           = "leader — review, adjudication, runbook"
 "plugins/dnse/testing/live_test/l2c_oco_execution.py"         = "WorkerForDNSEPlugin"
 "plugins/dnse/testing/live_test/l2c_oco_execution.toml"       = "WorkerForDNSEPlugin"
 "docs/plan/sep18-oco-execution-plan.md"                       = "WorkerForDNSEPlugin"
+# 2026-09-18 afternoon tick capture: Worker1 takes the market-data probe for the --symbol change (Worker3 is on W0 + grading).
+"plugins/dnse/testing/live_test/probe_ws_market_data.py"      = "WorkerForDNSEPlugin"
 "CLAUDE.md"                                                   = "DNSEPlugin"
 # #162 (2026-09-18): sync_engine.py was assigned to WorkerForDNSEPlugin for the life of the card
 # (c27d57b3) and reverted after 1cb440b8 landed; the broker/** consent line applies again.
