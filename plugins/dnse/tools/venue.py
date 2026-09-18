@@ -231,6 +231,18 @@ def classify_working(b: DNSEBroker, orders: list) -> tuple[list, list]:
     return live, phantom
 
 
+def fmt_umbrella(u: "Umbrella") -> str:
+    """One OCO umbrella, showing what the NORMAL book and the broker app cannot.
+
+    The app renders an OCO's TP leg as a lone short limit and shows no stop at
+    all, which is how a correctly bracketed position gets reported as having no
+    stoploss. So the stop level leads here.
+    """
+    return (f"{u.id:22s} {u.state.value:7s} stop={u.stop_price} "
+            f"(limit {u.stop_order_price}) tp={u.price} "
+            f"{u.side or '?'} qty={u.quantity} -> child {u.child_id}")
+
+
 def fmt_order(o) -> str:
     return (f"{str(o.id):22s} {str(getattr(o, 'side', '?')):4s} "
             f"qty={getattr(o, 'qty', '?')} price={getattr(o, 'price', '?')} "
@@ -256,6 +268,16 @@ def cmd_status(args) -> int:
         print(f"   LIVE    {fmt_order(o)}")
     for o, child in phantom:
         print(f"   phantom {fmt_order(o)}  -> child {child} did the work")
+    # #152: the OCO book is never in ``working`` — list it explicitly, or a
+    # bracketed position reads as a lone take-profit with no stop anywhere.
+    umbrellas = oco_umbrellas(b)
+    if umbrellas is None:
+        print("oco     : COULD NOT READ — an armed bracket would be invisible")
+    else:
+        armed = sum(1 for u in umbrellas if u.state is UmbrellaState.ARMED)
+        print(f"oco     : {len(umbrellas)} umbrella(s), {armed} ARMED")
+        for u in umbrellas:
+            print(f"   {fmt_umbrella(u)}")
     return EXIT_OK
 
 
@@ -269,9 +291,29 @@ def cmd_flat(args) -> int:
               f"This is NOT 'flat'.")
         return EXIT_UNKNOWN
     live, phantom = classify_working(b, working)
-    if position is None and not live:
+    # #152: the OCO book is NOT in ``_CATEGORIES``, so an armed bracket's umbrella
+    # — the order carrying the STOP — never reaches ``working``. Measured
+    # 2026-09-18: a fill-tier flatten closed the position, swept the TP child, and
+    # this command then answered exit 0 "no LIVE orders" while the umbrella was
+    # still resting. An unread OCO book is could-not-determine, never clean.
+    umbrellas = oco_umbrellas(b)
+    if umbrellas is None:
+        print("UNDETERMINED — the OCO book could not be read. An armed bracket "
+              "would be invisible here, so this is NOT 'flat'.")
+        return EXIT_UNKNOWN
+    unknown = [u for u in umbrellas if u.state is UmbrellaState.UNKNOWN]
+    if unknown:
+        print(f"UNDETERMINED — {len(unknown)} OCO umbrella(s) whose child could "
+              f"not be resolved, so they are not provably spent:")
+        for u in unknown:
+            print(f"  {fmt_umbrella(u)}")
+        return EXIT_UNKNOWN
+    armed = [u for u in umbrellas if u.state is UmbrellaState.ARMED]
+    spent = [u for u in umbrellas if u.state is UmbrellaState.SPENT]
+    if position is None and not live and not armed:
+        shells = len(phantom) + len(spent)
         print(f"FLAT — no position, no LIVE orders (both reads succeeded)"
-              + (f"; {len(phantom)} phantom shell(s) ignored, see #41" if phantom else ""))
+              + (f"; {shells} phantom shell(s) ignored, see #41" if shells else ""))
         return EXIT_OK
     if position is not None:
         print(f"NOT FLAT — {position}")
@@ -279,6 +321,11 @@ def cmd_flat(args) -> int:
         print(f"NOT CLEAN — {len(live)} LIVE order(s):")
         for o in live:
             print(f"  {fmt_order(o)}")
+    if armed:
+        print(f"NOT CLEAN — {len(armed)} ARMED OCO umbrella(s) "
+              f"(invisible to the NORMAL/STOP books, #152):")
+        for u in armed:
+            print(f"  {fmt_umbrella(u)}")
     return EXIT_NEGATIVE
 
 

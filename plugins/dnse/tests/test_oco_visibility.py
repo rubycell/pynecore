@@ -31,6 +31,7 @@ therefore toolkit-side and additive.
 import importlib.util
 import pathlib
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -207,6 +208,76 @@ def __test_no_umbrellas_costs_no_detail_read__():
     broker = _StubBroker({"OCO": [], "NORMAL": [_CHILD_LIVE]}, _DETAIL)
     assert venue.oco_umbrellas(broker) == []
     assert broker.client.detail_calls == []
+
+
+# --- the consumers: status and flat ---------------------------------------
+# Until these consume the helper, #152's symptoms are all still live: a
+# bracketed position reads as unprotected and a fill-tier flatten reports an
+# account clean while an umbrella is still on a book nothing scanned.
+
+
+def _args(symbol="VN30F1M"):
+    return SimpleNamespace(symbol=symbol, token_state=None)
+
+
+def _wire(monkeypatch, books, details, position=None, working=()):
+    """Point venue's command layer at a stub venue, leaving the helper real."""
+    stub = _StubBroker(books, details)
+    monkeypatch.setattr(venue, "broker", lambda *a, **k: stub)
+    monkeypatch.setattr(venue, "read_state", lambda b, s: (position, list(working)))
+    monkeypatch.setattr(venue, "classify_working", lambda b, o: (list(o), []))
+    monkeypatch.setattr(venue, "session_phase", lambda: "continuous")
+    monkeypatch.setattr(venue, "token_verdict", lambda *a, **k: "GOOD")
+    return stub
+
+
+def __test_flat_refuses_clean_while_an_ARMED_umbrella_rests__(monkeypatch, capsys):
+    """THE POINT OF THE CARD. On 2026-09-18 a fill-tier flatten closed the
+    position, swept the TP child, and `flat` then answered exit 0 "no LIVE
+    orders" — with the umbrella still on the OCO book. An armed umbrella is a
+    live order and must defeat the clean verdict."""
+    _wire(monkeypatch, {"OCO": [_UMBRELLA], "NORMAL": [_CHILD_LIVE]}, _DETAIL)
+    rc = venue.cmd_flat(_args())
+    out = capsys.readouterr().out
+    assert rc == venue.EXIT_NEGATIVE, "an ARMED umbrella is a live order"
+    assert "damadq2vfqkc7397o0tg" in out, "name the umbrella so it can be acted on"
+    assert "1980.8" in out, "show the stop level the operator cannot otherwise see"
+
+
+def __test_flat_is_clean_with_only_a_SPENT_umbrella__(monkeypatch, capsys):
+    """A spent umbrella is the #41 phantom case: consumed, harmless, and it must
+    not make every post-flatten check cry wolf."""
+    _wire(monkeypatch, {"OCO": [_UMBRELLA], "NORMAL": [_CHILD_CANCELLED]}, _DETAIL)
+    rc = venue.cmd_flat(_args())
+    assert rc == venue.EXIT_OK
+    assert "FLAT" in capsys.readouterr().out
+
+
+def __test_flat_is_could_not_determine_when_the_OCO_book_is_unreadable__(monkeypatch):
+    """A failed read must never look like a clean account. Exit 2, not 0."""
+    _wire(monkeypatch, {"OCO": None, "NORMAL": []}, _DETAIL)
+    assert venue.cmd_flat(_args()) == venue.EXIT_UNKNOWN
+
+
+def __test_flat_is_could_not_determine_when_an_umbrella_is_UNKNOWN__(monkeypatch):
+    """An umbrella whose child cannot be resolved is not provably harmless.
+    Answering FLAT there is the permissive answer inside the one check the
+    runbook tells the operator to trust."""
+    _wire(monkeypatch, {"OCO": [_UMBRELLA], "NORMAL": []}, _DETAIL)
+    assert venue.cmd_flat(_args()) == venue.EXIT_UNKNOWN
+
+
+def __test_status_prints_state_stop_price_and_child_for_each_umbrella__(monkeypatch, capsys):
+    """The operator's app shows an OCO's TP leg as a lone short limit, so the
+    tool must show what the app cannot: which state it is in and at what stop."""
+    _wire(monkeypatch, {"OCO": [_UMBRELLA], "NORMAL": [_CHILD_LIVE]}, _DETAIL)
+    venue.cmd_status(_args())
+    out = capsys.readouterr().out
+    assert "ARMED" in out
+    assert "damadq2vfqkc7397o0tg" in out
+    assert "1980.8" in out          # stopPrice
+    assert "2004.8" in out or "1988.8" in out   # the TP price
+    assert "39356" in out          # the child it owns
 
 
 def __test_the_private_book_seam_still_exists__():
