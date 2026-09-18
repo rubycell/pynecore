@@ -337,3 +337,10 @@ bd7ee0eacd75b765e40c66e9d8399b90439b1450ea40889e689c63b37f5e3eed  tests/t01_lib/
 9387c425c9771811d676c6bc7fc233daa72d5acea28ddb50f2ceff066d89850d  tests/t01_lib/t30_strategy/data/p5_drawdown_liveness.py
 1f938c0d15a10f227dbf7ac5055b3dcd0a1d4fa1bcb78a5d83cd509445f6d62b  tests/t01_lib/t30_strategy/data/p5_drawdown_control.pine
 95b1b51d913d41387317ed06a1549c050638168ad77661ebd0b4c1613a7ff68e  tests/t01_lib/t30_strategy/data/p5_drawdown_control.py
+# 2026-09-18 code-review hook: 'pyne run <script>.py' was invisible (path is an argument; 'pyne' has no 'python') — the shape every --broker run uses; red-first reproduced by Fable
+d166974d12ba79456558448a7f0e520597e2ecbec06b2b379c2b7867c1a8b6e3  .claude/hooks/enforce_code_review.py
+# 2026-09-18 F09/F12 fill-tier vehicles (Worker1; Pine-authored, transpiled, oracle-checked, PASS on the fake) — approved retroactively after the pyne-run gate hole was closed
+7e8cca4f76e88652508e0b08ba06501e324e1601001628520bf6d305411e3f37  plugins/dnse/testing/live_test/l3_f09_bracket_trailing_sl.pine
+b45aad6e4a17f206448fede0333b94813130c08f8637f95aef14f8db3d209fd2  plugins/dnse/testing/live_test/l3_f09_bracket_trailing_sl.py
+66dc9d93157d7c849972f9b93f35322e46ef2c083ff0cba0bbbc4c1e07f5e9bd  plugins/dnse/testing/live_test/l3_f12_prune_adoption_race.pine
+ce53ccd6371e6c128b42237a3a5be71588b94121bdd9614a96f1becf684bf5ab  plugins/dnse/testing/live_test/l3_f12_prune_adoption_race.py

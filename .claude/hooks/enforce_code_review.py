@@ -52,6 +52,15 @@ _EXEC_PATTERNS = [
     # before re-approval. Workers must re-submit an edited tool's hash BEFORE running
     # any test that imports it.
     re.compile(r"(?:pytest|py\.test)\b[^;&|]*?\s([^\s;&|]+\.py)(?=\s|$|[;&|:])"),
+    # `pyne run <script>.py …` EXECUTES the strategy, and it is the shape EVERY
+    # live order-routing run uses (`--broker`). Neither pattern above sees it: the
+    # path is an ARGUMENT, not the command head, so the plugins/ rule misses it,
+    # and the interpreter rule needs "python" in the executable name, which
+    # `.venv/bin/pyne` does not contain. MEASURED 2026-09-18 (Worker1 disclosed,
+    # Fable reproduced red-first): two unapproved vehicles ran six times, no block.
+    # Anchored on the SUBCOMMAND so a grep for the string "pyne" is not a false
+    # positive; `pynecore` in a path does not match (no word boundary after "pyne").
+    re.compile(r"(?:^|[;&|]\s*|\b)[^\s;&|]*\bpyne\s+(?:run|compile)\b[^;&|]*?\s([^\s;&|]+\.py)(?=\s|$|[;&|])"),
 ]
 
 
