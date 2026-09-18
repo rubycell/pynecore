@@ -196,7 +196,13 @@ class _Handler(BaseHTTPRequestHandler):
             category = (query.get("orderCategory") or ["NORMAL"])[0]
             book = "STOP" if category in ("STOP", "OCO") else "NORMAL"
             orders = self.venue.orders(book=book)
-            return self._send(200, {"orders": orders, "total": len(orders)})
+            # totalPages, not total. The poll proves the page is COMPLETE from totalPages
+            # (broker.py:2598, book_page_count) and discards a read it cannot prove — measured
+            # 2026-09-18: serving only "total" made every book read unprovable, so the engine
+            # never saw a fill the venue had already booked, and an order sat filled-but-unseen
+            # for the whole run. The completeness discipline is the plugin being careful; the
+            # fake has to answer it in the field it actually reads.
+            return self._send(200, {"orders": orders, "total": len(orders), "totalPages": 1})
 
         return self._not_found(parsed.path)
 

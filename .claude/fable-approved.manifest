@@ -265,6 +265,17 @@ dedcfc7bce8424573875fc4316dcb82bfe721230a61faa7f5257a6c65837459e  plugins/dnse/t
 f0940997b1a072279fb208a4a93ab88c7bb034b164ee236e85eee5db80cb911b  plugins/dnse/testing/venue_http.py
 d150baf80c3654e17edbefa9924c580d947688c87db37dd1297a717b5309340a  plugins/dnse/testing/README.md
 2210932f3de46045f173fb156982b8013d82f98c032a9d444939a852fbdf5781  plugins/dnse/tests/test_162_park_replay.py
+# 2026-09-18 #157 revision R1-R9 + R10 partial at 87c59bc4 (Worker4; paced live stream fixes the warmup boundary; parity vehicle Pine-authored) — Fable re-check pending
+113d9d16cebc07863bc88cdc115ed4d3023d37d2611135a6bc1a6b5bf633f193  plugins/dnse/testing/venue_core.py
+4cfc756b8afa3766f2d7bee6533fdc0f80b5b2ff8a03350436db220e1bbb5637  plugins/dnse/testing/venue_http.py
+6bca480694a87414913f19438078041091c150f28060443c50bd19093348672a  plugins/dnse/testing/venue_mutants.py
+6429f925b1a120cfc1bd876899210cf646bec7a20c08311e75a539b6c2659d5f  plugins/dnse/pynecore_dnse/fake_broker.py
+3542b300c1ec62a1b0f2dacbff057d3cd92b19d4730a15f2d112c98ac37fcee2  plugins/dnse/tests/test_fake_venue_conformance.py
+4aa3ef1fe941cdcd812b3996520f2186480c799add36a1877f48c08310bb3ce0  plugins/dnse/tests/test_venue_http.py
+7f524675e286096d470f5fbb50b14abd0556e5c01079b6454d4f7008823c7c01  plugins/dnse/tests/test_162_park_replay.py
+b471d010d2927cabeb9e3beb848cb115d947e99326632b9c241a2dafd30c8b68  plugins/dnse/tests/test_collection_sweep.py
+f226da46d10faf29f3b47c9e1baee9473728338dc80311da27ca53392c16bd24  plugins/dnse/testing/fixtures/offline/parity_vehicle.pine
+22810693cc8c41a008c60fbea8fb58c30d48fe84d7d16eae49c68b17f6fdd9a7  plugins/dnse/testing/fixtures/offline/parity_vehicle.py
 # 2026-09-18 #151 stage 3 (i) step 1 — landing worktree land-694: restart test rewritten to preserve + four #151 pins (record mirrored into land-694's manifest by the landing session)
 bb6f50f195d93e7388e92feb399d4462fa1bd3b0583ddab2dc31b0f5b2a91bc3  tests/t00_pynecore/core/test_025_order_sync_engine.py
 # 2026-09-18 #151 stage 3 (i) step 2 — land-694: venue_confirmed kw; restart path preserves via _unconfirmed_flat_pending; close-fill caller venue_confirmed=True
