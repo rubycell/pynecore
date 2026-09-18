@@ -263,13 +263,23 @@ async def part1_market(broker: DNSEBroker, result: Result, *,
 
 
 async def part_resting(broker: DNSEBroker, result: Result, ref: float, *,
-                       stop_limit: bool, dry_run: bool) -> None:
+                       stop_limit: bool, dry_run: bool,
+                       allow_when_closed: bool = False) -> None:
     """STOP (or STOP-LIMIT) both sides: place -> confirm resting -> cancel -> confirm gone."""
     label = "STOP-LIMIT" if stop_limit else "STOP"
     part = "3" if stop_limit else "2"
     print(f"\n[{part}] {label} long + short — expect RESTING, then cancellable")
     phase = session_phase()
-    if phase in ("atc", "closed"):
+    if phase == "closed" and allow_when_closed:
+        # The skip below cites 2026-08-13 14:37 and 14:51. By this module's own
+        # ladder 14:37 is "atc" and 14:51 is post-close: BOTH are end-of-day, so
+        # neither measures the PRE-OPEN half of "closed". This override exists to
+        # take that missing measurement. "atc" is deliberately NOT overridable —
+        # there the refusal was measured directly, and the same session proved a
+        # resting order cannot be cancelled out of the auction.
+        print(f"  [override] --allow-conditionals-when-closed is ON: placing in "
+              f"phase {phase!r}, which the skip below has never measured pre-open")
+    elif phase in ("atc", "closed"):
         # Measured 2026-08-13 14:37: every conditional place is refused with
         # CO-ORD-006 "Validate Order Failed" once the trading day is over. Conditionals
         # DO work during the lunch break, so L0 is not strictly "any hour".
@@ -329,6 +339,82 @@ async def part_resting(broker: DNSEBroker, result: Result, ref: float, *,
                     PLACED.remove(oid)
 
 
+async def part_limit(broker: DNSEBroker, result: Result, ref: float, *,
+                     dry_run: bool, allow_when_closed: bool = False) -> None:
+    """NORMAL-book LIMIT both sides, far from the market: place -> rest -> cancel -> gone.
+
+    Deliberately NON-marketable (buy far BELOW, sell far ABOVE, same AWAY offset the
+    conditional parts use), so it cannot fill even if a session opens under it.
+
+    Phase policy differs from the conditional parts, because the evidence differs.
+    "atc" is never run (cancels are refused there). "closed" needs the explicit
+    override, because for the NORMAL book the closed-phase refusal is MEASURED, not
+    inferred: a plain NORMAL limit was refused with
+    CANNOT_PLACE_ORDER_IN_THE_CLOSED_SESSION (2026-08-13 14:51), and part1_market
+    skips closed precisely because a NORMAL order left there cannot be cancelled
+    until the next session and fills at the open/auction (2026-08-12). That is a
+    real measurement about THIS book, unlike the conditional skip, which merely
+    generalised an end-of-day datum.
+    """
+    print("\n[4] LIMIT long + short (NORMAL book, far from market) — expect RESTING, then cancellable")
+    phase = session_phase()
+    if phase == "closed" and allow_when_closed:
+        print(f"  [override] --allow-conditionals-when-closed is ON: placing a NORMAL "
+              f"limit in phase {phase!r}")
+    elif phase in ("atc", "closed"):
+        why = ("cancels are REFUSED in the auction (2026-08-13)" if phase == "atc"
+               else "a NORMAL order left here cannot be cancelled until the next "
+                    "session and fills at the open/auction (2026-08-12); "
+                    "CANNOT_PLACE_ORDER_IN_THE_CLOSED_SESSION (2026-08-13 14:51)")
+        for side in ("buy", "sell"):
+            result.add(f"limit {'long' if side == 'buy' else 'short'}", None,
+                       f"skipped: {phase} — {why}")
+        return
+
+    for side in ("buy", "sell"):
+        way = "long" if side == "buy" else "short"
+        name = f"limit {way}"
+        # buy FAR BELOW / sell FAR ABOVE -> non-marketable in either direction
+        price = round(ref * (1 - AWAY) if side == "buy" else ref * (1 + AWAY), 1)
+
+        if dry_run:
+            result.add(name, None, f"dry-run: LIMIT price={price}")
+            continue
+
+        try:
+            orders = broker._place(envelope(f"LIMIT-{side}"), side, QTY,
+                                   price=price, category="NORMAL")
+        except Exception as exc:                                   # noqa: BLE001
+            result.add(f"{name}: place", False, f"{type(exc).__name__}: {exc}")
+            continue
+        ids = [str(o.id) for o in orders]
+        PLACED.extend(ids)
+        filled = sum(float(getattr(o, "filled_qty", 0) or 0) for o in orders)
+        if filled:
+            result.add(f"{name}: place", False,
+                       f"FILLED ON PLACEMENT ({filled}) — not a resting limit! ids={ids}")
+        else:
+            result.add(f"{name}: place", True, f"accepted, filled=0, ids={ids}")
+
+        await asyncio.sleep(1.0)
+        present = all([await book_has(broker, oid) for oid in ids])
+        result.add(f"{name}: rests on book", present,
+                   "found on order book" if present else "NOT on the order book")
+
+        cancelled = all([await _cancel_ok(broker, oid) for oid in ids])
+        result.add(f"{name}: cancel", cancelled,
+                   "cancel accepted" if cancelled else "cancel FAILED")
+
+        await asyncio.sleep(1.0)
+        gone = not any([await book_has(broker, oid) for oid in ids])
+        result.add(f"{name}: gone after cancel", gone,
+                   "absent from book" if gone else "STILL RESTING — orphan!")
+        if gone:
+            for oid in ids:
+                if oid in PLACED:
+                    PLACED.remove(oid)
+
+
 # --------------------------------------------------------------------------- main
 
 PLACED: list[str] = []
@@ -353,8 +439,12 @@ async def run(args: argparse.Namespace) -> int:
     try:
         await part1_market(broker, result, allow_in_session=args.allow_market_in_session,
                            dry_run=args.dry_run)
-        await part_resting(broker, result, ref, stop_limit=False, dry_run=args.dry_run)
-        await part_resting(broker, result, ref, stop_limit=True, dry_run=args.dry_run)
+        await part_resting(broker, result, ref, stop_limit=False, dry_run=args.dry_run,
+                           allow_when_closed=args.allow_conditionals_when_closed)
+        await part_resting(broker, result, ref, stop_limit=True, dry_run=args.dry_run,
+                           allow_when_closed=args.allow_conditionals_when_closed)
+        await part_limit(broker, result, ref, dry_run=args.dry_run,
+                         allow_when_closed=args.allow_conditionals_when_closed)
     finally:
         if PLACED:
             print(f"\n[cleanup] cancelling {len(PLACED)} leftover order(s): {PLACED}")
@@ -390,6 +480,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-market-in-session", action="store_true",
                         help="DANGEROUS: run the market-order part during an open "
                              "session, where it WILL fill and open a real position")
+    parser.add_argument("--allow-conditionals-when-closed", action="store_true",
+                        help="run the STOP / STOP-LIMIT parts while the phase is "
+                             "'closed'. The default skip cites measurements taken at "
+                             "14:37 (ATC) and 14:51 (post-close), so the PRE-OPEN half "
+                             "of 'closed' is unmeasured — this takes that measurement. "
+                             "'atc' stays skipped either way: there the CO-ORD-006 "
+                             "refusal was measured directly, and a resting order could "
+                             "not be cancelled out of the auction (2026-08-13)")
     parser.add_argument("--symbol", default=SYMBOL, metavar="SYM",
                         help="contract to probe (default: %(default)s). On its FINAL "
                              "TRADE DATE the front month refuses every new conditional "
