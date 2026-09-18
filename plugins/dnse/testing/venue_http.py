@@ -21,6 +21,7 @@ believe it is driving the fake while addressing DNSE.
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -202,6 +203,14 @@ class _Handler(BaseHTTPRequestHandler):
             # never saw a fill the venue had already booked, and an order sat filled-but-unseen
             # for the whole run. The completeness discipline is the plugin being careful; the
             # fake has to answer it in the field it actually reads.
+            if os.environ.get("FAKE_VENUE_DEBUG"):
+                # What the adapter SERVED to the poll, so it can be compared with what the
+                # engine did next. Adapter-side only: it proves or clears the fake's half.
+                with open("/tmp/fake_venue_served.log", "a") as handle:
+                    for row in orders:
+                        handle.write(f"{book} id={row['id']} status={row['orderStatus']} "
+                                     f"filled={row['fillQuantity']} avg={row['averagePrice']} "
+                                     f"side={row['side']} sym={row['symbol']}\n")
             return self._send(200, {"orders": orders, "total": len(orders), "totalPages": 1})
 
         return self._not_found(parsed.path)

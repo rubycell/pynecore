@@ -218,6 +218,12 @@ class FakeVenueBroker(DNSEBroker):
         self.config.ws_url = f"ws://127.0.0.1:{self._server.port}"
 
         import logging
+        if os.environ.get("FAKE_VENUE_DEBUG"):
+            # The poll's own view is logged at DEBUG (lib/log.py:broker_debug), which the
+            # operator log level hides. This is the only way to see what the poll READ versus
+            # what the adapter SERVED without instrumenting the engine, which is out of scope.
+            logging.getLogger().setLevel(logging.DEBUG)
+            logging.getLogger("pynecore").setLevel(logging.DEBUG)
         logging.getLogger(__name__).warning(
             "[FAKE VENUE] day=%s label=%s partial=%s bars=%d prints=%d rest=%s "
             "finalTradeDate=%s (served in the REAL future so the GTD clamp admits conditionals)",
