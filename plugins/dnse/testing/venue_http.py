@@ -209,7 +209,7 @@ class _Handler(BaseHTTPRequestHandler):
                 with open("/tmp/fake_venue_served.log", "a") as handle:
                     for row in orders:
                         handle.write(f"{book} id={row['id']} status={row['orderStatus']} "
-                                     f"filled={row['fillQuantity']} avg={row['averagePrice']} "
+                                     f"filled={row['fillQuantity']} avg={row['averagePrice']} px={row['price']} "
                                      f"side={row['side']} sym={row['symbol']}\n")
             return self._send(200, {"orders": orders, "total": len(orders), "totalPages": 1})
 

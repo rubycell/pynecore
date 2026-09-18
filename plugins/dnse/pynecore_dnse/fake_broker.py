@@ -57,6 +57,22 @@ class FakeVenueBroker(DNSEBroker):
 
     Config = FakeVenueConfig
 
+    #: Disable the engine's feed-staleness watchdog FOR THE FAKE ONLY.
+    #:
+    #: live_runner.py:794-798 computes feed_stale_after from this attribute and leaves it None
+    #: when the attribute is falsy; the idle-bar synthesiser at :1813 is gated on
+    #: ``feed_stale_after is not None and time.time() - last_real_update >= feed_stale_after``.
+    #: That clock is the WALL clock, so a replayed past day can never arrive "on time": measured
+    #: 2026-09-18, the first synthetic bar appeared on the SAME bar as the first live bar,
+    #: because warmup itself burns wall seconds while the staleness clock runs. From that moment
+    #: the engine preferred its own flat synthetic bars and stopped consuming the fake's, so no
+    #: print ever reached a resting order and nothing could fill.
+    #:
+    #: The watchdog exists to catch a half-open socket on a LIVE feed. A replay cannot go
+    #: half-open — the stream is a list — so disabling it here removes a guard that has nothing
+    #: to guard, and it changes nothing for production: DNSEProvider keeps its 17 (provider.py:179).
+    feed_timeout_bars = None
+
     _bars: list[OHLCV]
     _idx: int
 
