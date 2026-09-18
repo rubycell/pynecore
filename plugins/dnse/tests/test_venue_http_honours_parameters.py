@@ -104,3 +104,42 @@ def __test_order_history_honours_the_requested_date_window__(served):
     assert inside["data"], "the order was placed inside this window"
     assert outside["data"] == [], "a window the order falls outside must not return it"
     assert outside["total"] == 0, "the envelope's total must agree with its own rows"
+
+
+def __test_order_history_honours_page_size_and_page_index__(served):
+    """The plugin walks this endpoint with ``page_size=200`` and a rising ``page_index``, and
+    proves completeness by comparing the rows it has accumulated against ``total``
+    (broker.py:1946-1965).
+
+    Serving every row on every page did not break that loop — it terminated on the first call,
+    because ``total`` equalled what was served. The cost was narrower and worse: the MULTI-PAGE
+    branch of a completeness-critical loop could not be exercised offline at all. So this pins
+    pages that differ, and a ``total`` that describes the whole result rather than the page.
+    """
+    venue = served.venue
+    for _ in range(5):
+        venue.place(category="NORMAL", side="buy", qty=1, price=1980.0)
+    client = _client(served)
+
+    _, first = client.get_order_history(ACCOUNT, market_type="DERIVATIVE",
+                                        page_size=2, page_index=0)
+    _, second = client.get_order_history(ACCOUNT, market_type="DERIVATIVE",
+                                         page_size=2, page_index=1)
+
+    assert len(first["data"]) == 2, "a page must hold at most pageSize rows"
+    assert first["total"] == 5, "total describes the whole result, not the page"
+    assert [row["id"] for row in second["data"]] != [row["id"] for row in first["data"]], (
+        "page 1 must not be page 0 again — that is what made the paging loop untestable")
+
+
+def __test_a_page_past_the_end_is_empty_rather_than_wrapping__(served):
+    """The discriminating half. A route that clamped an out-of-range page back to the last one
+    would satisfy the test above and make the loop's termination condition unreachable."""
+    venue = served.venue
+    venue.place(category="NORMAL", side="buy", qty=1, price=1980.0)
+
+    _, body = _client(served).get_order_history(ACCOUNT, market_type="DERIVATIVE",
+                                                page_size=10, page_index=9)
+
+    assert body["data"] == []
+    assert body["total"] == 1, "the result is still one row; this page just holds none of it"

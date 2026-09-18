@@ -139,6 +139,43 @@ entry, which only prevents the commit after the mistake has already been made.
 
 If you drive an example some other way, set `DNSE_TOKEN_CACHE` yourself.
 
+## Coverage against DNSE's Trading SDKs guide
+
+The published guide walks a user through fifteen calls. All fifteen are now served.
+
+| guide call | note |
+|---|---|
+| `get_accounts`, `get_balances`, `get_loan_packages` | account surface |
+| `get_ppse` | **added** — buying power, and the answer falls as the price rises |
+| `get_orders`, `get_order_detail`, `get_order_history` | order surface; history pages properly |
+| `get_positions`, `get_position_by_id` | **`get_position_by_id` added** |
+| `send_email_otp`, `create_trading_token` | the mint flow |
+| `post_order`, `cancel_order`, `replace_order` | the write path |
+| `close_position` | **added** — places the opposing order, it is not an acknowledgement |
+
+Two of these matter more than their size suggests. **Buying power is the check a user makes
+before placing**, so a constant answer would be useless; it is conditioned on the price asked
+about. **Closing a position is how a derivative user gets flat**, and the guide states the
+mechanic exactly: an order on the opposite side, type `LO`, priced at the ceiling or floor, for
+the open quantity. A bare acknowledgement would leave the position open while the caller believed
+it closed, which is the worst possible direction for a flatten. A mutant covers exactly that.
+
+### The order-category matrix
+
+The 2026-08-06 changelog publishes which categories each market accepts:
+
+| | `NORMAL` | `STOP` | `OCO` |
+|---|:---:|:---:|:---:|
+| STOCK | yes | yes | **no** |
+| DERIVATIVE | yes | yes | yes |
+| BOND | yes | no | no |
+
+**The fake accepted a one-cancels-other order on a stock**, which the venue refuses. That is the
+dangerous direction: a fake more permissive than the venue teaches the engine a bracket it can
+place, every offline pin agrees, and the refusal arrives live. It is the same error as the amend
+model corrected in round 1. Now refused, with the stock stop path and the derivative OCO path
+both pinned so the fix cannot become a blanket ban.
+
 ## Why these stay in the suite
 
 Six defects were found in this fake on 2026-09-18. Three came from our own pins and three from

@@ -769,6 +769,72 @@ def _mutant_phase_is_always_continuous(venue_core):
     _ = original
 
 
+
+def _mutant_oco_accepted_on_a_stock(venue_core):
+    """WRONG: OCO is accepted on a STOCK, which the venue's category matrix forbids.
+
+    This is what the fake did until the 2026-08-06 changelog matrix was checked. A fake MORE
+    PERMISSIVE than the venue is the dangerous direction: the engine learns a bracket it can
+    place, every offline pin agrees, and the refusal arrives live.
+    """
+    original = venue_core.FakeVenue.place
+
+    def patched(self, *, category, **kwargs):
+        if category == "OCO" and self.market_type == "STOCK":
+            market_type = self.market_type
+            self.market_type = "DERIVATIVE"
+            try:
+                return original(self, category=category, **kwargs)
+            finally:
+                self.market_type = market_type
+        return original(self, category=category, **kwargs)
+
+    venue_core.FakeVenue.place = patched
+
+
+def _mutant_history_ignores_paging(venue_core):
+    """WRONG: every page of order history is the whole result again.
+
+    It does not crash the plugin's paging loop — the loop terminates on the first call because
+    total equals what was served. It removes the ability to exercise the loop's MULTI-PAGE branch
+    at all, which is the branch that proves completeness.
+    """
+    import venue_http
+    original = venue_http.parse_qs
+
+    def patched(query_string, *args, **kwargs):
+        parsed = original(query_string, *args, **kwargs)
+        # Drop exactly the paging keys, so the route reads every other parameter as before and
+        # simply never sees these two. A first attempt rewrote the RESPONSE envelope instead and
+        # ESCAPED, because the pin asserts on the rows: the mutant has to remove the behaviour,
+        # not relabel its output.
+        parsed.pop("pageSize", None)
+        parsed.pop("pageIndex", None)
+        return parsed
+
+    venue_http.parse_qs = patched
+    _ = venue_core
+
+
+def _mutant_close_position_only_acknowledges(venue_core):
+    """WRONG: closing a position answers OK without placing the opposing order.
+
+    The guide states the mechanic: a close IS an order, opposite side, type LO, at the ceiling or
+    floor. A bare acknowledgement leaves the position open while the caller believes it closed —
+    the worst possible direction for a flatten.
+    """
+    import venue_http
+    original = venue_http._Handler._send
+
+    def patched(self, status, payload):
+        if isinstance(payload, dict) and payload.get("orderType") == "LO":
+            payload = {"message": "closed"}
+        return original(self, status, payload)
+
+    venue_http._Handler._send = patched
+    _ = venue_core
+
+
 MUTANTS: dict[str, tuple[str, object]] = {
     "oco_spawns": ("__test_the_oco_stop_leg_amends_the_existing_child_in_place_and_never_spawns__",
                    _mutant_oco_spawns),
@@ -898,6 +964,15 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "phase_is_always_continuous": (
         "test_venue_phase_from_bar_time.py::__test_a_placement_during_the_replayed_lunch_still_works_and_one_after_the_close_does_not__",
         _mutant_phase_is_always_continuous),
+    "oco_accepted_on_a_stock": (
+        "test_venue_http_sdk_guide_endpoints.py::__test_an_oco_order_is_refused_on_a_stock__",
+        _mutant_oco_accepted_on_a_stock),
+    "history_ignores_paging": (
+        "test_venue_http_honours_parameters.py::__test_order_history_honours_page_size_and_page_index__",
+        _mutant_history_ignores_paging),
+    "close_position_only_acknowledges": (
+        "test_venue_http_sdk_guide_endpoints.py::__test_closing_a_position_places_the_opposing_order_and_flattens_it__",
+        _mutant_close_position_only_acknowledges),
 }
 
 

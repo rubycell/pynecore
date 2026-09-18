@@ -40,6 +40,13 @@ _FAKE_OTP = "666666"
 _ORDER_PATH = re.compile(r"^/accounts/(?P<account>[^/]+)/orders/(?P<order_id>[^/]+)$")
 _ORDERS_PATH = re.compile(r"^/accounts/(?P<account>[^/]+)/orders$")
 _EXEC_PATH = re.compile(r"^/accounts/(?P<account>[^/]+)/executions/(?P<order_id>[^/]+)$")
+#: The newer position routes (changelog 2026-08-06 added these alongside the older
+#: /accounts/positions/... forms, which the venue still supports for compatibility).
+_POSITION_PATH = re.compile(r"^/positions/(?P<position_id>[^/]+)$")
+_POSITION_CLOSE_PATH = re.compile(r"^/positions/(?P<position_id>[^/]+)/close$")
+
+#: Stable id for the single netted position this one-instrument venue can hold.
+_POSITION_ID = "900000000000001"
 
 
 class ProductionRefused(RuntimeError):
@@ -116,6 +123,29 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, {"tradingToken": "fake-venue-trading-token",
                                     "expiredAt": 28_800})
 
+        close_match = _POSITION_CLOSE_PATH.match(parsed.path)
+        if close_match:
+            # The guide states the mechanic exactly: a close is an order in the OPPOSITE
+            # direction, type LO, priced at the instrument's ceiling or floor, for the position's
+            # open quantity. Returning a bare acknowledgement would hide all of it — and that
+            # order is precisely the thing the caller then has to track.
+            wanted = close_match.group("position_id")
+            rows = [row for row in self._positions() if str(row["id"]) == str(wanted)]
+            if not rows:
+                return self._not_found(parsed.path)
+            position = rows[0]
+            ceiling, floor = self.catalogue["band"]
+            closing_is_sell = position["side"] == "NB"
+            order = self.venue.place(
+                category="NORMAL",
+                side="NS" if closing_is_sell else "NB",
+                qty=float(position["openQuantity"]),
+                # Marketable by construction: a sell to close goes to the floor, a buy to the
+                # ceiling. That is what makes a close actually close rather than rest.
+                price=floor if closing_is_sell else ceiling,
+            )
+            return self._send(200, dict(order, orderType="LO"))
+
         match = _ORDERS_PATH.match(parsed.path)
         if not match:
             return self._not_found(parsed.path)
@@ -160,6 +190,31 @@ class _Handler(BaseHTTPRequestHandler):
                     "accountName": "FAKE VENUE",
                 }],
             })
+
+        if parsed.path.endswith("/ppse"):
+            # Buying and selling power at a PRICE, for a loan package. The guide presents this as
+            # the check a user makes before placing, so the answer has to be conditioned on the
+            # price asked about: the same cash buys fewer contracts as the price rises. A
+            # constant here would be the parameter-blind defect in its purest form.
+            query = parse_qs(parsed.query)
+            price = float((query.get("price") or ["1"])[0]) or 1.0
+            cash = 1_000_000_000.0
+            qmax = int(cash // (price * 1000)) if price else 0
+            return self._send(200, {
+                "qmaxBuy": qmax, "qmaxSell": qmax,
+                "price": price,
+                "pp0Buy": cash, "pp0Short": cash,
+            })
+
+        position_match = _POSITION_PATH.match(parsed.path)
+        if position_match:
+            wanted = position_match.group("position_id")
+            rows = [row for row in self._positions() if str(row["id"]) == str(wanted)]
+            if not rows:
+                # A route that invented a position for any id would let a caller believe in
+                # exposure that does not exist, which is the worst direction for this endpoint.
+                return self._not_found(parsed.path)
+            return self._send(200, rows[0])
 
         if parsed.path.endswith("/balances"):
             # Nested per asset class, as the venue serves it. NOT a flat set of cash fields —
@@ -284,10 +339,24 @@ class _Handler(BaseHTTPRequestHandler):
             rows = [row for row in rows
                     if (not since or row["transDate"] >= since)
                     and (not until or row["transDate"] <= until)]
+            # PAGING. broker.py:1946-1965 walks this endpoint with page_size=200 and an
+            # increasing page_index, and proves completeness by comparing the rows it has
+            # accumulated against `total`. Serving every row on every page made that loop
+            # terminate on the first call, so the MULTI-PAGE branch of a completeness-critical
+            # loop could never be exercised offline. `total` stays the size of the whole result,
+            # not of the page, because that is what the caller compares against.
+            total = len(rows)
+            page_size = int((query.get("pageSize") or ["0"])[0] or 0)
+            page_index = int((query.get("pageIndex") or ["0"])[0] or 0)
+            if page_size > 0:
+                start = page_index * page_size
+                rows = rows[start:start + page_size]
+            else:
+                start = 0
             return self._send(200, {
                 "accountNo": self.catalogue["account_no"],
                 "fillQuantity": 0,
-                "total": len(rows), "start": 0, "end": len(rows),
+                "total": total, "start": start, "end": start + len(rows),
                 "marketType": (query.get("marketType") or ["DERIVATIVE"])[0],
                 "data": rows,
             })
@@ -326,6 +395,8 @@ class _Handler(BaseHTTPRequestHandler):
                 "symbolTradingMethodStatusCode": "NRM",
                 "symbolTradingSanctionStatusCode": "NRM",
                 "finalTradeDate": self.catalogue["final_trade_date"],
+                # Added alongside finalTradeDate by the 2026-04-14 changelog.
+                "listingDate": self.catalogue.get("listing_date", "2026-01-02T00:00:00Z"),
                 "time": self.catalogue.get("secdef_time", "2026-09-18 08:00:00.000"),
             }])
 
@@ -419,13 +490,22 @@ class _Handler(BaseHTTPRequestHandler):
                 net += filled if order["side"] == "NB" else -filled
         if not net:
             return []
+        band = self.catalogue["band"]
         return [{
-            "id": "900000000000001",
+            "id": _POSITION_ID,
             "symbol": self.catalogue["contract"],
+            "accountNo": self.catalogue["account_no"],
             "side": "NB" if net > 0 else "NS",
             "status": "OPEN",
+            "loanPackageId": 1,
             "accumulateQuantity": abs(net), "closedQuantity": 0.0,
             "openQuantity": abs(net), "tradeQuantity": abs(net), "overNightQuantity": 0.0,
+            "costPrice": round((band[0] + band[1]) / 2, 1),
+            "averageCostPrice": round((band[0] + band[1]) / 2, 1),
+            # Added by the 2026-05-12 changelog and present in the published sample; omitted here
+            # until the SDK guide was checked against.
+            "averageClosePrice": 0.0,
+            "marketPrice": self.venue.last_price,
         }]
 
     def _not_found(self, path: str):

@@ -255,6 +255,21 @@ class FakeVenue:
         if category not in ("STOP", "OCO"):
             raise VenueReject("UNSUPPORTED_ORDER_CATEGORY", category)
 
+        # The venue's order-category matrix (changelog 2026-08-06):
+        #
+        #   orderCategory   NORMAL   STOP   OCO
+        #   STOCK             yes     yes    NO
+        #   DERIVATIVE        yes     yes    yes
+        #   BOND              yes     NO     NO
+        #
+        # This accepted OCO on a stock until the matrix was checked. That is the same error as
+        # the amend model corrected in round 1: a fake MORE PERMISSIVE than the venue teaches the
+        # engine a capability that will fail live, and no pin of ours can catch it, because the
+        # pin and the fake were written from the same belief.
+        if category == "OCO" and self.market_type == "STOCK":
+            raise VenueReject("UNSUPPORTED_ORDER_CATEGORY",
+                              "OCO is a DERIVATIVE-only category; STOCK supports NORMAL and STOP")
+
         cond = self._make(self._new_conditional_id(), "STOP_BOOK", wire_side, qty,
                           price, stop_price, stop_order_price, NEW, category=category)
 
