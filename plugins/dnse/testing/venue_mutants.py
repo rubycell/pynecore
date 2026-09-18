@@ -322,6 +322,18 @@ def _mutant_http_collapses_reject_code(venue_core):
     _ = venue_core
 
 
+def _mutant_fake_broker_skips_config_endpoint_check(venue_core):
+    """WRONG: the broker does not check the CONFIG's endpoints, only the server's bind address.
+
+    The over-trusting version. Because the broker overwrites base_url with its own loopback port
+    moments later, a production host in the toml is usually harmless BY ACCIDENT, and this mutant
+    shows that the pin is what turns that accident into a guarantee.
+    """
+    from pynecore_dnse import fake_broker as fb
+    fb.VenueHTTP.assert_not_production = staticmethod(lambda url: None)
+    _ = venue_core
+
+
 def _control_noop(venue_core):
     """NOT a mutant: changes nothing. Its targeted test must still PASS.
 
@@ -391,6 +403,9 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "http_collapses_reject_code": (
         "test_venue_http.py::__test_a_cancel_refusal_carries_the_venue_code_over_the_wire__",
         _mutant_http_collapses_reject_code),
+    "fake_broker_skips_config_endpoint_check": (
+        "test_venue_http.py::__test_the_fake_broker_refuses_a_production_endpoint_from_the_config__",
+        _mutant_fake_broker_skips_config_endpoint_check),
 }
 
 
