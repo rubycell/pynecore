@@ -1,7 +1,19 @@
 """#157 conformance suite for the offline fake DNSE venue — WRITTEN BEFORE THE VENUE EXISTS.
 
 Test-first by operator instruction (2026-09-18). Every test pins a venue fact that was MEASURED
-against the real venue and is cited in its docstring; none is invented. The suite is the
+against the real venue and is cited in its docstring, EXCEPT the two marked DESIGN CHOICE below.
+An earlier version of this header said "none is invented"; that was false, and a provenance
+claim in a header written to be trusted is exactly the wrong place to be loose.
+
+DESIGN CHOICE, unmeasured, each with what would settle it:
+- partial fills matched against traded VOLUME. The only PartiallyFilled evidence in the project
+  is the SANDBOX, which CLAUDE.md describes as a fixed server-side timer emitting one variable
+  chunk — a different mechanism. Settled by: one prod stock fill of qty>1 with executions or WS
+  frames captured, showing whether the chunk tracks traded volume.
+- CANNOT_PLACE_ORDER_IN_THE_CLOSED_SESSION as the post-close refusal. It appears nowhere in
+  live_test/README.md, only in errors.py and in t33_closed_hours.py, a probe never run. Settled
+  by: running the L1-T33 post-close probe once and recording which code the venue actually
+  sends. The pin accepts either that code or CO-ORD-006 for the same reason. The suite is the
 acceptance criterion, written before the transport was chosen, so it is deliberately
 design-INDEPENDENT: the in-process adapter and the socket adapter must both satisfy it.
 
@@ -143,7 +155,8 @@ def __test_an_oco_umbrella_is_activated_from_birth_and_spawns_exactly_one_child_
     and the umbrella reads Activated at the FIRST read with no trigger involved. So Activated by
     itself never means 'triggered'. EXACTLY ONE child: the OCO is an umbrella plus one order."""
     venue = _venue()
-    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0)
+    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0,
+                      stop_order_price=1969.8)
 
     record = venue.order(oco["id"])
     assert record["orderStatus"] == "Activated", "the umbrella is Activated at the first read"
@@ -159,17 +172,44 @@ def __test_the_oco_stop_leg_amends_the_existing_child_in_place_and_never_spawns_
     and one-cancels-other never manifests as a sibling cancellation. A fake that spawned here
     would teach the engine a venue model that does not exist."""
     venue = _venue()
-    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0)
+    # stop_order_price is the limit the plugin computes THROUGH the trigger (broker.py:1496):
+    # trigger 1970.0 minus 2x slippage ticks for a sell, so the order can cross rather than rest.
+    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0,
+                      stop_order_price=1969.8)
     child_id = venue.order(oco["id"])["externalOrderId"]
     ids_before = {o["id"] for o in venue.orders(book="NORMAL")}
 
-    venue.feed_print(price=1969.5, volume=10)          # through the stop leg
+    venue.feed_print(price=1969.9, volume=10)          # through the trigger, at the limit
 
     ids_after = {o["id"] for o in venue.orders(book="NORMAL")}
     assert ids_after == ids_before, "the stop leg must AMEND the child, never spawn a second order"
     assert "PendingReplace" in _statuses_of(venue, child_id), (
         "the amend must be observable as PendingReplace on the child, as the WS frames showed")
+    assert venue.order(child_id)["price"] == 1969.8, (
+        "the child must be rewritten to the plugin's stopOrderPrice, not to the print")
     assert venue.order(child_id)["orderStatus"] == "Filled"
+
+
+def __test_a_gap_through_the_stop_limit_leaves_the_child_resting_and_unprotecting__():
+    """The case the whole stop-pricing design exists to make unlikely, and which a fake that
+    filled at the print could never reproduce.
+
+    broker.py prices a triggered stop THROUGH its trigger precisely because an order left AT the
+    trigger becomes a stop-LIMIT that never fills on a gap: "triggered, unfilled, still exposed".
+    If the market gaps past that limit the child RESTS, the position is unprotected, and nothing
+    in the order record says so — the umbrella still reads Activated."""
+    venue = _venue()
+    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0,
+                      stop_order_price=1969.8)
+    child_id = venue.order(oco["id"])["externalOrderId"]
+
+    venue.feed_print(price=1950.0, volume=10)          # gaps far below the limit
+
+    child = venue.order(child_id)
+    assert child["orderStatus"] == "New", "a gap beyond the limit must leave the child RESTING"
+    assert float(child["fillQuantity"]) == 0.0
+    assert venue.order(oco["id"])["orderStatus"] == "Activated", (
+        "and the umbrella still reads Activated, so the record does not reveal the exposure")
 
 
 def __test_the_spent_umbrella_still_reads_activated_with_its_stop_price__():
@@ -179,8 +219,9 @@ def __test_the_spent_umbrella_still_reads_activated_with_its_stop_price__():
     armed-versus-spent through the CHILD and never off the umbrella row — so the fake must
     reproduce the ambiguity rather than helpfully removing it."""
     venue = _venue()
-    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0)
-    venue.feed_print(price=1969.5, volume=10)
+    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0,
+                      stop_order_price=1969.8)
+    venue.feed_print(price=1969.9, volume=10)
 
     umbrella = venue.order(oco["id"])
     assert umbrella["orderStatus"] == "Activated", "the spent umbrella still reads Activated"
@@ -193,9 +234,10 @@ def __test_cancelling_a_venue_amended_terminal_child_is_refused_permanently__():
     transient — which is the assumption the engine's deferral guard was built on. Reproducing it
     offline is the whole point: it caused a 66 second naked window with real money."""
     venue = _venue()
-    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0)
+    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0,
+                      stop_order_price=1969.8)
     child_id = venue.order(oco["id"])["externalOrderId"]
-    venue.feed_print(price=1969.5, volume=10)          # child amended, then filled
+    venue.feed_print(price=1969.9, volume=10)          # child amended, then filled
 
     for attempt in range(3):                            # the engine retried three times
         with pytest.raises(VenueReject) as excinfo:

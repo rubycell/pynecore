@@ -26,15 +26,21 @@ from venue_core import FakeVenue, VenueReject                          # noqa: E
 
 
 def _armed_bracket():
-    """A long position protected by an OCO: TP above, stop below — the l2b shape."""
+    """A long position protected by an OCO: TP above, stop below — the l2b shape.
+
+    The price levels are ILLUSTRATIVE, not run A's. The raw run-A log is in no worktree, so
+    nothing here can be checked against that run; what IS pinned is the venue behaviour the run
+    exposed. The tests are named for that behaviour rather than for the run.
+    """
     venue = FakeVenue(symbol="41I1G9000", market_type="DERIVATIVE",
                       last_price=1995.0, seed=162)
-    oco = venue.place(category="OCO", side="sell", qty=1, price=2005.3, stop_price=1994.3)
+    oco = venue.place(category="OCO", side="sell", qty=1, price=2005.3, stop_price=1994.3,
+                      stop_order_price=1994.1)
     child_id = venue.order(oco["id"])["externalOrderId"]
     return venue, oco["id"], child_id
 
 
-def __test_the_run_a_sequence_leaves_the_child_terminal_by_amendment__():
+def __test_the_stop_leg_leaves_the_child_terminal_by_venue_amendment__():
     """Replays the measured order of events: the stop leg rewrites the child, then it fills.
 
     The child never becomes terminal by our action — no cancel, no fill request from us. It is
@@ -42,7 +48,7 @@ def __test_the_run_a_sequence_leaves_the_child_terminal_by_amendment__():
     """
     venue, umbrella_id, child_id = _armed_bracket()
 
-    venue.feed_print(price=1994.0, volume=5)        # through the stop leg
+    venue.feed_print(price=1994.2, volume=5)        # through the trigger AND the stop limit
 
     child = venue.order(child_id)
     assert "PendingReplace" in [r["orderStatus"] for r in venue.records()
@@ -55,12 +61,13 @@ def __test_the_run_a_sequence_leaves_the_child_terminal_by_amendment__():
 def __test_the_forced_cancel_is_refused_and_stays_refused__():
     """The property the engine's deferral guard assumed away.
 
-    Three attempts, because the live engine retried three times and got the same answer each
-    time. A transient refusal would have cleared the park; a permanent one cannot, and that is
-    what left the position unprotected.
+    Three attempts. The record shows three DEFERRALS behind one park rather than three cancel
+    retries, so "retried three times" is INFERRED, not measured; what is pinned here is that the
+    refusal does not become transient however often it is asked. A transient refusal would have
+    cleared the park; a permanent one cannot, and that is what left the position unprotected.
     """
     venue, _, child_id = _armed_bracket()
-    venue.feed_print(price=1994.0, volume=5)
+    venue.feed_print(price=1994.2, volume=5)
 
     codes = []
     for _ in range(3):
@@ -88,7 +95,7 @@ def __test_the_umbrella_cannot_be_cancelled_either_so_there_is_no_second_route__
     conditional is done, so cancelling it answers CO-ORD-013. There is no far leg to retire and
     no second id to act on: the child is the only handle, and it is terminal."""
     venue, umbrella_id, child_id = _armed_bracket()
-    venue.feed_print(price=1994.0, volume=5)
+    venue.feed_print(price=1994.2, volume=5)
 
     with pytest.raises(VenueReject) as excinfo:
         venue.cancel(umbrella_id)

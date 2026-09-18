@@ -28,6 +28,7 @@ from pynecore.core.plugin import override
 from pynecore.types.ohlcv import OHLCV
 
 from .broker import DNSEBroker
+from .config import DNSEBrokerConfig
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "testing"))
 from venue_core import FakeVenue                                      # noqa: E402
@@ -39,8 +40,22 @@ from venue_http import VenueHTTP                                      # noqa: E4
 _DAY_ENV = "FAKE_VENUE_DAY"
 
 
+class FakeVenueConfig(DNSEBrokerConfig):
+    """The fake's OWN config class (R6).
+
+    Not cosmetic. ``ensure_config`` caches on ``config_cls._ensured`` and tests for it with
+    ``hasattr``, which follows inheritance (#165), so whichever class in a hierarchy is ensured
+    FIRST answers for every relative afterwards. With the fake sharing ``DNSEBrokerConfig``, a
+    machine whose first ``pyne`` command touched the fake could hand a later LIVE ``dnse_broker``
+    run the fake's defaults — loopback endpoints and a nonsense token. A distinct leaf class
+    cannot be reached from ``DNSEBrokerConfig``, so the poisoning has no path to production.
+    """
+
+
 class FakeVenueBroker(DNSEBroker):
     """Replays a venue day while routing orders to a local fake venue."""
+
+    Config = FakeVenueConfig
 
     _bars: list[OHLCV]
     _idx: int
@@ -61,14 +76,12 @@ class FakeVenueBroker(DNSEBroker):
         framework, which is out of scope here; the one-line fix (read ``__dict__`` rather than
         ``hasattr``) is proposed on the card instead.
         """
-        from .config import DNSEBrokerConfig
-
         # Two degradations, not one. The class can be wrong (the inherited-cache defect), and
         # the CONTENT can be wrong: measured 2026-09-18, a run arrived with a correctly typed
         # DNSEBrokerConfig carrying empty credentials, meaning the framework had resolved a
         # different file than this broker's own. Either way the run cannot proceed, and either
         # way the fix is the same: rebuild from the tracked example, which nothing rewrites.
-        if isinstance(self.config, DNSEBrokerConfig) and getattr(self.config, "api_key", ""):
+        if isinstance(self.config, FakeVenueConfig) and getattr(self.config, "api_key", ""):
             return
 
         import dataclasses
@@ -80,12 +93,18 @@ class FakeVenueBroker(DNSEBroker):
         # trading_token, token_file and the poll intervals all vanished from the workdir file
         # after one run. So the workdir copy cannot be trusted as the source of truth here.
         source = Path(__file__).resolve().parents[1] / "testing" / "dnse_fake.toml.example"
-        raw: dict = {}
-        if source.exists():
-            with source.open("rb") as handle:
-                raw = tomllib.load(handle)
+        if not source.exists():
+            # R7: fail LOUD. Proceeding with raw={} would leave the PRODUCTION defaults in
+            # place — the real token_file path and the real endpoints — on a run that believes
+            # it is driving a fake. Silence here is the one outcome that could route a test to
+            # the live venue.
+            raise RuntimeError(
+                f"{source} is missing: refusing to build a fake-venue config from defaults, "
+                f"because those defaults are the PRODUCTION token path and endpoints.")
+        with source.open("rb") as handle:
+            raw = tomllib.load(handle)
 
-        known = {f.name for f in dataclasses.fields(DNSEBrokerConfig)}
+        known = {f.name for f in dataclasses.fields(FakeVenueConfig)}
         carried = {}
         if self.config is not None:                     # keep whatever the parent did load
             for field in dataclasses.fields(type(self.config)):
@@ -93,7 +112,7 @@ class FakeVenueBroker(DNSEBroker):
                     carried[field.name] = getattr(self.config, field.name)
         carried.update({k: v for k, v in raw.items() if k in known})
 
-        self.config = DNSEBrokerConfig(**carried)
+        self.config = FakeVenueConfig(**carried)
 
         import logging
         logging.getLogger(__name__).warning(
@@ -174,6 +193,8 @@ class FakeVenueBroker(DNSEBroker):
         # synthesised idle bars forever (1280 of them before the run was killed) and the
         # strategy never saw a live tick. The replay fixture carries separate warmup and live
         # lists for exactly this reason; a day is one stream, so the split is made here.
+        #: Seconds between live bars. Small, but non-zero: see watch_ohlcv.
+        self._live_pace = float(os.environ.get("FAKE_VENUE_LIVE_PACE", "0.25"))
         live_count = max(1, int(os.environ.get("FAKE_VENUE_LIVE_BARS", "120")))
         if len(self._bars) <= live_count:
             live_count = max(1, len(self._bars) // 2)
@@ -265,6 +286,14 @@ class FakeVenueBroker(DNSEBroker):
         """
         self._ensure_venue()
         if self._idx < len(self._live_bars):
+            # PACE the live stream. Measured 2026-09-18: returning live bars as fast as the
+            # engine asks makes the engine count them all as WARMUP — a 49/650 split was
+            # reported back as "warmup phase complete — 699 bar(s)", live trading began only
+            # after the stream was exhausted, and nothing ever traded live. A real feed
+            # delivers a bar per minute, so the boundary between history and live is a GAP in
+            # time; with no gap there is no boundary. This is also the root cause of the staged
+            # probe placing nothing: its window kept opening inside a warmup that never ended.
+            await asyncio.sleep(self._live_pace)
             bar = self._live_bars[self._idx]
             self._idx += 1
             self._day.replay_bar(bar.timestamp, into=self._venue)

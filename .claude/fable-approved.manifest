@@ -259,6 +259,12 @@ ca83c9aa9fe28f7910d8e4565b6b3eed62a60e7fe8f89ca6f076971d6c74c398  plugins/dnse/t
 7f1bdfda2edd6b1f5270260c76c3f78e044ca206ffb8320f4d44f5fc86f217e2  plugins/dnse/pynecore_dnse/fake_broker.py
 18eb3bd4a5d28f002dccb985a5f7f86e50031d683aa223c14de487fb7b42cbb1  plugins/dnse/tests/test_venue_http.py
 95c9401e21e717050e267d568fc62fcecbcc84b46b7774be8f5a5e729cb6d795  plugins/dnse/tests/test_collection_sweep.py
+# 2026-09-18 #157 READY batch at 1d3b7a0f (Worker4; replay cursor on /price/ohlc, #162 venue-half park replay, README known gaps) — final-stage review by Fable + operator follows
+c2a9c2bd372485a85c65e4f850b1b9817b9526d41c1282badd2693bf731a6049  plugins/dnse/pynecore_dnse/fake_broker.py
+dedcfc7bce8424573875fc4316dcb82bfe721230a61faa7f5257a6c65837459e  plugins/dnse/testing/venue_mutants.py
+f0940997b1a072279fb208a4a93ab88c7bb034b164ee236e85eee5db80cb911b  plugins/dnse/testing/venue_http.py
+d150baf80c3654e17edbefa9924c580d947688c87db37dd1297a717b5309340a  plugins/dnse/testing/README.md
+2210932f3de46045f173fb156982b8013d82f98c032a9d444939a852fbdf5781  plugins/dnse/tests/test_162_park_replay.py
 # 2026-09-18 #151 stage 3 (i) step 1 — landing worktree land-694: restart test rewritten to preserve + four #151 pins (record mirrored into land-694's manifest by the landing session)
 bb6f50f195d93e7388e92feb399d4462fa1bd3b0583ddab2dc31b0f5b2a91bc3  tests/t00_pynecore/core/test_025_order_sync_engine.py
 # 2026-09-18 #151 stage 3 (i) step 2 — land-694: venue_confirmed kw; restart path preserves via _unconfirmed_flat_pending; close-fill caller venue_confirmed=True

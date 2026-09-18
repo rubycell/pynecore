@@ -2,18 +2,24 @@
 
 One state machine, two adapters. This module is the machine: pure Python, no socket, no clock,
 no network. The in-process adapter drives it directly (pytest, the conformance suite); the
-socket adapter (``fake_dnse.py``, revived) serves the same machine over HTTP and WS so
-``pyne run --broker`` can reach it unchanged. Keeping ONE machine is the point — two fakes
-answering the same question is how the answers drift apart.
+socket adapter (``venue_http.py``) serves the same machine over HTTP so ``pyne run --broker``
+can reach it unchanged. Keeping ONE machine is the point — two fakes answering the same question
+is how the answers drift apart.
 
 Named ``venue_core`` rather than ``fake_venue`` because ``fake_venue.py`` already exists in this
 directory (card #10, ``FakeDNSEVenue``, alive in ``test_fixes_end_to_end.py``); its measured
 quirks are absorbed here rather than re-derived.
 
-EVERY behaviour below is a MEASURED venue fact with its source. Where the venue's documented
-behaviour and its measured behaviour disagree, the measured one wins — the documentation fills
-in only what was never measured. A fake that is wrong in a direction the plugin happens to
-absorb teaches nothing and still passes, which is the failure mode this file exists to avoid.
+**Rows leave this machine in the VENUE's vocabulary, not in ours.** Sides are ``NB``/``NS``, not
+``buy``/``sell``. That is not cosmetic: the plugin's read funnel is
+``side=_DNSE_TO_SIDE.get(raw.get("side",""), "buy")`` (``broker.py:1134``), a lookup with a
+``buy`` DEFAULT, so a row carrying ``"sell"`` is silently booked as a BUY and every position sign
+derived from it is wrong while nothing raises. Internal logic still reasons in buy/sell through
+:func:`_is_buy`, which is a readability choice that must never leak to the wire.
+
+EVERY behaviour below is a MEASURED venue fact with its source, EXCEPT the two marked DESIGN
+CHOICE, which are labelled because a fake that presents a design choice as a measurement is the
+most expensive kind of wrong this project produces.
 
 Deliberately NOT modelled (card #157 non-goals): a matching engine beyond the recorded prints,
 market impact, multiple accounts.
@@ -35,8 +41,23 @@ ACTIVATED = "Activated"
 
 _TERMINAL = {FILLED, CANCELED}
 
-#: Phases in which the venue refuses order placement (live_test/README.md).
+#: Wire side codes. The venue speaks these; so does this machine, on every row it emits.
+BUY, SELL = "NB", "NS"
+_TO_WIRE = {"buy": BUY, "sell": SELL, BUY: BUY, SELL: SELL}
+
+#: Phases in which the venue refuses order placement.
+#:
+#: DESIGN CHOICE, partly unmeasured: ``CO-ORD-006`` is measured for post-close writes, but
+#: ``CANNOT_PLACE_ORDER_IN_THE_CLOSED_SESSION`` appears nowhere in ``live_test/README.md`` — only
+#: in ``errors.py`` and in ``t33_closed_hours.py``, a probe that has never been run. It is served
+#: here because the plugin can classify it, and it is labelled because it is not evidence.
+#: Settled by: running the L1-T33 post-close probe once and recording which code the venue sends.
 _CLOSED_PHASES = {"post_close", "closed"}
+
+
+def _is_wire_buy(order: dict) -> bool:
+    """Internal side test. Rows carry the WIRE code, so nothing may compare against 'buy'."""
+    return order["side"] == BUY
 
 
 class VenueReject(Exception):
@@ -60,6 +81,9 @@ class FakeVenue:
     makes a replay deterministic and is the opposite of the real DNSE sandbox, whose fills are
     a fixed server-side timer (CLAUDE.md, measured 2026-09-12).
     """
+
+    #: Fields that exist for this machine's own bookkeeping and must NEVER reach a listing.
+    _INTERNAL = ("parent_id", "book", "_category")
 
     def __init__(self, *, phase: str = "continuous", symbol: str = "41I1G9000",
                  market_type: str = "DERIVATIVE", last_price: float = 0.0,
@@ -85,10 +109,7 @@ class FakeVenue:
         return str(self._next_normal)
 
     def _new_conditional_id(self) -> str:
-        """Conditional book: long string ids (CLAUDE.md, e.g. da203hg6p09g1n1vipog).
-
-        Derived from a counter, not from time, so it is reproducible across replays.
-        """
+        """Conditional book: long string ids (CLAUDE.md, e.g. da203hg6p09g1n1vipog)."""
         self._next_cond += 1
         base = (self._seed or 0) * 1000 + self._next_cond
         return f"d{base:012x}pg"
@@ -96,8 +117,7 @@ class FakeVenue:
     # ----------------------------------------------------------------- record
 
     def _record(self, order: dict) -> None:
-        """Append an ordered snapshot. The record is the venue's own history, and it is what a
-        grader reads — never the run log (the standing rule for live grading applies offline)."""
+        """Append an ordered snapshot — the venue's own history, and what a grader reads."""
         self._seq += 1
         self._records.append({
             "seq": self._seq,
@@ -107,85 +127,128 @@ class FakeVenue:
         })
 
     def records(self) -> list[dict]:
-        """The ordered record of every state the venue passed through."""
         return [dict(r) for r in self._records]
+
+    # ----------------------------------------------------------------- views
+
+    def _detail(self, order: dict) -> dict:
+        """The DETAIL view: everything the venue publishes, internals stripped.
+
+        ``externalOrderId`` lives HERE and only here (measured; ``broker.py:1594`` reads the
+        child from the detail). A listing that volunteered it would let an engine path find the
+        child without the detail read production forces, so a #39-class regression could pass
+        offline and fail live.
+        """
+        return {k: v for k, v in order.items() if k not in self._INTERNAL}
+
+    def _listing(self, order: dict) -> dict:
+        """The LISTING view: the detail minus ``externalOrderId``."""
+        row = self._detail(order)
+        row.pop("externalOrderId", None)
+        return row
 
     # ----------------------------------------------------------------- orders
 
     def place(self, *, category: str, side: str, qty: float,
-              price: float | None = None, stop_price: float | None = None) -> dict:
+              price: float | None = None, stop_price: float | None = None,
+              stop_order_price: float | None = None) -> dict:
         """Place on the NORMAL book or the conditional book.
 
         An OCO is Activated FROM BIRTH and spawns exactly ONE normal-book child at placement
-        (measured 2026-09-15, re-measured in #159, umbrella-to-child gap 9-13 ms). There is no
-        second leg: the stop side of an OCO is not an order, it is a trigger that will later
-        rewrite this same child (see :meth:`feed_print`).
+        (measured 2026-09-15, re-measured in #159). There is no second leg: the stop side is not
+        an order, it is a trigger that will later rewrite this same child.
+
+        ``stop_order_price`` is the LIMIT the triggered stop will post, which the plugin computes
+        THROUGH the trigger (``broker.py:1496`` sends it as ``stopOrderPrice``). Discarding it —
+        as an earlier version of this fake did — makes the gap-through-unfilled case unreachable,
+        and that case is the entire reason ``_stop_fill_price`` exists.
         """
         if self.phase in _CLOSED_PHASES:
-            raise VenueReject("CANNOT_PLACE_ORDER_IN_THE_CLOSED_SESSION",
-                              f"phase={self.phase}")
+            raise VenueReject("CANNOT_PLACE_ORDER_IN_THE_CLOSED_SESSION", f"phase={self.phase}")
 
+        wire_side = _TO_WIRE.get(side, side)
         if category == "NORMAL":
-            order = self._make(self._new_normal_id(), "NORMAL", side, qty, price, None, NEW)
-            return dict(order)
+            return dict(self._detail(
+                self._make(self._new_normal_id(), "NORMAL", wire_side, qty, price, None,
+                           None, NEW)))
 
         if category not in ("STOP", "OCO"):
             raise VenueReject("UNSUPPORTED_ORDER_CATEGORY", category)
 
-        cond = self._make(self._new_conditional_id(), "STOP_BOOK", side, qty,
-                          price, stop_price, NEW)
+        cond = self._make(self._new_conditional_id(), "STOP_BOOK", wire_side, qty,
+                          price, stop_price, stop_order_price, NEW, category=category)
 
         if category == "OCO":
-            # Activated from birth, with its child already on the normal book.
-            child = self._make(self._new_normal_id(), "NORMAL", side, qty, price, None, NEW)
+            child = self._make(self._new_normal_id(), "NORMAL", wire_side, qty, price, None,
+                               None, NEW)
             child["parent_id"] = cond["id"]
             cond["externalOrderId"] = child["id"]
             cond["orderStatus"] = ACTIVATED
-            cond["category"] = "OCO"
             self._record(cond)
-        return dict(cond)
+        return dict(self._detail(cond))
 
-    def _make(self, order_id: str, book: str, side: str, qty: float,
-              price: float | None, stop_price: float | None, status: str) -> dict:
+    def _make(self, order_id: str, book: str, wire_side: str, qty: float,
+              price: float | None, stop_price: float | None,
+              stop_order_price: float | None, status: str,
+              category: str | None = None) -> dict:
         order = {
-            "id": order_id, "book": book, "side": side,
-            "quantity": float(qty), "price": price, "stopPrice": stop_price,
-            "orderStatus": status, "fillQuantity": 0.0,
-            "externalOrderId": None, "parent_id": None, "category": book,
+            "id": order_id,
+            "symbol": self.symbol,
+            "side": wire_side,                       # WIRE code, never buy/sell
+            "orderType": "LO",
+            "orderCategory": category or "NORMAL",
+            "quantity": float(qty),
+            "price": price,
+            "stopPrice": stop_price,
+            "stopOrderPrice": stop_order_price,
+            "orderStatus": status,
+            "fillQuantity": 0.0,
+            "averagePrice": None,
+            "canceledQuantity": 0.0,
+            "externalOrderId": None,
+            # internals, stripped from every view
+            "parent_id": None,
+            "book": book,
+            "_category": category or "NORMAL",
         }
         self._orders[order_id] = order
         self._record(order)
         return order
 
-    def order(self, order_id) -> dict | None:
-        """One order record, or None when the venue does not resolve the id."""
+    def order(self, order_id, *, category: str | None = None) -> dict | None:
+        """DETAIL for one id.
+
+        ``category`` selects the book. The venue answers ``RESOURCE_NOT_FOUND`` for an id looked
+        up on the WRONG book, which is how a caller learns the books are separate; a fake that
+        ignored the parameter would let book-confused code pass.
+        """
         found = self._orders.get(order_id)
-        return dict(found) if found else None
+        if found is None:
+            return None
+        if category is not None and not self._on_book(found, category):
+            return None
+        return self._detail(found)
+
+    @staticmethod
+    def _on_book(order: dict, category: str) -> bool:
+        wanted_conditional = category in ("STOP", "OCO")
+        return (order["book"] == "STOP_BOOK") is wanted_conditional
 
     def orders(self, *, book: str) -> list[dict]:
-        """Every order on one book.
+        """LISTING for one book — internals and ``externalOrderId`` stripped.
 
-        The STOP book keeps returning Activated shells for the rest of the day (#41): a
-        triggered conditional never disappears, and `venue.py status` depends on still seeing it.
+        The STOP book keeps returning Activated shells for the rest of the day (#41).
         """
         want = "STOP_BOOK" if book == "STOP" else "NORMAL"
-        return [dict(o) for o in self._orders.values() if o["book"] == want]
+        return [self._listing(o) for o in self._orders.values() if o["book"] == want]
 
-    def cancel(self, order_id) -> dict:
-        """Cancel by id, with the venue's own refusal codes.
-
-        Three refusals, each measured:
-        * ATC refuses cancels outright (live_test/README.md);
-        * an Activated conditional is DONE and cannot be cancelled (CO-ORD-013, CLAUDE.md);
-        * a terminal order refuses permanently with ORDER_CANCEL_STATUS_REJECTED — and when it
-          became terminal by venue AMENDMENT the refusal never becomes transient, which is the
-          assumption #162's park was built on and the reason it could never clear.
-        """
+    def cancel(self, order_id, *, category: str | None = None) -> dict:
+        """Cancel by id, with the venue's own refusal codes."""
         if self.phase == "atc":
             raise VenueReject("CANNOT_CANCEL_THE_ORDER_IN_THE_ATC_SESSION", str(order_id))
 
         order = self._orders.get(order_id)
-        if order is None:
+        if order is None or (category is not None and not self._on_book(order, category)):
             raise VenueReject("RESOURCE_NOT_FOUND", str(order_id))
         if order["orderStatus"] == ACTIVATED:
             raise VenueReject("CO-ORD-013", "order status is not new")
@@ -193,18 +256,14 @@ class FakeVenue:
             raise VenueReject("ORDER_CANCEL_STATUS_REJECTED", "order is done")
 
         order["orderStatus"] = CANCELED
+        order["canceledQuantity"] = order["quantity"] - order["fillQuantity"]
         self._record(order)
-        return dict(order)
+        return self._detail(order)
 
     # ----------------------------------------------------------------- market
 
     def feed_print(self, *, price: float, volume: float) -> None:
-        """Deliver one market print — the only thing that moves this venue.
-
-        Order matters: conditionals are evaluated before resting orders, because a conditional
-        that triggers on this print creates or rewrites a normal-book order that the same print
-        may then fill. That is the sequence the WS frames showed in #159.
-        """
+        """Deliver one market print — the only thing that moves this venue."""
         self.last_price = price
         self._trigger_conditionals(price)
         self._match_resting(price, volume)
@@ -216,35 +275,29 @@ class FakeVenue:
             if not self._crossed(order, price):
                 continue
 
-            if order["category"] == "OCO":
-                # #159, measured 2026-09-18: the stop leg AMENDS the existing child IN PLACE.
-                # New -> PendingReplace -> New on ONE id. No order is created, so there is no
-                # far leg to cancel and one-cancels-other never appears as a sibling being
-                # cancelled. The umbrella is a FOLLOWER here: its record was written 0.473 s
-                # after the child's, so the child is the actor.
+            if order["_category"] == "OCO":
+                # #159: the stop leg AMENDS the existing child IN PLACE. New -> PendingReplace
+                # -> New on ONE id; no order is created, so there is no far leg to cancel.
                 child = self._orders.get(order["externalOrderId"])
                 if child is None or child["orderStatus"] in _TERMINAL:
                     continue
                 child["orderStatus"] = PENDING_REPLACE
                 self._record(child)
-                # Rewritten to execute against THIS print. The venue prices a triggered stop
-                # THROUGH its trigger so it crosses the spread rather than resting (the reason
-                # broker.py:_stop_fill_price offsets by 2x slippage: an order left AT the
-                # trigger becomes a stop-LIMIT that never fills on a gap). Modelling the
-                # rewritten price as the triggering print is that behaviour's outcome without
-                # inventing a tick offset the venue never published: #159 saw
-                # PendingReplace -> New -> Filled in one burst, so the rewrite executes here.
-                child["price"] = price
+                # Amended to the LIMIT the plugin computed through the trigger, NOT to the print.
+                # If the market has already gapped past that limit the child RESTS, unfilled and
+                # unprotecting — which is the failure _stop_fill_price exists to make unlikely and
+                # which a fake that filled at the print could never reproduce.
+                child["price"] = (order["stopOrderPrice"]
+                                  if order["stopOrderPrice"] is not None else order["stopPrice"])
                 child["orderStatus"] = NEW
                 self._record(child)
-                # The umbrella stays Activated with its stopPrice populated, exactly as a spent
-                # one does on a flat account (#159) — armed and spent are indistinguishable from
-                # this row, which is why #152 resolves through the child.
             elif order["orderStatus"] == NEW:
-                # A STOP ENTRY spawns a NEW normal-book child, named by externalOrderId (#39).
                 order["orderStatus"] = ACTIVATED
                 child = self._make(self._new_normal_id(), "NORMAL", order["side"],
-                                   order["quantity"], order["price"], None, NEW)
+                                   order["quantity"],
+                                   order["stopOrderPrice"] if order["stopOrderPrice"] is not None
+                                   else order["price"],
+                                   None, None, NEW)
                 child["parent_id"] = order["id"]
                 order["externalOrderId"] = child["id"]
                 self._record(order)
@@ -252,18 +305,18 @@ class FakeVenue:
     @staticmethod
     def _crossed(order: dict, price: float) -> bool:
         """A buy stop triggers at or above its trigger, a sell stop at or below it."""
-        if order["side"] == "buy":
-            return price >= order["stopPrice"]
-        return price <= order["stopPrice"]
+        return price >= order["stopPrice"] if _is_wire_buy(order) else price <= order["stopPrice"]
 
     def _match_resting(self, price: float, volume: float) -> None:
         """Fill resting NORMAL orders against this print.
 
-        A buy limit fills when the print trades at or below its price, a sell limit at or above.
-        Quantity is matched against the print's VOLUME, not a timer, so a large order takes
-        several prints — the real partial-fill shape. A qty-1 DERIVATIVE never partial-fills, so
-        it completes on any matching print regardless of the print's size; emitting a partial
-        tick there would invent a state the venue cannot produce.
+        Quantity is matched against the print's VOLUME, not a timer.
+
+        DESIGN CHOICE, unmeasured: matching by traded volume is a model, not a recorded venue
+        behaviour. The only PartiallyFilled evidence in the project is the SANDBOX, which
+        CLAUDE.md describes as a fixed server-side timer emitting one variable chunk — a
+        different mechanism. Settled by: one prod stock fill of qty>1 with the executions or WS
+        frames captured, showing whether chunk size tracks traded volume.
         """
         remaining_volume = float(volume)
         for order in list(self._orders.values()):
@@ -274,20 +327,23 @@ class FakeVenue:
 
             outstanding = order["quantity"] - order["fillQuantity"]
             if self.market_type == "DERIVATIVE" and order["quantity"] == 1:
-                take = outstanding
+                take = outstanding          # a qty-1 derivative never partial-fills
             else:
                 take = min(outstanding, remaining_volume)
                 remaining_volume -= take
             if take <= 0:
                 continue
 
-            order["fillQuantity"] += take
+            filled_before = order["fillQuantity"]
+            order["fillQuantity"] = filled_before + take
+            # Cumulative VWAP, because that is what the plugin books against (the executions
+            # endpoint 404s on this account) and fill_price is None without it (broker.py:3086).
+            previous = (order["averagePrice"] or 0.0) * filled_before
+            order["averagePrice"] = round((previous + price * take) / order["fillQuantity"], 4)
             order["orderStatus"] = (FILLED if order["fillQuantity"] >= order["quantity"]
                                     else PARTIALLY_FILLED)
             self._record(order)
 
     @staticmethod
     def _marketable(order: dict, price: float) -> bool:
-        if order["side"] == "buy":
-            return price <= order["price"]
-        return price >= order["price"]
+        return price <= order["price"] if _is_wire_buy(order) else price >= order["price"]
