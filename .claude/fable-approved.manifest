@@ -290,6 +290,9 @@ d01b86f52613f5affd60059ca8b85d264ab746cea2a867c85342db3ae7a939d1  plugins/dnse/t
 de7f5552a07b0fe79502a58f2736d727ddbb2f2abb6eb1858723e8f6d70e75db  plugins/dnse/tests/test_trade_list_parity.py
 2dae39848a5005e84d2ed573f65b2f06cd74df6ef1a4c2bbe5a23e7d7da8030c  plugins/dnse/tests/test_collection_sweep.py
 6427c7102ce2431de5525e2cebaf582b4e7c5f56cbc34738623ef8da533bace6  plugins/dnse/testing/fixtures/offline/trade_list_parity.py
+# 2026-09-18 #157 final at d6f13a56 (Worker4): no delete left in the harness; staged probe measured to state 13 of 14 (timeout, not error); derivative amend 500 -> plugin parks+verifies (not cancel+replace)
+62bf7d43f7e694b5fa0cd811550ef0f7733c80a277ebe8f79af4deaeee1ce203  plugins/dnse/testing/README.md
+a24f45ab9bb6bc306d4ab3c3c18cf089e53035b8363fcda17aa4fa6983c7e572  plugins/dnse/testing/fixtures/offline/trade_list_parity.py
 6bca480694a87414913f19438078041091c150f28060443c50bd19093348672a  plugins/dnse/testing/venue_mutants.py
 6429f925b1a120cfc1bd876899210cf646bec7a20c08311e75a539b6c2659d5f  plugins/dnse/pynecore_dnse/fake_broker.py
 3542b300c1ec62a1b0f2dacbff057d3cd92b19d4730a15f2d112c98ac37fcee2  plugins/dnse/tests/test_fake_venue_conformance.py
