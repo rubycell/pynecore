@@ -39,6 +39,11 @@ from venue_http import VenueHTTP                                      # noqa: E4
 #: and a silently chosen fixture is how a result gets attributed to the wrong data.
 _DAY_ENV = "FAKE_VENUE_DAY"
 
+#: Optional file the venue keeps its order record in, so a run can be GRADED from the venue
+#: rather than from its log, exactly as a live result is. Written after every state transition,
+#: because a supervised run is stopped by the operator and reaches no exit hook.
+_RECORD_ENV = "FAKE_VENUE_RECORD_FILE"
+
 
 class FakeVenueConfig(DNSEBrokerConfig):
     """The fake's OWN config class (R6).
@@ -246,7 +251,8 @@ class FakeVenueBroker(DNSEBroker):
         contract = day.symbol
         reference = self._bars[0].close if self._bars else 2000.0
         venue = FakeVenue(symbol=contract, market_type="DERIVATIVE",
-                          last_price=reference, seed=1157)
+                          last_price=reference, seed=1157,
+                          record_file=os.environ.get(_RECORD_ENV) or None)
         self._venue = venue
         shifted_bars = [dict(b, timestamp=int(b["timestamp"]) + self._offset_ms)
                         for b in day.bars]
@@ -278,6 +284,17 @@ class FakeVenueBroker(DNSEBroker):
         logging.getLogger(__name__).warning(
             "[FAKE VENUE] split: %d warmup bar(s), %d live bar(s) (FAKE_VENUE_LIVE_BARS)",
             len(self._warmup_bars), len(self._live_bars))
+        # The first LIVE bar in the DAY's own timestamps. A comparison against a backtest over
+        # the same day needs this exact boundary, and it must not be reconstructed from a trade
+        # stamp: a backtest stamps BAR time and a live run stamps WALL CLOCK, so no offset turns
+        # one into the other. Measured 2026-09-18: deriving it that way put the window 39 s late,
+        # across a bar boundary, and the acceptance test reported a difference that did not exist.
+        if self._live_bars:
+            first_live_original = self._orig_ts[len(self._warmup_bars)]
+            logging.getLogger(__name__).warning(
+                "[FAKE VENUE] first live bar = %d ms (%s, the DAY's own stamp, not shifted)",
+                first_live_original,
+                datetime.fromtimestamp(first_live_original / 1000).isoformat(timespec="seconds"))
         logging.getLogger(__name__).warning(
             "[FAKE VENUE] replay offset = %+d s (day %s served as today); the day file keeps "
             "its recorded timestamps, the shift is applied at serve time on bars, prints, "

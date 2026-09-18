@@ -26,6 +26,9 @@ market impact, multiple accounts.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from typing import Any
 
 # Status vocabulary: the venue's own, never the uppercase variant that testing/fake_dnse.py
@@ -101,12 +104,16 @@ class FakeVenue:
 
     def __init__(self, *, phase: str = "continuous", symbol: str = "41I1G9000",
                  market_type: str = "DERIVATIVE", last_price: float = 0.0,
-                 seed: int | None = None):
+                 seed: int | None = None, record_file=None):
         self.phase = phase
         self.symbol = symbol
         self.market_type = market_type
         self.last_price = last_price
         self._seed = seed
+        # Where to keep the record so a run can be GRADED from the venue rather than from its
+        # log, exactly as a live result is. Off unless asked for; see _record for why the write
+        # happens after every transition instead of at exit.
+        self._record_file = Path(record_file) if record_file is not None else None
         # Seeded, monotonic id allocation: ids must never come from a clock or a random source,
         # or two replays of one day diverge and every pin becomes unreliable evidence.
         self._next_normal = 100000 + (seed or 0) % 100000
@@ -139,6 +146,13 @@ class FakeVenue:
             "orderStatus": order["orderStatus"],
             "fillQuantity": order.get("fillQuantity", 0.0),
         })
+        if self._record_file is not None:
+            # Rewritten in full after EVERY transition, not appended at exit. A supervised run
+            # is stopped by the operator and a run killed by a signal reaches no exit hook, so
+            # an end-of-run flush would lose precisely the runs a grader cares about. The
+            # record is tens of rows, so rewriting it costs nothing worth optimising.
+            self._record_file.parent.mkdir(parents=True, exist_ok=True)
+            self._record_file.write_text(json.dumps(self._records, indent=2), encoding="utf-8")
 
     def records(self) -> list[dict]:
         return [dict(r) for r in self._records]

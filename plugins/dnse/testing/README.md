@@ -216,6 +216,74 @@ trade TIMES are not comparable, because a backtest stamps bar time and a live ru
 clock, so trades are matched by ORDER. A mismatch is a finding about the fake or the plugin,
 never an accepted difference.
 
+The day and its bar store are chosen together, and `venue_day_dataset.dataset_from_day` builds
+the store FROM the day so that "the same bars" is a fact rather than a belief about how a local
+file was once made. That builder may write only names under the `fakeparity` prefix; a shared
+store name is refused outright.
+
+```bash
+FAKE_VENUE_PARITY_DAY=plugins/dnse/testing/fixtures/venue_day/DERIVED-FROM-1M_VN30F1M_2026-09-18.json.gz \
+FAKE_VENUE_PARITY_DATASET=fakeparity_derived_VN30F1M_1 \
+FAKE_VENUE_LIVE_BARS=25 \
+.venv/bin/python plugins/dnse/testing/fixtures/offline/trade_list_parity.py
+```
+
+### The window was wrong, and the synthetic day had been hiding it (measured 2026-09-18)
+
+The comparison window used to be derived as *the fake's first trade time minus the replay
+offset*. That is unsound by this suite's own rule: a backtest stamps a trade with its BAR time
+and a live run stamps the WALL CLOCK at which it closed, so no offset converts one into the
+other. Run against the derived day for 2026-09-18 the derived start landed at 14:06:39 while the
+first live bar was 14:06:00; the 39 seconds crossed a bar boundary, dropped one backtest entry,
+and the acceptance test reported `backtest 3 vs fake 4` when both engines had produced 4.
+
+The synthetic day passed only because its first trade happened not to straddle a boundary, so
+the green was luck. The same flaw could equally have TRIMMED a window until a real difference
+disappeared, which is the worse direction. The fake now reports its first live bar directly and
+the harness uses it; both days pass, and a mutant restores the old derivation to prove the pins
+can fail.
+
+## Grading a fake run from the venue, not from its log
+
+A live DNSE result is graded from the venue's order record. Set `FAKE_VENUE_RECORD_FILE` and a
+fake run is graded the same way:
+
+```bash
+FAKE_VENUE_DAY=plugins/dnse/testing/fixtures/venue_day/DERIVED-FROM-1M_VN30F1M_2026-09-18.json.gz \
+FAKE_VENUE_LIVE_BARS=60 \
+FAKE_VENUE_RECORD_FILE=/tmp/record.json \
+.venv/bin/pyne run plugins/dnse/testing/live_test/l2b_fill_protect_flatten.py \
+    dnse_fake:VN30F1M@1 --broker
+```
+
+The file is rewritten after EVERY state transition, not at exit. A supervised run is ended by the
+operator and a run stopped with a signal reaches no exit hook, which is how the parity harness
+once compared a backtest against itself.
+
+**The l2b vehicle against the derived day for 2026-09-18**, 181 warmup bars and 60 live bars:
+
+| observation | result |
+|---|---|
+| idle-bar synth lines | 0 |
+| entry conditional activated, child tracked | 3 |
+| OCO umbrella + TP child created | 3 |
+| complete round trips | 3 |
+| position at the end | flat |
+
+The chain the vehicle exists to exercise is visible end to end: a conditional entry rests on the
+STOP book with a string id, a print through the trigger activates it and spawns an integer-id
+NORMAL child, the fill lands on the CHILD rather than on the id we placed, the bracket goes out
+as an umbrella plus a TP child, and the max-two-candles rule cancels the child and closes the
+position.
+
+**Parked modifies are expected here and are NOT a finding.** The vehicle re-issues its entry on
+every flat bar to chase the breakout, so the plugin repeatedly tries to cancel a conditional that
+has already activated; the venue answers `CO-ORD-013 order is done` and the plugin parks the
+modify, keeping the old id as possibly-live. That is the documented behaviour of a conditional
+entry modify. It is also not specific to derived days: the same vehicle against the SYNTHETIC day
+parks 38 times in 110 seconds. Whether the plugin should keep re-attempting a cancel on a
+conditional whose child it has already adopted is a separate question, for its own card.
+
 ## Known gaps
 
 - **The WebSocket half is not served over the socket.** The vendored connection passes an SSL

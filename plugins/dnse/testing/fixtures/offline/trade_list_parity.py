@@ -46,8 +46,15 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[5]
 VEHICLE = "plugins/dnse/testing/fixtures/offline/parity_vehicle.py"
-DAY = "plugins/dnse/testing/fixtures/venue_day/SYNTHETIC_vn30f1m_1m.json.gz"
-DATASET = "fakeparity_VN30F1M_1"
+
+# The day and its matching bar store are a PAIR: the fake arm replays the day, the backtest arm
+# reads the store, and parity is only meaningful if they hold the same bars. Both are overridable
+# together so the same comparison can run against a DERIVED-FROM-1M day as well as the synthetic
+# one, and `venue_day_dataset.dataset_from_day` builds the store FROM the day so "the same bars"
+# is a fact rather than a belief about how a local file was once made.
+DAY = os.environ.get("FAKE_VENUE_PARITY_DAY",
+                     "plugins/dnse/testing/fixtures/venue_day/SYNTHETIC_vn30f1m_1m.json.gz")
+DATASET = os.environ.get("FAKE_VENUE_PARITY_DATASET", "fakeparity_VN30F1M_1")
 TRADES = REPO / "workdir" / "output" / "parity_vehicle_trade.csv"
 
 #: Fill prices may differ by up to one bar's range, because one engine fills at bar OHLC and the
@@ -91,8 +98,13 @@ def backtest() -> list[dict]:
     return _read_trades(TRADES)
 
 
-def fake_run(live_bars: int, pace: str = "0.3") -> tuple[list[dict], int]:
-    """Live run against the fake. Returns the trades and the replay offset in seconds."""
+def fake_run(live_bars: int, pace: str = "0.3"):
+    """Live run against the fake.
+
+    Returns the trades, the replay offset in seconds, and the FIRST LIVE BAR as the fake itself
+    reported it. That third value is the comparison window, and it is read from the fake rather
+    than reconstructed from a trade stamp — see the note in :func:`compare`.
+    """
     log = REPO / "workdir" / "output" / "parity_fake_run.log"
     # The fake PARKS once its stream is exhausted (the replay-provider contract: "kill the run
     # when the strategy is done"), so the run is bounded here rather than waited on. Trades are
@@ -140,16 +152,37 @@ def fake_run(live_bars: int, pace: str = "0.3") -> tuple[list[dict], int]:
         raise RuntimeError(
             "the fake run wrote no trade file: there is nothing to compare, and comparing the "
             "stale file would have compared the backtest against itself")
-    return _read_trades(TRADES), int(match.group(1))
+    live_match = re.search(r"first live bar = (\d+) ms", text)
+    if not live_match:
+        raise RuntimeError(
+            "the fake did not report its first live bar; the comparison window would have to be "
+            "reconstructed from a trade stamp, which is exactly the unsound derivation that "
+            "produced a false COUNT finding on 2026-09-18")
+    from datetime import datetime as _dt
+    first_live = _dt.fromtimestamp(int(live_match.group(1)) / 1000).astimezone()
+    return _read_trades(TRADES), int(match.group(1)), first_live
 
 
-def compare(bt: list[dict], fake: list[dict], offset_s: int) -> list[str]:
-    """Return the findings; an empty list is parity."""
+def compare(bt: list[dict], fake: list[dict], offset_s: int, window_start) -> list[str]:
+    """Return the findings; an empty list is parity.
+
+    ``window_start`` is the fake's FIRST LIVE BAR, in the day's own timestamps. It is passed in
+    rather than derived, and that is the whole point of the parameter.
+
+    MEASURED 2026-09-18. This window used to be computed as the fake's first trade time minus
+    the replay offset, which is unsound by this file's own rule: a backtest stamps a trade with
+    its BAR time and a live run stamps the WALL CLOCK at which it closed, so no offset converts
+    one into the other. On the DERIVED-FROM-1M day for that date the derived start landed 39 s
+    late, crossed a bar boundary, dropped one backtest entry and reported "backtest 3 vs fake 4"
+    when both engines had in fact produced 4. The synthetic day passed only because its first
+    trade happened not to straddle a boundary, so the green was luck — and the same flaw could
+    equally have trimmed a window until a REAL difference vanished.
+    """
     findings: list[str] = []
     if not fake:
         return ["the fake produced NO trades: nothing to compare, which is a finding in itself"]
 
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     def _when(row: str) -> datetime:
         return datetime.fromisoformat(row.strip().replace("Z", ""))
@@ -159,7 +192,7 @@ def compare(bt: list[dict], fake: list[dict], offset_s: int) -> list[str]:
     # one — an artefact of the comparison, not a difference between the engines. Comparing
     # entries to entries removes it without hiding anything: a missing or extra trade still
     # changes the count.
-    first = _when(fake[0]["Date/Time"]) - timedelta(seconds=offset_s)
+    first = window_start
     entries = lambda rows: [r for r in rows if "Entry" in r["Type"]]
     bt_window = entries([r for r in bt if _when(r["Date/Time"]) >= first])
     fake = entries(fake)
@@ -169,7 +202,6 @@ def compare(bt: list[dict], fake: list[dict], offset_s: int) -> list[str]:
                         f"over the same window from {first}")
 
     for index, (a, b) in enumerate(zip(bt_window, fake)):
-        b_when = _when(b["Date/Time"]) - timedelta(seconds=offset_s)
         if a["Type"] != b["Type"]:
             findings.append(f"trade {index}: side/type {a['Type']!r} vs {b['Type']!r}")
         if a["Contracts"] != b["Contracts"]:
@@ -195,9 +227,10 @@ def main() -> int:
     bt = backtest()
     print(f"  {len(bt)} closed trade(s)")
     print(f"fake run, {live} live bars ...")
-    fake, offset = fake_run(live)
-    print(f"  {len(fake)} closed trade(s), replay offset {offset:+d}s")
-    findings = compare(bt, fake, offset)
+    fake, offset, first_live = fake_run(live)
+    print(f"  {len(fake)} closed trade(s), replay offset {offset:+d}s, "
+          f"first live bar {first_live.isoformat(timespec='seconds')}")
+    findings = compare(bt, fake, offset, first_live)
     if findings:
         print("\nFINDINGS (a mismatch is a finding about the fake or the plugin, never an "
               "accepted diff):")

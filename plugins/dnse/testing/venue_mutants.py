@@ -662,6 +662,65 @@ def _mutant_history_writes_anywhere(venue_core):
     _ = venue_core
 
 
+
+def _mutant_venue_record_written_once(venue_core):
+    """WRONG: the record file is written at the FIRST transition only.
+
+    The plausible cheap implementation, and it loses exactly what a grade needs: the entry's
+    activation, its child's fill and the flatten all land after the first row.
+    """
+    original = venue_core.FakeVenue._record
+
+    def patched(self, order):
+        already = bool(self._records)
+        file_before = self._record_file
+        if already:
+            self._record_file = None
+        try:
+            original(self, order)
+        finally:
+            self._record_file = file_before
+
+    venue_core.FakeVenue._record = patched
+
+
+def _mutant_dataset_writes_any_name(venue_core):
+    """WRONG: the dataset builder accepts any name, including a shared bar store.
+
+    ``dnse_VN30F1M_1`` is the accumulated 1m history every offline backtest reads; overwriting
+    it destroys data no session here owns.
+    """
+    import venue_day_dataset
+    venue_day_dataset.refuse_foreign_dataset = lambda name: name
+    _ = venue_core
+
+
+def _mutant_parity_window_from_a_trade_stamp(venue_core):
+    """WRONG: the parity window is derived from the fake's first TRADE time again.
+
+    Measured 2026-09-18: that derivation put the window 39 s past a bar boundary and the
+    acceptance test reported "backtest 3 vs fake 4" when both engines had produced 4. It can
+    equally trim a window until a real difference disappears, which is the worse direction.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    offline = _Path(__file__).resolve().parent / "fixtures" / "offline"
+    if str(offline) not in _sys.path:
+        _sys.path.insert(0, str(offline))
+    import trade_list_parity
+    original = trade_list_parity.compare
+
+    def patched(bt, fake, offset_s, window_start):
+        from datetime import datetime, timedelta
+        if fake:
+            window_start = (datetime.fromisoformat(fake[0]["Date/Time"].strip())
+                            - timedelta(seconds=offset_s) + timedelta(seconds=39))
+        return original(bt, fake, offset_s, window_start)
+
+    trade_list_parity.compare = patched
+    _ = venue_core
+
+
 MUTANTS: dict[str, tuple[str, object]] = {
     "oco_spawns": ("__test_the_oco_stop_leg_amends_the_existing_child_in_place_and_never_spawns__",
                    _mutant_oco_spawns),
@@ -776,6 +835,15 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "history_writes_anywhere": (
         "test_venue_day_from_history.py::__test_an_output_path_under_the_shared_bar_store_is_REFUSED__",
         _mutant_history_writes_anywhere),
+    "venue_record_written_once": (
+        "test_venue_record_file.py::__test_every_later_transition_reaches_the_file_too__",
+        _mutant_venue_record_written_once),
+    "dataset_writes_any_name": (
+        "test_venue_day_dataset.py::__test_the_builder_itself_refuses_a_foreign_name_before_writing__",
+        _mutant_dataset_writes_any_name),
+    "parity_window_from_a_trade_stamp": (
+        "test_trade_list_parity.py::__test_the_window_starts_at_the_first_live_bar_not_at_a_wall_clock_trade_time__",
+        _mutant_parity_window_from_a_trade_stamp),
 }
 
 
