@@ -1,33 +1,30 @@
 """
-Characterization pin for the closed-trade list limit -- upstream issue #84.
+Fix pins for the closed-trade list limit -- upstream issue #84, fixed in 6.9.3.
 
-These assertions describe behaviour that is WRONG. They exist so the defect cannot
-drift unnoticed and so the day it is fixed is loud rather than silent: each one
-says both what PyneCore does today and what TradingView specifies, and fails when
-either changes.
+Until the 6.9.4 landing (card #151) this file was a characterization pin of the
+DEFECT: three assertions described what PyneCore did wrong past the retention
+limit, so the fix would be loud rather than silent. It was -- on the pure 6.9.4
+replay exactly these three went red. They are now inverted into pins of the
+behaviour TradingView specifies, so a regression of #84 is loud in its turn:
 
-Once more trades close than the list retains, three things go wrong together:
+1. ``strategy.closedtrades`` counts the trades "closed for the whole trading
+   range", not only what the list still holds. The win/loss/breakeven counters
+   are the control: their sum says how many really closed.
+2. ``strategy.closedtrades.first_index`` is "the index of the oldest remaining
+   trade" once the oldest trades are evicted.
+3. The accessors stay anchored to the whole range: index 0 names an evicted
+   trade and reads ``na``; ``entry_bar_index(first_index)`` describes the oldest
+   RETAINED trade. Each bar books one trade and trade ``k`` enters at bar
+   ``k + 1`` (the entry placed on bar ``k`` fills at the next bar's open), so
+   the oldest retained trade entered at bar ``OLDEST_REMAINING + 1``.
 
-1. ``strategy.closedtrades`` stops counting. The reference defines it as the number
-   of trades "closed for the whole trading range", but it reports only what the
-   list still holds. The win/loss/breakeven counters keep counting, so their sum is
-   the control: it says how many really closed.
-2. ``strategy.closedtrades.first_index`` stays 0. The reference is explicit that
-   this is exactly when it stops being zero -- "If more trades than the allowed
-   limit have been closed, the oldest trades are removed, and this number is the
-   index of the oldest remaining trade."
-3. The accessors silently address a different trade. ``entry_bar_index(0)`` no
-   longer describes the run's first trade but whatever survived eviction, so every
-   ``closedtrades.*(n)`` call is offset and the usual
-   ``for i = 0 to strategy.closedtrades - 1`` walk reads the wrong trades while
-   stopping short. Nothing raises.
+The state is reachable from an ordinary backtest: the run completes with no
+order-cap error, and 20,000 bars is unremarkable intraday (~3.5 months of
+15-minute bars). The precondition test is kept so the pins can never pass
+vacuously below the limit.
 
-The state is reachable from an ordinary backtest: the run below completes with no
-order-cap error, and 20,000 bars is unremarkable intraday (~3.5 months of 15-minute
-bars). This is the part that makes it worth pinning rather than dismissing.
-
-The probe is authored in Pine (``data/closed_trade_list_overflow.pine``); the ``.py``
-beside it is pine2pyne output and must not be hand-edited.
+The probe is authored in Pine (``data/closed_trade_list_overflow.pine``); the
+transpiled module beside it is pine2pyne output and must not be hand-edited.
 """
 import sys
 from pathlib import Path
@@ -39,11 +36,12 @@ SCRIPT_NAME = 'closed_trade_list_overflow'
 #: the retention limit for the overflow to happen at all.
 BAR_COUNT = 20_000
 
-#: What the run actually produces today. Kept as named constants so a change in
-#: any of them reads as a deliberate update rather than a silent edit.
-RETAINED = 9_000          # what strategy.closedtrades reports (the retention limit)
+#: Named constants so a change in any of them reads as a deliberate update
+#: rather than a silent edit.
+RETAINED = 9_000          # the retention limit (trades the list still holds)
 REALLY_CLOSED = 19_998    # what the win/loss/breakeven counters add up to
-OLDEST_REMAINING = REALLY_CLOSED - RETAINED   # 10998 -- what first_index should be
+OLDEST_REMAINING = REALLY_CLOSED - RETAINED   # 10998 -- first_index past the limit
+OLDEST_ENTRY_BAR = OLDEST_REMAINING + 1       # 10999 -- trade k enters at bar k + 1
 
 
 def _make_syminfo():
@@ -99,40 +97,34 @@ def __test_the_run_overflows_the_list_without_an_order_cap__():
     assert last['real_total'] > RETAINED, "no overflow occurred"
 
 
-def __test_closedtrades_stops_counting_at_the_retention_limit__():
-    """BUG (#84): reports the retained count, not the whole trading range."""
+def __test_closedtrades_counts_the_whole_trading_range__():
+    """#84 fixed: the count is the whole trading range, not the retained list."""
     last = _run()
-    assert last['closedtrades'] == RETAINED, (
-        f"strategy.closedtrades reported {last['closedtrades']:.0f}, pinned at "
-        f"{RETAINED}. If it now reports {REALLY_CLOSED} the bug is FIXED -- delete "
-        "this pin.")
-    assert last['closedtrades'] != last['real_total'], (
-        "strategy.closedtrades now agrees with the real total -- #84 is fixed, "
-        "remove this test")
+    assert last['closedtrades'] == REALLY_CLOSED, (
+        f"strategy.closedtrades reported {last['closedtrades']:.0f}, expected "
+        f"{REALLY_CLOSED}. A reading of {RETAINED} is the #84 defect back again "
+        "(the count stopped at the retention limit)")
+    assert last['closedtrades'] == last['real_total'], (
+        "strategy.closedtrades disagrees with the win+loss+even control")
 
 
-def __test_first_index_stays_zero_after_eviction__():
-    """BUG (#84): should become the index of the oldest remaining trade."""
+def __test_first_index_is_the_oldest_remaining_trade__():
+    """#84 fixed: first_index is the index of the oldest trade still retained."""
     last = _run()
-    assert last['first_index'] == 0, (
-        f"first_index reported {last['first_index']:.0f}, pinned at 0. TradingView "
-        f"specifies {OLDEST_REMAINING} here (trades closed minus trades retained); "
-        "a non-zero reading means #84 is fixed -- delete this pin.")
+    assert last['first_index'] == OLDEST_REMAINING, (
+        f"first_index reported {last['first_index']:.0f}, expected {OLDEST_REMAINING} "
+        "(trades closed minus trades retained). A constant 0 is the #84 defect")
 
 
-def __test_accessors_silently_address_a_post_eviction_trade__():
-    """BUG (#84), the damaging one: index 0 is no longer the run's first trade.
-
-    The first trade entered at bar 1. After eviction, ``entry_bar_index(0)``
-    describes a trade that entered roughly ``OLDEST_REMAINING`` bars later, so any
-    loop over ``0 .. closedtrades - 1`` silently walks the wrong trades.
-    """
+def __test_accessors_stay_anchored_to_the_whole_range__():
+    """#84 fixed: index 0 is evicted (na) and first_index names the oldest kept trade."""
+    import math
     last = _run()
-    trade0_bar = last['trade0_entry_bar']
-    assert trade0_bar > OLDEST_REMAINING, (
-        f"closedtrades.entry_bar_index(0) returned {trade0_bar:.0f}; pinned as "
-        f"'well past bar {OLDEST_REMAINING}', i.e. NOT the run's first trade. A "
-        "small value would mean the accessors are anchored correctly again and "
-        "#84 is fixed -- delete this pin.")
-    assert trade0_bar > 1, (
-        "index 0 now looks like the run's first trade -- #84 is fixed, remove this test")
+    assert math.isnan(last['trade0_entry_bar']), (
+        f"closedtrades.entry_bar_index(0) returned {last['trade0_entry_bar']}; trade 0 "
+        "was evicted, so it must read na -- a number here means the accessors are "
+        "re-anchored to the retained list (the #84 defect)")
+    assert last['oldest_entry_bar'] == OLDEST_ENTRY_BAR, (
+        f"entry_bar_index(first_index) returned {last['oldest_entry_bar']:.0f}, expected "
+        f"{OLDEST_ENTRY_BAR}: the oldest retained trade (index {OLDEST_REMAINING}) "
+        "entered one bar after its index")

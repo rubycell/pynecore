@@ -1,20 +1,20 @@
 //@version=6
-// Characterization probe for the closed-trade list limit (upstream issue #84).
+// Probe for the closed-trade list limit (upstream issue #84, fixed in PyneCore
+// 6.9.3; pinned as a fix by test_134 since the 6.9.4 landing, card #151).
 //
 // Reversing on every bar books one closed trade per bar, so a long enough run
-// pushes more trades through than the list retains. Three things go wrong there,
-// and this probe reports all of them:
+// pushes more trades through than the list retains. The reference specifies what
+// must hold past the limit, and this probe reports each of them:
 //
-//   strategy.closedtrades            stops counting at the retention limit, while
-//                                    the reference defines it as the count "for the
-//                                    whole trading range"
-//   strategy.closedtrades.first_index stays 0, where the reference says it becomes
-//                                    the index of the oldest REMAINING trade
-//   closedtrades.*(n)                address a different trade than they did before
-//                                    eviction, silently
+//   strategy.closedtrades             counts "for the whole trading range", not
+//                                     just what the list still holds
+//   strategy.closedtrades.first_index becomes the index of the oldest REMAINING
+//                                     trade
+//   closedtrades.*(n)                 stay anchored to the whole range: index 0 is
+//                                     evicted (na), first_index is the oldest kept
 //
 // `real_total` is the control: the win/loss/breakeven counters keep counting past
-// the limit, so their sum is what `strategy.closedtrades` should have reported.
+// the limit, so their sum is what `strategy.closedtrades` must report.
 strategy("closed trade list overflow", initial_capital = 10000000,
          default_qty_type = strategy.fixed, default_qty_value = 1)
 
@@ -27,3 +27,4 @@ plot(strategy.closedtrades, "closedtrades")
 plot(strategy.wintrades + strategy.losstrades + strategy.eventrades, "real_total")
 plot(strategy.closedtrades.first_index, "first_index")
 plot(strategy.closedtrades > 0 ? strategy.closedtrades.entry_bar_index(0) : -1.0, "trade0_entry_bar")
+plot(strategy.closedtrades > 0 ? strategy.closedtrades.entry_bar_index(strategy.closedtrades.first_index) : -1.0, "oldest_entry_bar")

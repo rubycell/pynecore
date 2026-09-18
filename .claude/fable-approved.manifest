@@ -151,3 +151,8 @@ bb6f50f195d93e7388e92feb399d4462fa1bd3b0583ddab2dc31b0f5b2a91bc3  tests/t00_pyne
 c5f7bef8895a02604e9af5b75606088d93acc02cf00157997b088523f114a617  src/pynecore/core/broker/sync_engine.py
 # 2026-09-18 #151 stage 3 (ii) — approval by Fable
 22d217a97222d46ee18e33f0a47930d31952423ea25624f6dafa6f628ffca6e2  tests/t00_pynecore/core/test_025_order_sync_engine.py
+# 2026-09-18 #151 stage 3 (iii) — land-694: four #83/#84 fix-detectors inverted into fix-pins (pine probe re-transpiled)
+bd7ee0eacd75b765e40c66e9d8399b90439b1450ea40889e689c63b37f5e3eed  tests/t01_lib/t30_strategy/test_134_closed_trade_list_overflow.py
+5cb4e2e97116db65824371506c2b62e6e457d06dba62a1e2a68228ffba13d852  tests/t01_lib/t30_strategy/test_131_strategy_namespace_liveness.py
+385e92628e2167fec52c006d478e5d62c6fbf3f487eaad9c9effad4361249c94  tests/t01_lib/t30_strategy/data/closed_trade_list_overflow.pine
+133e2fb1f222c5b90cec9aa69917bb9c5f813a2be7250d9fabf6c7cda4897216  tests/t01_lib/t30_strategy/data/closed_trade_list_overflow.py

@@ -19,3 +19,4 @@ def main():
     plot(strategy.wintrades + strategy.losstrades + strategy.eventrades, "real_total")
     plot(strategy.closedtrades.first_index, "first_index")
     plot((strategy.closedtrades.entry_bar_index(0) if strategy.closedtrades > 0 else -1.0), "trade0_entry_bar")
+    plot((strategy.closedtrades.entry_bar_index(strategy.closedtrades.first_index) if strategy.closedtrades > 0 else -1.0), "oldest_entry_bar")

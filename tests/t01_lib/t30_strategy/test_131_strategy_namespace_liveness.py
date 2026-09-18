@@ -100,20 +100,11 @@ NOT_DATA = {
 #: Members measured to be DEAD -- reachable, typed, and constant for the whole
 #: run even though the scenario gives them something to report. Strict in both
 #: directions (see the module docstring).
-KNOWN_DEAD = {
-    'strategy.closedtrades.first_index':
-        "BUG, upstream #84: constant 0. TradingView specifies the index of the "
-        "oldest REMAINING trade once closed trades are evicted past the list "
-        "limit -- measured, that state is reachable (20k bars, no order cap) and "
-        "the correct answer there is 10998. Pinned by "
-        "test_134_closed_trade_list_overflow. It stays in KNOWN_DEAD rather than "
-        "EXPECTED_ZERO because 0 is only correct BELOW the limit; this was "
-        "originally filed here as 'correct by design', which the overflow probe "
-        "disproved",
-    'strategy.opentrades.profit_percent':
-        "returns 0 for an open trade: the per-bar open-trade loop refreshes "
-        "profit / max_drawdown* / max_runup* but never assigns profit_percent, "
-        "and all three assignment sites are on CLOSE paths",
+KNOWN_DEAD: dict[str, str] = {
+    # Emptied at the 6.9.4 landing (card #151): upstream 6.9.3 fixed both former
+    # entries -- #83 (opentrades.profit_percent now refreshed per bar; measured
+    # on the pure replay, where this test went red on exactly that member) and
+    # #84 (closedtrades.first_index; see EXPECTED_ZERO and test_134).
 }
 
 #: Members whose value in THIS scenario is legitimately zero/na -- correct
@@ -121,6 +112,11 @@ KNOWN_DEAD = {
 #: defect is never filed under "expected". Each entry says why, and what would
 #: have to change in the scenario to exercise it for real.
 EXPECTED_ZERO = {
+    'strategy.closedtrades.first_index':
+        "0 below the retention limit: neither scenario evicts a closed trade, so "
+        "the oldest remaining trade is trade 0. The over-limit value (10998 after "
+        "19998 closes) is pinned by test_134_closed_trade_list_overflow since "
+        "upstream fixed #84 in 6.9.3",
     'strategy.eventrades':
         "counts trades closing at exactly 0 profit, which neither scenario "
         "produces (a percent commission makes it unreachable in A, and every "
