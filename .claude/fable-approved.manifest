@@ -293,6 +293,11 @@ de7f5552a07b0fe79502a58f2736d727ddbb2f2abb6eb1858723e8f6d70e75db  plugins/dnse/t
 # 2026-09-18 #157 final at d6f13a56 (Worker4): no delete left in the harness; staged probe measured to state 13 of 14 (timeout, not error); derivative amend 500 -> plugin parks+verifies (not cancel+replace)
 62bf7d43f7e694b5fa0cd811550ef0f7733c80a277ebe8f79af4deaeee1ce203  plugins/dnse/testing/README.md
 a24f45ab9bb6bc306d4ab3c3c18cf089e53035b8363fcda17aa4fa6983c7e572  plugins/dnse/testing/fixtures/offline/trade_list_parity.py
+# 2026-09-18 #157 R11 at ecd37fce (Worker4): amend gated on the BOOK (conditional 500; normal derivative in place; stock new id), staged probe runs every state 0-15 (20 dispatches, 23/23, 0 parks), rebased on 8c16e9c9 — landing pending the operator
+a345cce98f6461da5dc17d94c3e07309163c8ecd9e0c81b29db7c37d07ad60df  plugins/dnse/testing/venue_core.py
+c517228d73d80c57c00ca79891ace4f927ae0584fc5510c5e334501da5578341  plugins/dnse/testing/venue_mutants.py
+7e037974d5e9251fdb93805905594e808775461739dd8ce69fc529a1676a6198  plugins/dnse/testing/README.md
+21613abd3b3a6d055584eb6d5b80f8dd4537cad14b3fcb47ee2217a62d90bde0  plugins/dnse/tests/test_venue_http.py
 6bca480694a87414913f19438078041091c150f28060443c50bd19093348672a  plugins/dnse/testing/venue_mutants.py
 6429f925b1a120cfc1bd876899210cf646bec7a20c08311e75a539b6c2659d5f  plugins/dnse/pynecore_dnse/fake_broker.py
 3542b300c1ec62a1b0f2dacbff057d3cd92b19d4730a15f2d112c98ac37fcee2  plugins/dnse/tests/test_fake_venue_conformance.py
