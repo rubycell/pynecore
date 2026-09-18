@@ -1,39 +1,47 @@
 """#157 conformance suite for the offline fake DNSE venue — WRITTEN BEFORE THE VENUE EXISTS.
 
-Test-first by operator instruction (2026-09-18). Every test below pins a venue fact that was
-MEASURED against the real venue and is cited in its docstring; none is invented. The suite is
-therefore the acceptance criterion for the fake, written before the design is chosen, so it is
-deliberately design-INDEPENDENT: whichever of S1 (standalone server), S2 (in-process transport
-fake) or S3 (cassettes) the panel picks must satisfy exactly these behaviours. The API used here
-is the contract the tests impose, not a design decision smuggled in early.
+Test-first by operator instruction (2026-09-18). Every test pins a venue fact that was MEASURED
+against the real venue and is cited in its docstring; none is invented. The suite is the
+acceptance criterion, written before the transport was chosen, so it is deliberately
+design-INDEPENDENT: the in-process adapter and the socket adapter must both satisfy it.
 
 Facts are pinned against BEHAVIOUR, never against the fake's configuration (card #157 stage E).
-A test that asserted "the fake was configured to reject X" would pass on a fake that never
-rejects anything.
+A test asserting "the fake was configured to reject X" would pass on a fake that never rejects.
+
+CORRECTED 2026-09-18 after #159's live measurement. The first draft encoded a venue model the
+venue does not have: it assumed an OCO's stop leg was a second order that could be cancelled.
+Measured that day, on the WS frames: on an OCO stop trigger the venue AMENDS THE EXISTING CHILD
+IN PLACE (``New -> PendingReplace -> New -> Filled`` on ONE id). There is no far leg, so
+"one-cancels-other" never manifests as a second order being cancelled. Pinning the spawn model
+would have made the fake confidently wrong in the direction the plugin already leans.
 
 Sources, per fact:
 - two books, string ids for conditionals vs integer ids for NORMAL: CLAUDE.md "DNSE has TWO order books"
-- Activated spawns a NORMAL child carrying externalOrderId; the fill lands on the child: same, plus #39/#41
-- Activated is TERMINAL for the conditional row: operator ruling 2026-09-18 (f88c7e43)
-- OCO umbrella Activated from birth, umbrella cancel answers CO-ORD-013: CLAUDE.md, measured 2026-09-15
-- partial fills by matched print volume, qty-1 derivatives never partial-fill: card #157 section 4, leader review item 15
-- session-phase refusal codes: plugins/dnse/testing/live_test/README.md venue facts
-- Activated shells persist on the STOP book for the rest of the day: #41, leader review item 14
-- determinism (two replays byte-identical): card #157 stage C acceptance
+- a STOP entry activates and spawns a NORMAL child carrying externalOrderId: CLAUDE.md, #39/#41
+- Activated is TERMINAL on both books: operator ruling 2026-09-18 (f88c7e43), CLAUDE.md
+- OCO umbrella Activated from birth with its child at placement: CLAUDE.md, measured 2026-09-15, re-measured #159
+- OCO stop trigger AMENDS the child in place, no spawn: #159, measured 2026-09-18 from WS frames
+- the spent umbrella still reads Activated with a populated stopPrice on a flat account: #159, CLAUDE.md
+- cancel of a venue-amended terminal id is refused PERMANENTLY: #162
+- partial fills by matched print volume; qty-1 derivatives never partial-fill: card #157 section 4
+- session-phase refusal codes: plugins/dnse/testing/live_test/README.md
+- determinism: card #157 stage C acceptance
 """
+import sys
+from pathlib import Path
+
 import pytest
 
-# A PLAIN import, deliberately. This started as `pytest.importorskip`, which was wrong: once
-# the module existed the guard was inert, but any future import error would have turned all
-# twelve pins into twelve SKIPS, and a skipped pin reads as a passing suite. An import failure
-# here must be LOUD (panel review 3/3, 2026-09-18).
-from pynecore_dnse.venue_core import FakeVenue, VenueReject  # noqa: E402
+# A PLAIN import, deliberately. This began as pytest.importorskip, which was wrong: once the
+# module existed the guard was inert, but any later import error would have turned every pin
+# into a SKIP, and a skipped pin reads as a passing suite. An import failure must be LOUD.
+# The path insert mirrors test_fixes_end_to_end.py, which imports the sibling fake the same way.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "testing"))
+from venue_core import FakeVenue, VenueReject            # noqa: E402
 
-
-# --------------------------------------------------------------------------- helpers
 
 def _venue(**kwargs):
-    """A venue positioned in the continuous session on the VN30 front-month contract."""
+    """A venue in the continuous session on the VN30 front-month dated contract."""
     kwargs.setdefault("phase", "continuous")
     kwargs.setdefault("symbol", "41I1G9000")
     kwargs.setdefault("market_type", "DERIVATIVE")
@@ -41,12 +49,16 @@ def _venue(**kwargs):
     return FakeVenue(**kwargs)
 
 
+def _statuses_of(venue, order_id):
+    """The ordered status history of one id, from the venue's own record."""
+    return [r["orderStatus"] for r in venue.records() if r["id"] == order_id]
+
+
 # --------------------------------------------------------------------------- the two books
 
 def __test_normal_order_gets_an_integer_id_and_a_conditional_gets_a_string_id__():
-    """CLAUDE.md: the NORMAL book issues integer ids (437346), the conditional book issues
-    long string ids (da203hg6p09g1n1vipog). The id SHAPE is how every reader tells the books
-    apart, so it is a behaviour, not a cosmetic detail."""
+    """CLAUDE.md: the NORMAL book issues integer ids (437346), the conditional book long string
+    ids (da203hg6p09g1n1vipog). The id SHAPE is how every reader tells the books apart."""
     venue = _venue()
     normal = venue.place(category="NORMAL", side="buy", qty=1, price=1975.0)
     stop = venue.place(category="STOP", side="buy", qty=1, stop_price=1990.0, price=1990.2)
@@ -55,47 +67,46 @@ def __test_normal_order_gets_an_integer_id_and_a_conditional_gets_a_string_id__(
     assert not str(stop["id"]).isdigit(), f"conditional id must be string-shaped, got {stop['id']!r}"
 
 
-# --------------------------------------------------------------------------- activation
+# --------------------------------------------------------------------------- STOP activation
 
 def __test_a_resting_stop_does_not_activate_before_a_print_crosses_its_trigger__():
     """The discriminating half of the activation pin: without it, a fake that activated every
-    conditional immediately would pass the next test and still be wrong."""
+    conditional on placement would pass the next test and still be wrong."""
     venue = _venue()
     stop = venue.place(category="STOP", side="buy", qty=1, stop_price=1990.0, price=1990.2)
 
-    venue.feed_print(price=1985.0, volume=10)   # below the trigger
+    venue.feed_print(price=1985.0, volume=10)
 
     assert venue.order(stop["id"])["orderStatus"] == "New"
     assert venue.orders(book="NORMAL") == [], "no child may exist before the trigger is crossed"
 
 
-def __test_a_print_through_the_trigger_activates_the_conditional_and_spawns_a_normal_child__():
-    """CLAUDE.md + #39: on trigger the conditional becomes Activated (CLOSED, not filled) and the
-    venue creates a NEW order on the NORMAL book; the activated conditional names its child in
-    externalOrderId. Anything mapping venue records to Pine ids by the placed id alone goes blind
-    here, which is exactly what #39 measured live."""
+def __test_a_print_through_the_trigger_activates_the_stop_and_spawns_a_normal_child__():
+    """CLAUDE.md + #39: a STOP ENTRY on trigger becomes Activated (closed, not filled) and the
+    venue creates a NEW order on the NORMAL book, named by externalOrderId. #159 re-measured the
+    entry child being created on activation. Note this is the ENTRY path: the OCO exit path does
+    NOT spawn, it amends (see below) — the two must not be modelled the same way."""
     venue = _venue()
     stop = venue.place(category="STOP", side="buy", qty=1, stop_price=1990.0, price=1990.2)
 
-    venue.feed_print(price=1990.5, volume=10)   # through the trigger
+    venue.feed_print(price=1990.5, volume=10)
 
     parent = venue.order(stop["id"])
     assert parent["orderStatus"] == "Activated"
     child_id = parent["externalOrderId"]
     assert child_id, "an activated conditional must name its NORMAL-book child"
-    assert str(child_id).isdigit(), "the child lives on the NORMAL book, so its id is integer-shaped"
+    assert str(child_id).isdigit(), "the child lives on the NORMAL book"
     assert venue.order(child_id)["orderStatus"] in ("New", "PartiallyFilled", "Filled")
 
 
 def __test_an_activated_conditional_never_fills_and_stays_terminal__():
-    """Operator ruling 2026-09-18: Activated is TERMINAL for the conditional row — it made its
+    """Operator ruling 2026-09-18: Activated is TERMINAL on both books — the conditional made its
     normal order and can do nothing else. The fill belongs to the child; the parent must never
     acquire a fill quantity however many prints arrive."""
     venue = _venue()
     stop = venue.place(category="STOP", side="buy", qty=1, stop_price=1990.0, price=1990.2)
-    venue.feed_print(price=1990.5, volume=10)
-    venue.feed_print(price=1991.0, volume=50)
-    venue.feed_print(price=1992.0, volume=50)
+    for price in (1990.5, 1991.0, 1992.0):
+        venue.feed_print(price=price, volume=50)
 
     parent = venue.order(stop["id"])
     assert parent["orderStatus"] == "Activated", "Activated is terminal; it must not advance"
@@ -104,53 +115,100 @@ def __test_an_activated_conditional_never_fills_and_stays_terminal__():
 
 def __test_an_activated_shell_persists_on_the_stop_book_for_the_rest_of_the_day__():
     """#41: a triggered conditional stays Activated on the STOP book all day while its child does
-    the work. venue.py status relies on still seeing it, so the list endpoint must keep returning
-    it rather than dropping it once terminal."""
+    the work. venue.py status depends on still seeing it."""
     venue = _venue()
     stop = venue.place(category="STOP", side="buy", qty=1, stop_price=1990.0, price=1990.2)
     venue.feed_print(price=1990.5, volume=10)
     for _ in range(50):
         venue.feed_print(price=1991.0, volume=5)
 
-    ids = [o["id"] for o in venue.orders(book="STOP")]
-    assert stop["id"] in ids, "the activated shell must remain listed on the conditional book"
+    assert stop["id"] in [o["id"] for o in venue.orders(book="STOP")]
+
+
+def __test_cancelling_an_activated_conditional_is_refused_as_done__():
+    """CLAUDE.md: an Activated conditional cannot be cancelled — CO-ORD-013 "order is done"."""
+    venue = _venue()
+    stop = venue.place(category="STOP", side="buy", qty=1, stop_price=1990.0, price=1990.2)
+    venue.feed_print(price=1990.5, volume=10)
+
+    with pytest.raises(VenueReject) as excinfo:
+        venue.cancel(stop["id"])
+    assert excinfo.value.code == "CO-ORD-013"
 
 
 # --------------------------------------------------------------------------- OCO
 
-def __test_an_oco_umbrella_is_activated_from_birth_and_spawns_its_tp_child_at_placement__():
-    """CLAUDE.md, measured 2026-09-15: an OCO umbrella is Activated FROM BIRTH — placement
-    immediately spawns the normal-book TP child, with no trigger involved. So Activated by itself
-    never means 'triggered'."""
+def __test_an_oco_umbrella_is_activated_from_birth_and_spawns_exactly_one_child__():
+    """Measured 2026-09-15 and again in #159: placement immediately spawns the normal-book child,
+    and the umbrella reads Activated at the FIRST read with no trigger involved. So Activated by
+    itself never means 'triggered'. EXACTLY ONE child: the OCO is an umbrella plus one order."""
     venue = _venue()
     oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0)
 
     record = venue.order(oco["id"])
     assert record["orderStatus"] == "Activated", "the umbrella is Activated at the first read"
-    assert record["externalOrderId"], "placement spawns the TP child immediately"
+    assert record["externalOrderId"], "placement spawns the child immediately"
+    assert len(venue.orders(book="NORMAL")) == 1, "an OCO has ONE child, not a TP leg and a SL leg"
 
 
-def __test_cancelling_an_oco_umbrella_is_refused_and_the_child_cancel_succeeds__():
-    """CLAUDE.md: a cancel of the umbrella answers CO-ORD-013 'order status is not new' from
-    second one; the CHILD id is what you cancel instead."""
+def __test_the_oco_stop_leg_amends_the_existing_child_in_place_and_never_spawns__():
+    """#159, measured 2026-09-18 on the WS frames — the card's central correction.
+
+    On an OCO stop trigger the venue REWRITES the existing child: New -> PendingReplace -> New,
+    on ONE id, then it fills. No second order is ever created, so there is no far leg to cancel
+    and one-cancels-other never manifests as a sibling cancellation. A fake that spawned here
+    would teach the engine a venue model that does not exist."""
     venue = _venue()
     oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0)
     child_id = venue.order(oco["id"])["externalOrderId"]
+    ids_before = {o["id"] for o in venue.orders(book="NORMAL")}
 
-    with pytest.raises(VenueReject) as excinfo:
-        venue.cancel(oco["id"])
-    assert excinfo.value.code == "CO-ORD-013"
+    venue.feed_print(price=1969.5, volume=10)          # through the stop leg
 
-    venue.cancel(child_id)
-    assert venue.order(child_id)["orderStatus"] == "Canceled"
+    ids_after = {o["id"] for o in venue.orders(book="NORMAL")}
+    assert ids_after == ids_before, "the stop leg must AMEND the child, never spawn a second order"
+    assert "PendingReplace" in _statuses_of(venue, child_id), (
+        "the amend must be observable as PendingReplace on the child, as the WS frames showed")
+    assert venue.order(child_id)["orderStatus"] == "Filled"
+
+
+def __test_the_spent_umbrella_still_reads_activated_with_its_stop_price__():
+    """#159: after the fill the umbrella still reads Activated with stopPrice populated, on a flat
+    account, identical in shape to an armed one. Activated is now observed armed, spent-by-cancel
+    and spent-by-fill, and is indistinguishable across all three. This is why #152 must resolve
+    armed-versus-spent through the CHILD and never off the umbrella row — so the fake must
+    reproduce the ambiguity rather than helpfully removing it."""
+    venue = _venue()
+    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0)
+    venue.feed_print(price=1969.5, volume=10)
+
+    umbrella = venue.order(oco["id"])
+    assert umbrella["orderStatus"] == "Activated", "the spent umbrella still reads Activated"
+    assert umbrella.get("stopPrice"), "and still carries its stopPrice, so the row looks armed"
+
+
+def __test_cancelling_a_venue_amended_terminal_child_is_refused_permanently__():
+    """#162: a forced cancel whose target became terminal BY VENUE AMENDMENT can never clear. The
+    venue refuses it with ORDER_CANCEL_STATUS_REJECTED, and the refusal is permanent rather than
+    transient — which is the assumption the engine's deferral guard was built on. Reproducing it
+    offline is the whole point: it caused a 66 second naked window with real money."""
+    venue = _venue()
+    oco = venue.place(category="OCO", side="sell", qty=1, price=1990.0, stop_price=1970.0)
+    child_id = venue.order(oco["id"])["externalOrderId"]
+    venue.feed_print(price=1969.5, volume=10)          # child amended, then filled
+
+    for attempt in range(3):                            # the engine retried three times
+        with pytest.raises(VenueReject) as excinfo:
+            venue.cancel(child_id)
+        assert excinfo.value.code == "ORDER_CANCEL_STATUS_REJECTED", (
+            f"attempt {attempt + 1} must be refused with the same code, not a transient error")
 
 
 # --------------------------------------------------------------------------- fills
 
 def __test_a_resting_limit_partially_fills_by_print_volume_then_completes__():
     """Card #157 section 4: partial fills are by MATCHED PRINT VOLUME against the resting
-    quantity, not by the sandbox's fixed timer. A stock lot of 100 against a print of 30 leaves
-    70 working."""
+    quantity, not by the sandbox's fixed timer."""
     venue = _venue(symbol="HPG", market_type="STOCK", last_price=26.5)
     order = venue.place(category="NORMAL", side="buy", qty=100, price=26.5)
 
@@ -166,22 +224,20 @@ def __test_a_resting_limit_partially_fills_by_print_volume_then_completes__():
 
 
 def __test_a_quantity_one_derivative_never_partially_fills__():
-    """Leader review item 15: qty-1 derivatives cannot partial-fill, so the partial path is only
-    reachable through a stock series. A fake that emitted a partial tick for qty 1 would invent a
-    state the venue cannot produce."""
+    """A fake emitting a partial tick for qty 1 would invent a state the venue cannot produce."""
     venue = _venue()
     order = venue.place(category="NORMAL", side="buy", qty=1, price=1980.0)
 
     venue.feed_print(price=1980.0, volume=1)
 
-    assert venue.order(order["id"])["orderStatus"] == "Filled", "qty 1 goes straight to Filled"
+    assert venue.order(order["id"])["orderStatus"] == "Filled"
 
 
 # --------------------------------------------------------------------------- session phases
 
 def __test_placing_after_the_close_is_refused_with_the_measured_code__():
-    """live_test/README.md venue facts: post-close writes are refused. The code is part of the
-    contract because the engine branches on it."""
+    """live_test/README.md: post-close writes are refused. The code is part of the contract
+    because the engine branches on it."""
     venue = _venue(phase="post_close")
 
     with pytest.raises(VenueReject) as excinfo:
@@ -190,8 +246,7 @@ def __test_placing_after_the_close_is_refused_with_the_measured_code__():
 
 
 def __test_cancelling_during_atc_is_refused_with_the_measured_code__():
-    """live_test/README.md: ATC refuses cancels and fills whatever rests. This is the phase that
-    has burned live runs, so the fake must reproduce the refusal rather than silently allowing it."""
+    """live_test/README.md: ATC refuses cancels and fills whatever rests."""
     venue = _venue()
     order = venue.place(category="NORMAL", side="buy", qty=1, price=1975.0)
     venue.phase = "atc"
@@ -204,12 +259,11 @@ def __test_cancelling_during_atc_is_refused_with_the_measured_code__():
 # --------------------------------------------------------------------------- determinism
 
 def __test_two_identical_replays_produce_identical_records__():
-    """Card #157 stage C acceptance. A nondeterministic fake cannot pin anything: a pin that
-    passes only sometimes is worse than no pin, because it is read as evidence. Ids must come
-    from a seeded generator, not from a clock or a random source."""
+    """Card #157 stage C acceptance. A pin that passes only sometimes is worse than no pin,
+    because it is read as evidence. Ids come from a seeded generator, never a clock."""
     def _run():
         venue = _venue(seed=1234)
-        stop = venue.place(category="STOP", side="buy", qty=1, stop_price=1990.0, price=1990.2)
+        venue.place(category="STOP", side="buy", qty=1, stop_price=1990.0, price=1990.2)
         venue.feed_print(price=1990.5, volume=10)
         venue.feed_print(price=1991.0, volume=10)
         return venue.records()
