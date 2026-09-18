@@ -874,6 +874,43 @@ def _mutant_secdef_stamps_hose_on_everything(venue_core):
     _ = venue_core
 
 
+
+def _mutant_delta_leg_is_full_size(venue_core):
+    """WRONG: the extra protective leg carries the NEW total instead of the delta.
+
+    50 already armed plus a 60-lot leg protects 110 against a 60-lot long. On a netting account
+    the surplus does not just close the position, it REVERSES it through flat and opens a short
+    nobody asked for. The mutant is the plausible off-by-design: the new quantity is right there
+    in the envelope and using it looks correct.
+    """
+    from pynecore_dnse import broker as dnse_broker
+    original = dnse_broker.DNSEBroker._add_protective_leg
+
+    from dataclasses import replace
+
+    def patched(self, old, new):
+        # The delta is computed as new.qty - old.qty, so zeroing the OLD qty makes the extra leg
+        # carry the new TOTAL. Same effect as reading new.intent.qty directly, without reaching
+        # into the method's internals.
+        as_if_nothing_armed = replace(old, intent=replace(old.intent, qty=0.0))
+        return original(self, as_if_nothing_armed, new)
+
+    dnse_broker.DNSEBroker._add_protective_leg = patched
+    _ = venue_core
+
+
+def _mutant_qty_grow_parks_instead_of_extending(venue_core):
+    """WRONG: a protective-exit qty GROW parks instead of extending.
+
+    This is what the venue does to a conditional qty amend (#18/#85/#93), and it is what the
+    plugin did before #123. Nothing errors: the armed 50-lot leg stays live and reads healthy,
+    while the newly filled 10 lots are naked. Silence is the whole hazard.
+    """
+    from pynecore_dnse import broker as dnse_broker
+    dnse_broker.DNSEBroker._is_pure_qty_grow = staticmethod(lambda old, new: False)
+    _ = venue_core
+
+
 MUTANTS: dict[str, tuple[str, object]] = {
     "oco_spawns": ("__test_the_oco_stop_leg_amends_the_existing_child_in_place_and_never_spawns__",
                    _mutant_oco_spawns),
@@ -1018,6 +1055,12 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "secdef_stamps_hose_on_everything": (
         "test_venue_amend_rules_and_enums.py::__test_a_derivative_carries_the_derivative_market_and_product_group__",
         _mutant_secdef_stamps_hose_on_everything),
+    "delta_leg_is_full_size": (
+        "test_venue_partial_fill_protection.py::__test_the_grown_protection_never_exceeds_the_filled_quantity__",
+        _mutant_delta_leg_is_full_size),
+    "qty_grow_parks_instead_of_extending": (
+        "test_venue_partial_fill_protection.py::__test_protection_does_not_stay_at_50_after_the_second_fill__",
+        _mutant_qty_grow_parks_instead_of_extending),
 }
 
 
