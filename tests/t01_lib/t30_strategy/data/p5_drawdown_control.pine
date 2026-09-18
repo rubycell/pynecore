@@ -1,0 +1,20 @@
+//@version=6
+// Control for the P5 drawdown liveness probe (card #151): the same entry with NO
+// adverse excursion -- every bar's low stays at or above the entry price and the
+// trade never loses -- so both drawdown maxima must read exactly 0. A pin that
+// only asserted "non-zero" on the liveness probe could pass on an accumulator
+// that reports garbage; this control says the accumulator is quiet when it
+// should be.
+//
+//   bars 0-2 flat at 100; L entered on bar 2 (fills bar 3 open at 100)
+//   bars 3-5 rise (lows 100, 104, 107): no open loss, no intrabar dip below entry
+//   the run ENDS with L open (open P&L +9)
+strategy("P5 drawdown control", initial_capital = 100000,
+         default_qty_type = strategy.fixed, default_qty_value = 1,
+         commission_type = strategy.commission.percent, commission_value = 0)
+
+if bar_index == 2
+    strategy.entry("L", strategy.long)
+
+plot(strategy.position_size, "position_size")
+plot(strategy.openprofit, "openprofit")

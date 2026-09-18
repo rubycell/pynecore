@@ -156,3 +156,9 @@ bd7ee0eacd75b765e40c66e9d8399b90439b1450ea40889e689c63b37f5e3eed  tests/t01_lib/
 5cb4e2e97116db65824371506c2b62e6e457d06dba62a1e2a68228ffba13d852  tests/t01_lib/t30_strategy/test_131_strategy_namespace_liveness.py
 385e92628e2167fec52c006d478e5d62c6fbf3f487eaad9c9effad4361249c94  tests/t01_lib/t30_strategy/data/closed_trade_list_overflow.pine
 133e2fb1f222c5b90cec9aa69917bb9c5f813a2be7250d9fabf6c7cda4897216  tests/t01_lib/t30_strategy/data/closed_trade_list_overflow.py
+# 2026-09-18 #151 stage 3 (iv) — land-694: P5 liveness pin (pine-authored probe + control, SIM only, in-file red-first via _finalize_bar_pnl wrapper) — reviewed by Fable
+0f5a3b27b0bb296767a0799da523a6e06cafc7211e5f0758b0213d6d89646680  tests/t01_lib/t30_strategy/test_135_p5_drawdown_liveness.py
+1299c8c9b328daa1606d41f646ef44f1b261cb235cceb19708770185460caf5d  tests/t01_lib/t30_strategy/data/p5_drawdown_liveness.pine
+9387c425c9771811d676c6bc7fc233daa72d5acea28ddb50f2ceff066d89850d  tests/t01_lib/t30_strategy/data/p5_drawdown_liveness.py
+1f938c0d15a10f227dbf7ac5055b3dcd0a1d4fa1bcb78a5d83cd509445f6d62b  tests/t01_lib/t30_strategy/data/p5_drawdown_control.pine
+95b1b51d913d41387317ed06a1549c050638168ad77661ebd0b4c1613a7ff68e  tests/t01_lib/t30_strategy/data/p5_drawdown_control.py
