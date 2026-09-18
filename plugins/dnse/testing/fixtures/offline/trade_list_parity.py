@@ -56,6 +56,21 @@ TRADES = REPO / "workdir" / "output" / "parity_vehicle_trade.csv"
 PRICE_TOLERANCE = 5.0
 
 
+def _park(path: Path) -> None:
+    """Move a previous arm's trade file aside rather than deleting it.
+
+    The house rule is never delete, and it has no carve-out for regenerated artefacts. Parking
+    also leaves the previous arm's list recoverable, which matters when a comparison surprises
+    you and you want to see what the earlier run actually produced.
+    """
+    if not path.exists():
+        return
+    import time as _t
+    parked = REPO / "backup" / "deleteable"
+    parked.mkdir(parents=True, exist_ok=True)
+    path.replace(parked / f"{path.name}.{int(_t.time())}")
+
+
 def _read_trades(path: Path) -> list[dict]:
     with path.open() as handle:
         return [row for row in csv.DictReader(handle) if row.get("Date/Time")]
@@ -68,8 +83,7 @@ def _run(args: list[str], env: dict | None = None, timeout: int = 300) -> None:
 
 def backtest() -> list[dict]:
     """File-mode run over the day's bars: the sim engine."""
-    if TRADES.exists():
-        TRADES.unlink()          # never read a stale list from a previous arm
+    _park(TRADES)                # never read a stale list from a previous arm
     _run([str(REPO / ".venv" / "bin" / "pyne"), "run", VEHICLE, DATASET,
           "--trade", str(TRADES)])
     if not TRADES.exists():

@@ -23,17 +23,15 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-from venue_core import VenueReject
+from venue_core import BUY, VenueReject, VenueServerError
 
 #: Hosts that must never be addressed by anything calling itself a fake.
 _PRODUCTION_HOSTS = ("dnse.com.vn", "entrade.com.vn")
-
-#: Wire side codes (DNSE) to the state machine's own vocabulary.
-_SIDE = {"NB": "buy", "NS": "sell", "BUY": "buy", "SELL": "sell"}
 
 _ORDER_PATH = re.compile(r"^/accounts/(?P<account>[^/]+)/orders/(?P<order_id>[^/]+)$")
 _ORDERS_PATH = re.compile(r"^/accounts/(?P<account>[^/]+)/orders$")
@@ -105,7 +103,7 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             order = self.venue.place(
                 category=category,
-                side=str(payload.get("side", "")).upper() or "NB",
+                side=str(payload.get("side", "")).upper() or BUY,
                 qty=float(payload.get("quantity") or 0),
                 price=_as_float(payload.get("price")),
                 stop_price=_as_float(payload.get("stopPrice")),
@@ -206,7 +204,10 @@ class _Handler(BaseHTTPRequestHandler):
             if os.environ.get("FAKE_VENUE_DEBUG"):
                 # What the adapter SERVED to the poll, so it can be compared with what the
                 # engine did next. Adapter-side only: it proves or clears the fake's half.
-                with open("/tmp/fake_venue_served.log", "a") as handle:
+                with open(os.environ.get("FAKE_VENUE_DEBUG_LOG",
+                         str(Path(__file__).resolve().parents[3]
+                             / "workdir" / "output" / "fake_venue_served.log")),
+                          "a") as handle:
                     for row in orders:
                         handle.write(f"{book} id={row['id']} status={row['orderStatus']} "
                                      f"filled={row['fillQuantity']} avg={row['averagePrice']} px={row['price']} "
@@ -214,6 +215,29 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, {"orders": orders, "total": len(orders), "totalPages": 1})
 
         return self._not_found(parsed.path)
+
+    def do_PUT(self):                                           # noqa: N802
+        """Amend. Without this the server returned a default HTML 501 and the staged probe
+        crashed at its first amend stage — found by the round-2 checker, not by me."""
+        parsed = urlparse(self.path)
+        match = _ORDER_PATH.match(parsed.path)
+        if not match:
+            return self._not_found(parsed.path)
+        category = (parse_qs(parsed.query).get("orderCategory") or [None])[0]
+        payload = self._read_body()
+        try:
+            amended = self.venue.amend(match.group("order_id"),
+                                       price=_as_float(payload.get("price")),
+                                       qty=_as_float(payload.get("quantity")),
+                                       category=category)
+        except VenueServerError as exc:
+            # A 5xx, not a coded rejection: the measured derivative amend-500. The engine must
+            # see a server error here, because that is what makes it fall back to its own
+            # cancel+replace instead of believing the amend landed.
+            return self._send(exc.status, {"message": exc.message})
+        except VenueReject as exc:
+            return self._reject(exc)
+        return self._send(200, amended)
 
     def do_DELETE(self):                                        # noqa: N802
         parsed = urlparse(self.path)

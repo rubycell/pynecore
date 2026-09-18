@@ -73,6 +73,20 @@ class VenueReject(Exception):
         self.message = message
 
 
+class VenueServerError(Exception):
+    """A 5xx from the venue, which is NOT a coded rejection.
+
+    Kept separate from :class:`VenueReject` because the engine treats them differently: a coded
+    400 is a decision it can branch on, a 500 is the venue failing to answer. The measured
+    derivative amend is the latter.
+    """
+
+    def __init__(self, status: int = 500, message: str = ""):
+        super().__init__(message or f"HTTP {status}")
+        self.status = status
+        self.message = message
+
+
 class FakeVenue:
     """An offline DNSE venue driven by market prints rather than by a clock.
 
@@ -259,6 +273,39 @@ class FakeVenue:
         order["canceledQuantity"] = order["quantity"] - order["fillQuantity"]
         self._record(order)
         return self._detail(order)
+
+    def amend(self, order_id, *, price: float | None = None, qty: float | None = None,
+              category: str | None = None) -> dict:
+        """Amend an order — and the two asset types behave COMPLETELY differently.
+
+        * DERIVATIVE: the venue answers HTTP 500. Measured and long-standing ("amend-500" in the
+          venue facts), which is why the plugin does its own cancel+replace for derivatives
+          rather than trusting a PUT. Reproduced as a server error, not a coded rejection,
+          because the engine branches on that difference.
+        * STOCK: the venue answers 200 with a **NEW order id**, having cancelled the old one
+          itself — the old id reads ``Canceled`` untouched (#117, measured on prod 2026-09-15).
+          Both price AND quantity in one PUT are accepted. Any caller that keeps tracking the
+          OLD id after a stock amend goes blind, which is the #39 family of failure.
+        """
+        order = self._orders.get(order_id)
+        if order is None or (category is not None and not self._on_book(order, category)):
+            raise VenueReject("RESOURCE_NOT_FOUND", str(order_id))
+        if order["orderStatus"] in _TERMINAL:
+            raise VenueReject("ORDER_IS_DONE", "order is done")
+
+        if self.market_type == "DERIVATIVE":
+            raise VenueServerError(500, "amend is not supported for derivatives")
+
+        order["orderStatus"] = CANCELED
+        order["canceledQuantity"] = order["quantity"] - order["fillQuantity"]
+        self._record(order)
+        replacement = self._make(
+            self._new_normal_id(), order["book"], order["side"],
+            qty if qty is not None else order["quantity"],
+            price if price is not None else order["price"],
+            order["stopPrice"], order["stopOrderPrice"], NEW,
+            category=order["_category"])
+        return self._detail(replacement)
 
     # ----------------------------------------------------------------- market
 
