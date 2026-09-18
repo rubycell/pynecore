@@ -213,6 +213,11 @@ c64060fa54be36c1b355f60c430045989517bc41afc206b7277c4f032c23c1ef  plugins/dnse/t
 4b8c5bb2f0e3fd8ede4928a59ebaf19fb7b8d15cc4d5287935ca1f2aa74b92e1  plugins/dnse/tests/test_flatten_tool.py
 # 2026-09-18 #152 step 4 pins rev 2 (local time import; first red was a uniform NameError, non-discriminating) — reviewed by Fable
 cb9f3fe5fec0370efe549f31f15ae75b0a7278f1b0400c705f8ba83de9bee2ab  plugins/dnse/tests/test_flatten_tool.py
+# 2026-09-18 #152 item 5: broker logs umbrella + child + stopPrice at the pairing site (body, not the replaced order); two pins (OCO logs one line; NORMAL logs none) — Worker3, reviewed by Fable
+dfc51472ffc44762f4f451a757216b38375f248ffc370773dbb815652640976b  plugins/dnse/pynecore_dnse/broker.py
+57770b81979529a0498a97c97b764b4109473f8acd6859b52e8b34c53a17e3ae  plugins/dnse/tests/test_broker_orders.py
+# 2026-09-18 probe_ws_market_data.py: --symbol, market_channels(symbol), resolve_contract default, loud literal fallback (Worker1; afternoon tick capture) — reviewed by Fable
+74db850dad135c847ecc58a1ab1b2cab655ac182cc816a23db2e0199d19246b5  plugins/dnse/testing/live_test/probe_ws_market_data.py
 # 2026-09-18 #152 sweep pins (25: cancel by CHILD id never the umbrella, SPENT left alone, foreign left alone, UNKNOWN -> exit 2 never cancelled, unreadable OCO book -> exit 2) — reviewed by Fable
 7df6e83ce04621af012bd04bf288745df42a9c18f9bc019921096af3658b756e  plugins/dnse/tests/test_flatten_tool.py
 # 2026-09-18 #152 sweep pins rev 2 (26: + venue import failure -> exit 2 naming OCO, zero cancels) — reviewed by Fable
