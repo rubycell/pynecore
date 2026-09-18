@@ -102,6 +102,13 @@ DNSEPlugin           = "leader — review, adjudication, runbook"
 "plugins/dnse/testing/live_test/l2c_oco_execution.py"         = "WorkerForDNSEPlugin"
 "plugins/dnse/testing/live_test/l2c_oco_execution.toml"       = "WorkerForDNSEPlugin"
 "docs/plan/sep18-oco-execution-plan.md"                       = "WorkerForDNSEPlugin"
+# 2026-09-18 F09/F12 fill-tier vehicles (operator's instruction): Worker1 authors them inside Worker3's live_test tree.
+"plugins/dnse/testing/live_test/l3_f09_bracket_trailing_sl.pine" = "WorkerForDNSEPlugin"
+"plugins/dnse/testing/live_test/l3_f09_bracket_trailing_sl.py"   = "WorkerForDNSEPlugin"
+"plugins/dnse/testing/live_test/l3_f09_bracket_trailing_sl.toml" = "WorkerForDNSEPlugin"
+"plugins/dnse/testing/live_test/l3_f12_prune_adoption_race.pine" = "WorkerForDNSEPlugin"
+"plugins/dnse/testing/live_test/l3_f12_prune_adoption_race.py"   = "WorkerForDNSEPlugin"
+"plugins/dnse/testing/live_test/l3_f12_prune_adoption_race.toml" = "WorkerForDNSEPlugin"
 # 2026-09-18 afternoon tick capture: Worker1 takes the market-data probe for the --symbol change (Worker3 is on W0 + grading).
 "plugins/dnse/testing/live_test/probe_ws_market_data.py"      = "WorkerForDNSEPlugin"
 "CLAUDE.md"                                                   = "DNSEPlugin"
