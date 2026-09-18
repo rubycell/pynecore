@@ -1,0 +1,23 @@
+Vendored: DNSE official OpenAPI SDK EXAMPLES
+Source:   https://github.com/dnse-tech/openapi-sdk  (python/examples)
+Branch:   main
+Commit:   2832e3b96
+Vendored: 2026-09-18
+
+Why vendored: the SDK library (python/dnse) was already vendored; the EXAMPLES were not.
+They are taken here UNMODIFIED so that (a) they can be run against the offline fake venue as
+an EXTERNAL definition of the API contract, written by the people who run the venue rather
+than by us, and (b) any future copy can be diffed against this one to show that nothing was
+edited to make it pass.
+
+IMPORTANT: nothing in upstream/ is edited. Ever. If an example does not run against the fake,
+that is a finding about the fake or about our reading of the venue - see README.md. Adapting
+the example would destroy the only property that makes it worth having.
+
+They run against the VENDORED SDK (../../pynecore_dnse/_vendor/dnse), never a pip install:
+run_against_fake.py puts the vendored directory on sys.path first.
+
+Note: these track upstream main, while the vendored library is pinned at v2.2.0 (commit
+3ab1c2019, 2026-09-11). An example using a method added after that pin will fail on the
+method, not on the fake - check VENDOR_INFO.txt in _vendor before reading such a failure
+as a fake defect.

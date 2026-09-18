@@ -197,6 +197,15 @@ class FakeVenue:
             self._record_file.parent.mkdir(parents=True, exist_ok=True)
             self._record_file.write_text(json.dumps(self._records, indent=2), encoding="utf-8")
 
+    def all_orders(self) -> list[dict]:
+        """Every order this venue has ever held, in creation order.
+
+        The order BOOKS only show what is still working; history shows what happened, including
+        rows that are terminal. Keeping them separate is the point: a cancelled order leaves the
+        book but stays in history, which is what makes a previous-day lookup possible at all.
+        """
+        return [dict(order) for order in self._orders.values()]
+
     def records(self) -> list[dict]:
         return [dict(r) for r in self._records]
 

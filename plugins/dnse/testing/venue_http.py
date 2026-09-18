@@ -33,6 +33,10 @@ from venue_core import BUY, VenueReject, VenueServerError
 #: Hosts that must never be addressed by anything calling itself a fake.
 _PRODUCTION_HOSTS = ("dnse.com.vn", "entrade.com.vn")
 
+#: The sandbox publishes 666666 as its OTP constant; this fake accepts the same, so an example
+#: that drives the token mint can run without any real code existing anywhere.
+_FAKE_OTP = "666666"
+
 _ORDER_PATH = re.compile(r"^/accounts/(?P<account>[^/]+)/orders/(?P<order_id>[^/]+)$")
 _ORDERS_PATH = re.compile(r"^/accounts/(?P<account>[^/]+)/orders$")
 _EXEC_PATH = re.compile(r"^/accounts/(?P<account>[^/]+)/executions/(?P<order_id>[^/]+)$")
@@ -93,6 +97,25 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):                                          # noqa: N802
         parsed = urlparse(self.path)
+
+        if parsed.path == "/registration/send-email-otp":
+            # The venue mails a six-digit code. There is no mailbox here, and there must not be
+            # one: entering a real OTP is prohibited for every agent, and a fake that invented a
+            # credential flow would be teaching exactly the habit that rule exists to prevent.
+            # The sandbox's published constant 666666 is what this venue accepts, so an example
+            # driving the mint flow can be answered without any secret existing anywhere.
+            return self._send(200, {"message": "OTP sent"})
+
+        if parsed.path == "/registration/trading-token":
+            payload = self._read_body()
+            passcode = str(payload.get("passcode") or "")
+            if passcode != _FAKE_OTP:
+                # Refused the way the venue refuses, so an example's error path is reachable.
+                return self._send(400, {"code": "INVALID_OTP",
+                                        "message": f"passcode must be {_FAKE_OTP} on this fake"})
+            return self._send(200, {"tradingToken": "fake-venue-trading-token",
+                                    "expiredAt": 28_800})
+
         match = _ORDERS_PATH.match(parsed.path)
         if not match:
             return self._not_found(parsed.path)
@@ -120,8 +143,38 @@ class _Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
 
         if parsed.path == "/accounts":
-            return self._send(200, {"accounts": [{"accountNo": self.catalogue["account_no"],
-                                                  "custodyCode": "FAKE"}]})
+            # The venue's documented shape (dnse-get-accounts.md): an investorId plus accounts
+            # keyed by "id". This served "accountNo" and no investorId until the SDK examples
+            # were read — and broker.py:405 resolves an unconfigured account with
+            # accounts[0]["id"], so the plugin would have broken on it too. It never did only
+            # because a fake run always pins account_no in config and never resolves. Same
+            # latent-shape family as the /price/ohlc defect: built to satisfy the one reader
+            # that happened to be exercised.
+            return self._send(200, {
+                "investorId": "1000000000",
+                "accounts": [{
+                    "id": self.catalogue["account_no"],
+                    "custodyCode": "FAKE",
+                    "dealAccount": False,
+                    "derivativeAccount": True,
+                    "accountName": "FAKE VENUE",
+                }],
+            })
+
+        if parsed.path.endswith("/balances"):
+            # Nested per asset class, as the venue serves it. NOT a flat set of cash fields —
+            # that was the shape assumed before the documented sample was read.
+            return self._send(200, {
+                "stock": {"totalCash": 1_000_000_000, "availableCash": 1_000_000_000,
+                          "depositInterest": 0, "totalDebt": 0, "depositFeeAmount": 0,
+                          "secureAmount": 0, "orderSecured": 0,
+                          "withdrawableCash": 1_000_000_000, "cashDividendReceiving": 0},
+                "derivative": {"pendingDepositWithdraw": 0, "remainSecure": 1_000_000_000,
+                               "usedSecure": 0, "pendingSecure": 0, "holdTaxAndFee": 0,
+                               "totalLoanDebt": 0},
+                "bond": {"totalValue": 0},
+                "egg": {"totalValue": 0},
+            })
 
         if parsed.path == "/market/instruments":
             # The instrument catalogue drives resolve_contract, the monthly roll (#113) and the
@@ -141,14 +194,27 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, {"data": [row], "total": 1})
 
         if parsed.path.endswith("/loan-packages"):
-            return self._send(200, {"loanPackages": [{"id": 1, "name": "FAKE-MARGIN"}]})
+            # The caller passes marketType and symbol and then uses the package id to place an
+            # order for that symbol. A package that does not say what it is FOR cannot be checked
+            # against, so the answer names both rather than ignoring them.
+            query = parse_qs(parsed.query)
+            return self._send(200, {"loanPackages": [{
+                "id": 1, "name": "FAKE-MARGIN",
+                "symbol": (query.get("symbol") or [self.catalogue["contract"]])[0],
+                "marketType": (query.get("marketType") or ["DERIVATIVE"])[0],
+                "initialRate": 1.0, "interestRate": 0.0,
+            }]})
 
         if parsed.path.endswith("/positions"):
             # Positions are VENUE-DERIVED from fills (CLAUDE.md), so they are computed from the
             # state machine's filled orders rather than stored separately. `total` is served
             # because the plugin PROVES completeness against it and refuses to conclude from a
             # possibly truncated page (#57/#62) — omitting it would make every read inconclusive.
-            rows = self._positions()
+            wanted = (parse_qs(parsed.query).get("marketType") or ["DERIVATIVE"])[0].upper()
+            # This venue replays ONE instrument. Asked about a different market type the honest
+            # answer is none, not these rows relabelled: a route that ignores the parameter makes
+            # every test that varies it prove the same thing twice.
+            rows = self._positions() if wanted == self.venue.market_type.upper() else []
             return self._send(200, {"positions": rows, "total": len(rows)})
 
         if parsed.path == "/price/ohlc":
@@ -184,6 +250,48 @@ class _Handler(BaseHTTPRequestHandler):
                 "nextTime": 0,
             })
 
+        if parsed.path.endswith("/orders/history"):
+            # Rows under "data", inside an envelope carrying accountNo/total/marketType, and ids
+            # DATE-PREFIXED as 20260312_241 (dnse-get-orders-history.md). The date prefix is the
+            # reason a cross-day numeric id does not resolve on the cancel endpoint and why the
+            # venue tool falls back here for previous-day ids — so the fake reproduces it rather
+            # than serving today's bare numeric ids, which would make that whole behaviour
+            # untestable offline.
+            stamp = self.catalogue.get("history_date", "20260918")
+            rows = []
+            for order in self.venue.all_orders():
+                rows.append({
+                    "id": f"{stamp}_{order['id']}",
+                    "symbol": order.get("symbol", self.catalogue["contract"]),
+                    "side": order.get("side"),
+                    "orderType": order.get("orderType", "LO"),
+                    "orderStatus": order.get("orderStatus"),
+                    "price": order.get("price"),
+                    "quantity": order.get("quantity"),
+                    "fillQuantity": order.get("fillQuantity", 0.0),
+                    "leaveQuantity": max(0.0, float(order.get("quantity") or 0)
+                                         - float(order.get("fillQuantity") or 0)),
+                    "canceledQuantity": order.get("canceledQuantity", 0.0),
+                    "averagePrice": order.get("averagePrice", 0.0),
+                    "loanPackageId": 1,
+                    "transDate": f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:]}",
+                })
+            query = parse_qs(parsed.query)
+            # from/to are inclusive trading dates. Ignoring them would make every window return
+            # the same rows, so a caller narrowing its window would learn nothing from doing so.
+            since = (query.get("from") or [""])[0]
+            until = (query.get("to") or [""])[0]
+            rows = [row for row in rows
+                    if (not since or row["transDate"] >= since)
+                    and (not until or row["transDate"] <= until)]
+            return self._send(200, {
+                "accountNo": self.catalogue["account_no"],
+                "fillQuantity": 0,
+                "total": len(rows), "start": 0, "end": len(rows),
+                "marketType": (query.get("marketType") or ["DERIVATIVE"])[0],
+                "data": rows,
+            })
+
         if parsed.path.endswith("/secdef"):
             band = self.catalogue["band"]
             # finalTradeDate belongs HERE, on the secdef. broker.py:1344 reads it from
@@ -191,10 +299,35 @@ class _Handler(BaseHTTPRequestHandler):
             # back to a COMPUTED third-Thursday date that can be in the past. securityStatus is
             # "UNSPECIFIED" because that is what the venue actually returns and it is absent
             # from the documented enum — the fake reproduces the venue, not the documentation.
-            return self._send(200, {"symbol": self.catalogue["contract"],
-                                    "ceilingPrice": band[0], "floorPrice": band[1],
-                                    "securityStatus": "UNSPECIFIED",
-                                    "finalTradeDate": self.catalogue["final_trade_date"]})
+            # A LIST, one row per board — the venue's shape, the plugin's own parser
+            # (provider.py:361) and the SDK examples all expect that. It served a bare dict
+            # until the examples were read; the plugin tolerated it, so nothing said so.
+            #
+            # securityGroupId is load-bearing and was missing: classify_market_type answers
+            # AUTHORITATIVELY from it and otherwise falls through to the symbol-prefix GUESS,
+            # which calls every dated derivative code a STOCK. #119/G1 exists because a guess
+            # must never scale a price, so a fake that forces the guess teaches exactly the
+            # wrong thing. basicPrice is the reference the examples order at.
+            derivative = str(self.catalogue["contract"]).upper().startswith(("VN30F", "41I"))
+            basic = round((band[0] + band[1]) / 2, 1)
+            return self._send(200, [{
+                "marketId": "STO",
+                "boardId": (parse_qs(parsed.query).get("boardId") or ["G1"])[0],
+                "symbol": self.catalogue["contract"],
+                "productGrpId": "STO",
+                "securityGroupId": "FU" if derivative else "ST",
+                "basicPrice": basic,
+                "ceilingPrice": band[0],
+                "floorPrice": band[1],
+                # "UNSPECIFIED" is what the venue actually returns here and it is absent from
+                # the documented enum. The fake reproduces the venue, not the documentation.
+                "securityStatus": "UNSPECIFIED",
+                "symbolAdminStatusCode": "NRM",
+                "symbolTradingMethodStatusCode": "NRM",
+                "symbolTradingSanctionStatusCode": "NRM",
+                "finalTradeDate": self.catalogue["final_trade_date"],
+                "time": self.catalogue.get("secdef_time", "2026-09-18 08:00:00.000"),
+            }])
 
         if _EXEC_PATH.match(parsed.path):
             # Production answers 404 for executions on this account (CLAUDE.md), and the plugin

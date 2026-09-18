@@ -1,0 +1,6 @@
+# Runtime artefacts the examples write when run. A trading-token cache must never be
+# committed, even holding this fake's nonsense token: the file name and shape are exactly
+# those of a real credential cache, and the habit is the hazard.
+.trading_token.json
+*.pyc
+__pycache__/
