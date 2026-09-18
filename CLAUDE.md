@@ -157,7 +157,9 @@ Fork-specific venue plugins, editable-installed (so they import as
   `dnse` (`DNSEProvider` — OHLCV history + metadata) and `dnse_broker`
   (`DNSEBroker` — native STOP/OCO conditional orders). REST order path (no WS
   order-event transport yet, #107; sub-minute bars are WS per-print, #100), built on the
-  **vendored** DNSE openapi-sdk v2.0.0 at `plugins/dnse/pynecore_dnse/_vendor/dnse/`
+  **vendored** DNSE openapi-sdk at `plugins/dnse/pynecore_dnse/_vendor/dnse/` (v2.2.0
+  since 2026-09-11 — `_vendor/VENDOR_INFO.txt` is the ground truth, not this line; only
+  `python/dnse` is vendored, NOT `python/examples`)
   (do NOT pip-install the SDK). Run: `pyne run <out>.py dnse:VN30F1M@5` for data,
   `… dnse_broker:VN30F1M@5 --broker` for live orders. Tests: `plugins/dnse/tests/`
   — `pytest` with functions named `__test_*__` (see `pytest.ini`); mock via the
