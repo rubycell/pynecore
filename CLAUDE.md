@@ -324,10 +324,11 @@ probes were built from the DOCS alone. Rules (measured 2026-08-26):
 - **The WS requires an explicit auth message within 30 s** (HMAC-SHA256 over
   `"{api_key}:{timestamp}:{nonce}"`); subscribes are REFUSED before auth.
   A probe that skips or fails this handshake sees "silent channels".
-- **The connection path exists ONLY in the SDK, not the docs**:
+- **The connection path is in the SDK guide page, NOT in the three REST guide pages**:
   `wss://ws-openapi.dnse.com.vn/v1/stream?encoding=json|msgpack`
-  (`_vendor/dnse/websocket/client.py`). Docs give only the base URL — a
-  docs-faithful probe 404s.
+  (`_vendor/dnse/websocket/client.py`; also `docs/dnse-openapi-documentation/sdk-build_websocket.md:65`
+  with the full HMAC handshake at :72-145). The REST guide pages give only the base URL, so a
+  probe built from those alone 404s. (Corrected 2026-09-18; the earlier "SDK only" claim was false.)
 - **Use the vendored `TradingClient`** (`_vendor/dnse/websocket/` — full
   client + AuthManager, subscribe helpers for every channel). Operator
   mandate: never hand-roll a WS client for production paths.
