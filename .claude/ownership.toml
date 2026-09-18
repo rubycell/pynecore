@@ -103,6 +103,9 @@ DNSEPlugin           = "leader — review, adjudication, runbook"
 "plugins/dnse/testing/live_test/l2c_oco_execution.toml"       = "WorkerForDNSEPlugin"
 "docs/plan/sep18-oco-execution-plan.md"                       = "WorkerForDNSEPlugin"
 "CLAUDE.md"                                                   = "DNSEPlugin"
+# #162 (2026-09-18): the card assignment IS the consent — the assignee edits sync_engine.py for
+# the S1 moot-release fix; longest glob wins over the broker/** consent line. Revert after #162 lands.
+"src/pynecore/core/broker/sync_engine.py"                     = "WorkerForDNSEPlugin"
 # #157/#160 (2026-09-18): Worker4 owns the fake-venue tree and the WS client-factory seam.
 "plugins/dnse/testing/fake_venue.py"                          = "Worker4Isolated"
 "plugins/dnse/testing/fake_dnse.py"                           = "Worker4Isolated"
