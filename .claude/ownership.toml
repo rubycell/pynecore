@@ -119,6 +119,19 @@ DNSEPlugin           = "leader — review, adjudication, runbook"
 "plugins/dnse/testing/fake_dnse.py"                           = "Worker4Isolated"
 "plugins/dnse/testing/fake_dnse_ws.py"                        = "Worker4Isolated"
 "plugins/dnse/testing/venue_core.py"                          = "Worker4Isolated"
+# 2026-09-18: the map predated most of the fake tree, so these files were UNMAPPED and the
+# hook failed open on them all day (Worker4 raised it rather than working around it). Mapped
+# now. The glob covers venue_http / venue_day / venue_mutants / venue_day_from_history /
+# venue_day_dataset and anything later of that shape.
+"plugins/dnse/testing/venue_*.py"                             = "Worker4Isolated"
+"plugins/dnse/pynecore_dnse/fake_broker.py"                   = "Worker4Isolated"
+"plugins/dnse/tests/test_venue_*.py"                          = "Worker4Isolated"
+"plugins/dnse/tests/test_fake_venue_conformance.py"           = "Worker4Isolated"
+"plugins/dnse/tests/test_162_park_replay.py"                  = "Worker4Isolated"
+"plugins/dnse/tests/test_trade_list_parity.py"                = "Worker4Isolated"
+"plugins/dnse/tests/test_collection_sweep.py"                 = "Worker4Isolated"
+"plugins/dnse/tests/test_ws_source_endpoint.py"               = "Worker4Isolated"
+"plugins/dnse/testing/dnse_fake.toml.example"                 = "Worker4Isolated"
 "plugins/dnse/testing/fake_venue/**"                          = "Worker4Isolated"
 "plugins/dnse/testing/fixtures/**"                            = "Worker4Isolated"
 "plugins/dnse/testing/README.md"                              = "Worker4Isolated"
