@@ -362,3 +362,26 @@ Join key: stable patch-id (`git patch-id --stable`) of the source commit = `back
 - DROPPED-BY-DECISION: 0
 - SUPERSEDED-BY-UPSTREAM: 0
 - rows: 350
+
+## Appendix — commits on top of the pure replay (2026-09-18)
+
+| commit | class | subject |
+|---|---|---|
+| 1ebb4374 | ADDED-BY-DECISION (docs: the accounting artefacts) | docs(plan): #151 — commit accounting for the 6.9.4 replay (350 rows, patch-id keyed) + range-diff |
+| 95faf463 | ADDED-BY-DECISION (i) | fix(engine): #151 — the 6.9.4 restart sweep preserves on unconfirmed flat evidence; only our own closing fill retires |
+| 7ba74f17 | ADDED-BY-DECISION (ii) | test(engine): #151 — a filled-but-open entry anchor is NOT spent (the DNSE journal shape) |
+| 2ce4389c | ADDED-BY-DECISION (iii) | test(strategy): #151 — invert the #83/#84 fix-detectors into fix pins (upstream fixed both in 6.9.3) |
+| e278560b | ADDED-BY-DECISION (iv) | test(strategy): #151 — liveness pin for the kept P5 drawdown / P&L-percent statistics (SIM only) |
+
+Notes:
+- Decision (i) contains ONE hunk that modifies an UPSTREAM test in test_025 (core engine tests): `__test_restart_on_a_flat_book_retires_journal_legs_of_gone_parents__`, added by upstream 45bc8103, rewritten to assert preserve + pending + row still live. Class for that hunk: **REPLAYED-MODIFIED (upstream test hunk)** — it conflicts at every future rebase that touches this test; the FORK paragraph in its docstring says why.
+- Decision (i) also changes the `def` line of `_retire_orphan_exits_on_flat_book` (upstream 45bc8103's signature hunk) by adding `venue_confirmed: bool = False`; upstream's restart call line is untouched.
+- `src/pynecore` residual on the final tree: `git diff land-694-replay land-694 -- src/pynecore` is byte-identical to commit 95faf463's engine diff, and the replay's own residual was 0 — so the source→landed engine diff is exactly the upstream diff plus decision (i).
+- The fork-only tree check on the final tree differs from the source by exactly: the two accounting artefacts (this file and the range-diff) and the leader's approval lines in the `.claude` manifest.
+- DROPPED-BY-DECISION: none. SUPERSEDED-BY-UPSTREAM: none. `<` rows: none.
+
+## Cherry checks on the final tree (2026-09-18)
+
+- `git cherry 01e78834 land-694 v6.9.2 | grep '^+'` = **35** = upstream's 25 (v6.9.2..v6.9.4) + the 5 context/modified replays + the 5 fork-added commits above.
+- `git cherry land-694 01e78834 v6.9.2 | grep '^+'` = **5** = exactly the five `!` rows of the table (c130c316, 6d1916d3, 9ba409e4, d966bad2, 122f8f50) → no source commit is lost.
+- `git cherry pre-694-20260917 land-694`: `+` 48 (25 upstream + the 13 fork commits landed after the tag + 5 + 5), `-` 332 (= 337 − 5).
