@@ -124,6 +124,7 @@ DNSEPlugin           = "leader — review, adjudication, runbook"
 # now. The glob covers venue_http / venue_day / venue_mutants / venue_day_from_history /
 # venue_day_dataset and anything later of that shape.
 "plugins/dnse/testing/venue_*.py"                             = "Worker4Isolated"
+"plugins/dnse/testing/examples/**"                            = "Worker4Isolated"
 "plugins/dnse/pynecore_dnse/fake_broker.py"                   = "Worker4Isolated"
 "plugins/dnse/tests/test_venue_*.py"                          = "Worker4Isolated"
 "plugins/dnse/tests/test_fake_venue_conformance.py"           = "Worker4Isolated"
