@@ -200,7 +200,29 @@ class FakeVenueBroker(DNSEBroker):
 
         day = load_day(path)
         self._day = day
-        self._bars = [OHLCV(timestamp=int(b["timestamp"]), open=float(b["open"]),
+
+        # RE-STAMP the replayed day onto the current wall clock, ONE offset for every surface.
+        #
+        # The engine anchors its live path to the wall clock in TWO independent places
+        # (live_runner.py:1813 staleness, :763-775 one synthetic bar per MISSED timeframe
+        # boundary at :787), so a day stamped in the past misses a boundary every real minute
+        # and the synthesiser wins forever. Measured: 65 synthetic bars even with the staleness
+        # watchdog disabled. Shifting the FIRST LIVE bar onto the current boundary makes the
+        # stream arrive at or ahead of the clock, so no boundary is ever missed.
+        #
+        # The day FILE keeps its recorded timestamps; the shift is applied at SERVE time only,
+        # so the fixture stays a faithful record and the offset is reported in the log.
+        live_count_preview = max(1, int(os.environ.get("FAKE_VENUE_LIVE_BARS", "120")))
+        if len(day.bars) <= live_count_preview:
+            live_count_preview = max(1, len(day.bars) // 2)
+        first_live_ts = int(day.bars[-live_count_preview]["timestamp"])
+        tf_ms = 60_000
+        now_boundary_ms = (int(datetime.now().timestamp() * 1000) // tf_ms) * tf_ms
+        self._offset_ms = now_boundary_ms - first_live_ts
+
+        self._orig_ts = [int(b["timestamp"]) for b in day.bars]
+        self._bars = [OHLCV(timestamp=int(b["timestamp"]) + self._offset_ms,
+                            open=float(b["open"]),
                             high=float(b["high"]), low=float(b["low"]),
                             close=float(b["close"]), volume=float(b["volume"]))
                       for b in day.bars]
@@ -216,6 +238,7 @@ class FakeVenueBroker(DNSEBroker):
             live_count = max(1, len(self._bars) // 2)
         self._warmup_bars = self._bars[:-live_count]
         self._live_bars = self._bars[-live_count:]
+        self._live_orig_ts = self._orig_ts[-live_count:]
         self._idx = 0
 
         contract = day.symbol
@@ -223,8 +246,13 @@ class FakeVenueBroker(DNSEBroker):
         venue = FakeVenue(symbol=contract, market_type="DERIVATIVE",
                           last_price=reference, seed=1157)
         self._venue = venue
+        shifted_bars = [dict(b, timestamp=int(b["timestamp"]) + self._offset_ms)
+                        for b in day.bars]
+        from datetime import timedelta as _td
+        shifted_ftd = (datetime.now() + _td(days=90) + _td(milliseconds=self._offset_ms)
+                       ).strftime("%Y-%m-%d")
         self._server = VenueHTTP(
-            venue, contract=contract, bars=day.bars,
+            venue, contract=contract, bars=shifted_bars, final_trade_date=shifted_ftd,
             band=(round(reference * 1.07, 1), round(reference * 0.93, 1)),
         ).start()
 
@@ -248,6 +276,12 @@ class FakeVenueBroker(DNSEBroker):
         logging.getLogger(__name__).warning(
             "[FAKE VENUE] split: %d warmup bar(s), %d live bar(s) (FAKE_VENUE_LIVE_BARS)",
             len(self._warmup_bars), len(self._live_bars))
+        logging.getLogger(__name__).warning(
+            "[FAKE VENUE] replay offset = %+d s (day %s served as today); the day file keeps "
+            "its recorded timestamps, the shift is applied at serve time on bars, prints, "
+            "/price/ohlc and finalTradeDate alike",
+            self._offset_ms // 1000,
+            datetime.fromtimestamp(self._orig_ts[0] / 1000).date())
 
     @property
     def client(self):
@@ -318,7 +352,7 @@ class FakeVenueBroker(DNSEBroker):
             await asyncio.sleep(self._live_pace)
             bar = self._live_bars[self._idx]
             self._idx += 1
-            self._day.replay_bar(bar.timestamp, into=self._venue)
+            self._day.replay_bar(self._live_orig_ts[self._idx - 1], into=self._venue)
             # Move the history cursor with the stream, so a history read never returns a bar the
             # replay has not reached (see venue_http's /price/ohlc clamp).
             self._server.catalogue["replay_cursor"] = bar.timestamp
