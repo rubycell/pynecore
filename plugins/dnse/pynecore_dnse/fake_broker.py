@@ -226,6 +226,10 @@ class FakeVenueBroker(DNSEBroker):
                        limit: int | None = None, with_extra: bool = False):
         """Warm up from the day's bars. The window is ignored: the day IS the history."""
         self._ensure_venue()
+        # The history cursor starts at the END OF WARMUP: everything at or before this is
+        # history, everything after it is the live stream that has not happened yet.
+        if self._warmup_bars:
+            self._server.catalogue["replay_cursor"] = self._warmup_bars[-1].timestamp
         for bar in self._warmup_bars:
             self.save_ohlcv_data(bar)
         if on_progress is not None:
@@ -264,6 +268,9 @@ class FakeVenueBroker(DNSEBroker):
             bar = self._live_bars[self._idx]
             self._idx += 1
             self._day.replay_bar(bar.timestamp, into=self._venue)
+            # Move the history cursor with the stream, so a history read never returns a bar the
+            # replay has not reached (see venue_http's /price/ohlc clamp).
+            self._server.catalogue["replay_cursor"] = bar.timestamp
             return bar
         await self._exhausted.wait()
         return self._live_bars[-1]

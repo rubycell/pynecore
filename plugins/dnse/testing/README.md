@@ -104,9 +104,25 @@ joined, so a late start is never read as a whole session.
 
 ## Known gaps
 
-- **The L1 staged no-fill probe runs but places no orders.** It walks every state against the
-  fake and dispatches nothing; the cause is not yet identified. The `l2b` vehicle does place,
-  fill and flatten correctly, so this is specific to that probe rather than to the fake.
+- **The L1 staged no-fill probe runs but places no orders**, and the remaining cause is
+  engine-side bar accounting rather than the probe or the venue. What is ruled out, each by
+  measurement: the probe's gate is purely `time >= winStart and time <= winEnd` with no
+  realtime condition, and the window was re-dated onto the replayed day; the bar store no
+  longer accumulates across runs (that WAS a real cause, now fixed — warmup fell from 704 bars
+  to 561); and the history endpoint is now clamped to the replay cursor so it cannot serve
+  bars the replay has not reached.
+
+  What remains unexplained: the broker hands `download_ohlcv` exactly 639 warmup bars ending
+  around 13:06, yet the engine reports "warmup phase complete — 561 bar(s)" with its last
+  warmup bar stamped 14:07, the day's final bar. So warmup is both TRIMMED (561 of 639) and
+  extends PAST the slice it was given. Until that is understood the probe's window keeps
+  opening inside warmup, where orders route to the backtest engine and never reach the venue.
+
+  Start here: instrument what `download_ohlcv` actually persists versus what the warmup replay
+  reads back, and confirm whether the engine's per-bar log prefix is the bar's timestamp or
+  something else — the 14:07 reading assumes it is the bar time, and that assumption has not
+  been checked. The `l2b` vehicle places, fills and flattens correctly against the same fake,
+  so nothing here blocks the fill path.
 - **The #162 park replay is not built yet.**
 - **The WebSocket half is not served over the socket.** The vendored connection passes an SSL
   context unconditionally and the pinned websockets version refuses that against a `ws://`

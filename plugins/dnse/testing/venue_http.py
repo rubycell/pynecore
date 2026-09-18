@@ -149,7 +149,16 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, {"positions": rows, "total": len(rows)})
 
         if parsed.path == "/price/ohlc":
-            return self._send(200, {"data": self.catalogue["bars"]})
+            # CLAMPED to the replay position. A history endpoint that serves bars the replay has
+            # not reached yet is serving the FUTURE as history: warmup would then consume the
+            # whole day and the live stream would have nothing left to deliver. The cursor is
+            # advanced by the broker as it hands each bar to the engine; before the first bar it
+            # is None and the full day is served, which is what a cold history read expects.
+            cursor = self.catalogue.get("replay_cursor")
+            bars = self.catalogue["bars"]
+            if cursor is not None:
+                bars = [b for b in bars if b["timestamp"] <= cursor]
+            return self._send(200, {"data": bars})
 
         if parsed.path.endswith("/secdef"):
             band = self.catalogue["band"]
@@ -257,6 +266,9 @@ class VenueHTTP:
             "bars": bars or [],
             "band": band or (2200.0, 1800.0),
             "final_trade_date": self.served_final_trade_date,
+            # Advanced by the broker as each bar is handed to the engine; see the
+            # /price/ohlc clamp above.
+            "replay_cursor": None,
         }
         handler = type("_BoundHandler", (_Handler,),
                        {"venue": venue, "catalogue": self.catalogue})
