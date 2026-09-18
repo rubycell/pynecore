@@ -101,8 +101,7 @@ def fake_run(live_bars: int, pace: str = "0.3") -> tuple[list[dict], int]:
     # BOTH arms write the same trade CSV. Deleting it first is what stops a fake run that
     # failed to write from being compared against the BACKTEST's own list — which happened, and
     # produced a confident 120-row "difference" that was the backtest against itself.
-    if TRADES.exists():
-        TRADES.unlink()
+    _park(TRADES)
     # Warmup alone replays hundreds of bars and takes tens of seconds; a budget that only
     # covered the live stream interrupted the run mid-warmup and it never traded (measured).
     budget = 100 + int(float(pace) * live_bars * 2)

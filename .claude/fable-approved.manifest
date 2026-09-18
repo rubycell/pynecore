@@ -265,6 +265,16 @@ c2b0d0cfae5147fc35120b8da2dbc87aca40ebde0f894f3293a471a9d28a7843  plugins/dnse/t
 55a2a1dd27b67362c3c7c051a3e8a58470b0aa9147bffd82bf2d5dcf81e5f6e3  plugins/dnse/testing/fixtures/offline/trade_list_parity.py
 # 2026-09-18 #157 593b6888: staged probe dispatches against the re-stamped fake (2 dispatches, 4 CREATED / 3 CANCELLED, 0 synth); README re-stamping + parity sections
 2f3c48ed208089c6ad673969d29f923053e2e19366b9c58137bc74a462dbfcf4  plugins/dnse/testing/README.md
+# 2026-09-18 #157 round-2 fixes at 5c2ab40f (Worker4): PUT served with the measured asymmetry (derivative 500, stock new id), parity as an opt-in pytest pin + always-on compare() pin, DELETE wrong-book pin, Config/fail-loud pins, low items
+2f9bc59488b87c8dec0fb99fc2f9dcedd2f407f586435563729d173555e8c933  plugins/dnse/testing/venue_core.py
+68f84c677c4bffa8fe0184fcccc50f5e1affc8dd0d744b0390c2a6b8c9b9dbfd  plugins/dnse/testing/venue_http.py
+166a0d89ef92ffbba7ef3fdbb3cc860cf64e155b8e7a1776795f1064d07259d4  plugins/dnse/testing/venue_mutants.py
+dc0dce98398b44b223a9c7e5c29f314f97fee96e7e07c69756ee652eeeba3fd7  plugins/dnse/testing/README.md
+e55a76fd8c9a9a6bbe1aec25e3e83a1bb463d54563b5e3afac876cbf602984d6  plugins/dnse/pynecore_dnse/fake_broker.py
+d01b86f52613f5affd60059ca8b85d264ab746cea2a867c85342db3ae7a939d1  plugins/dnse/tests/test_venue_http.py
+de7f5552a07b0fe79502a58f2736d727ddbb2f2abb6eb1858723e8f6d70e75db  plugins/dnse/tests/test_trade_list_parity.py
+2dae39848a5005e84d2ed573f65b2f06cd74df6ef1a4c2bbe5a23e7d7da8030c  plugins/dnse/tests/test_collection_sweep.py
+6427c7102ce2431de5525e2cebaf582b4e7c5f56cbc34738623ef8da533bace6  plugins/dnse/testing/fixtures/offline/trade_list_parity.py
 6bca480694a87414913f19438078041091c150f28060443c50bd19093348672a  plugins/dnse/testing/venue_mutants.py
 6429f925b1a120cfc1bd876899210cf646bec7a20c08311e75a539b6c2659d5f  plugins/dnse/pynecore_dnse/fake_broker.py
 3542b300c1ec62a1b0f2dacbff057d3cd92b19d4730a15f2d112c98ac37fcee2  plugins/dnse/tests/test_fake_venue_conformance.py
