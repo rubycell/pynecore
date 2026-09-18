@@ -1,4 +1,10 @@
-"""TESTING ONLY (#157): the offline fake DNSE venue — STUB, no behaviour implemented yet.
+"""TESTING ONLY (#157): the fake DNSE venue STATE MACHINE — STUB, no behaviour implemented yet.
+
+Named `venue_core` rather than `fake_venue` because `plugins/dnse/testing/fake_venue.py` already
+exists (card #10, `FakeDNSEVenue`, alive in `test_fixes_end_to_end.py`). Two modules with one
+basename is how a question ends up answered in two places and the answers drift. Per the panel
+adjudication this module is the ONE state machine the existing fakes fold into, and the measured
+quirks in `testing/fake_venue.py` are absorbed here rather than re-derived.
 
 This module exists so the conformance suite written test-first
 (``plugins/dnse/tests/test_fake_venue_conformance.py``) can FAIL for the right reason. Every
