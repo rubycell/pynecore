@@ -255,3 +255,94 @@ def __test_a_filled_row_carries_an_average_price__(served):
     assert detail["averagePrice"] == 1979.0, "filled rows must carry the price they filled at"
     for field in ("symbol", "orderCategory", "orderType", "canceledQuantity"):
         assert field in detail, f"{field} is part of the venue row"
+
+
+def __test_a_derivative_amend_answers_500_not_a_coded_rejection__(served):
+    """The measured amend-500. A derivative PUT is refused by the venue with a SERVER error, and
+    that is why the plugin does its own cancel+replace rather than trusting a PUT. Serving a
+    coded 400 here would look tidier and would teach the engine the wrong recovery."""
+    venue, server = served
+    from pynecore_dnse.client import DNSEClient
+
+    client = DNSEClient("key", "secret", base_url=server.base_url)
+    _, placed = client.post_order(
+        "0001000000", "DERIVATIVE",
+        {"symbol": "41I1G9000", "side": "NB", "orderType": "LO",
+         "price": 1975.0, "quantity": 1, "loanPackageId": 1},
+        "trading-token", order_category="NORMAL")
+
+    status, _ = client.put_order("0001000000", placed["id"], "DERIVATIVE",
+                                 {"price": 1976.0, "quantity": 1}, "trading-token")
+
+    assert status == 500, "a derivative amend is a 5xx, not a coded rejection"
+
+
+def __test_a_stock_amend_returns_a_NEW_id_and_cancels_the_old_one__():
+    """#117, measured on prod 2026-09-15: a stock PUT answers 200 with a NEW order id, the venue
+    having cancelled the old one itself, which reads Canceled untouched. Anything that keeps
+    tracking the OLD id after a stock amend goes blind — the #39 family."""
+    venue = FakeVenue(symbol="HPG", market_type="STOCK", last_price=26.5, seed=117)
+    original = venue.place(category="NORMAL", side="NB", qty=100, price=26.5)
+
+    replacement = venue.amend(original["id"], price=26.6, qty=200)
+
+    assert replacement["id"] != original["id"], "a stock amend mints a NEW id"
+    assert venue.order(original["id"])["orderStatus"] == "Canceled", "and cancels the old one"
+    assert replacement["price"] == 26.6 and replacement["quantity"] == 200, (
+        "both price and quantity land in one PUT")
+
+
+def __test_a_delete_on_the_wrong_book_is_refused__(served):
+    """R4's cancel half. The books are separate, so a cancel addressed to the wrong one does not
+    find the order.
+
+    Note the asymmetry, which is the fake's own and is NOT measured against production: a wrong-
+    book DELETE surfaces as 400 (the venue's RESOURCE_NOT_FOUND rejection) while a wrong-book GET
+    surfaces as 404. Production's status codes for these two are unmeasured; the CODE is what the
+    engine branches on and it is the same in both.
+    """
+    venue, server = served
+    from pynecore_dnse.client import DNSEClient
+
+    client = DNSEClient("key", "secret", base_url=server.base_url)
+    _, placed = client.post_order(
+        "0001000000", "DERIVATIVE",
+        {"symbol": "41I1G9000", "side": "NB", "orderType": "LO",
+         "price": 1975.0, "quantity": 1, "loanPackageId": 1},
+        "trading-token", order_category="NORMAL")
+
+    status, body = client.cancel_order("0001000000", placed["id"], "DERIVATIVE",
+                                       "trading-token", order_category="STOP")
+
+    assert status >= 400
+    assert "RESOURCE_NOT_FOUND" in str(body)
+
+
+def __test_the_fake_config_class_is_its_own_so_the_cache_cannot_poison_production__():
+    """R6. ensure_config caches on config_cls._ensured and tests it with hasattr, which follows
+    inheritance (#165), so whichever class is ensured FIRST answers for its whole hierarchy. The
+    fake therefore uses a distinct leaf class: a live dnse_broker run can never be handed the
+    fake's loopback endpoints and nonsense token."""
+    from pynecore_dnse.fake_broker import FakeVenueConfig, FakeVenueBroker
+    from pynecore_dnse.config import DNSEBrokerConfig
+
+    assert FakeVenueBroker.Config is FakeVenueConfig
+    assert issubclass(FakeVenueConfig, DNSEBrokerConfig)
+    assert "_ensured" not in DNSEBrokerConfig.__dict__, (
+        "the fake's config must never leave an _ensured cache on the SHARED broker config class")
+
+
+def __test_a_missing_tracked_example_raises_rather_than_using_production_defaults__(tmp_path,
+                                                                                    monkeypatch):
+    """R7. Proceeding with an empty dict would leave the PRODUCTION token path and endpoints in
+    place on a run that believes it is driving a fake. Silence here is the one outcome that could
+    route a test at the live venue."""
+    from pynecore_dnse import fake_broker as fb
+    from pynecore_dnse.fake_broker import FakeVenueBroker, FakeVenueConfig
+
+    broker = FakeVenueBroker.__new__(FakeVenueBroker)
+    broker.config = FakeVenueConfig(api_key="", api_secret="")
+    monkeypatch.setattr(fb, "__file__", str(tmp_path / "nowhere" / "fake_broker.py"))
+
+    with pytest.raises(RuntimeError, match="refusing to build a fake-venue config"):
+        broker._repair_config_if_degraded()

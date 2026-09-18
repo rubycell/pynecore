@@ -29,6 +29,7 @@ _GUARDED = (
     "test_ws_source_endpoint.py",
     "test_collection_sweep.py",
     "test_162_park_replay.py",
+    "test_trade_list_parity.py",
 )
 
 

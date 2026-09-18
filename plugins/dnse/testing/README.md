@@ -116,10 +116,24 @@ substitutes its own flat bars forever. Measured before the shift: 65 synthetic b
 nothing to compare. After it: zero synthetic bars and a real trade list.
 
 **Consequence for any vehicle with an absolute time window.** Those windows are wall-clock
-milliseconds, so they must be set around NOW, not around the recorded day's dates. A window on
-the recorded dates never opens. That was the real cause of the staged no-fill probe appearing to
-place nothing: its window kept opening inside a warmup that never ended. Re-measured after the
-shift, with the window set around now, it dispatches.
+milliseconds, so they must be set past LAUNCH PLUS WARMUP, not merely "around now". Warmup
+replays up to 500 bars and takes tens of seconds, and a window that opens during it burns the
+vehicle's stages against the backtest engine, which routes no orders. The round-2 checker saw
+stages T1 to T4 fire inside warmup with no broker line at all. A window on the recorded day's
+dates never opens.
+
+That was the real cause of the staged no-fill probe appearing to place nothing. Re-measured
+after the shift with the window set correctly: zero synthetic bars, and it dispatches and
+cancels on the conditional book. It is NOT a clean pass end to end. The checker ran it past T5
+and it needed an amend the server did not serve; amends are now implemented, with the venue's
+own asymmetry.
+
+## Amends are asymmetric by asset type
+
+A DERIVATIVE amend answers HTTP 500, which is why the plugin performs its own cancel-and-replace
+rather than trusting a PUT. A STOCK amend answers 200 with a NEW id, the old one reading
+`Canceled`, and both price and quantity land in one request. Anything that keeps tracking the old
+id after a stock amend goes blind, which is the same failure family as a stop entry's child.
 
 ## Trade-list parity
 

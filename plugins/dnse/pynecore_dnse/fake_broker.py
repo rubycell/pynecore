@@ -156,7 +156,9 @@ class FakeVenueBroker(DNSEBroker):
         if path is None:
             return
         store, stem = Path(path).parent, Path(path).stem
-        parked = Path("backup/deleteable")
+        # Anchored to the repo, not the cwd: a run started elsewhere would otherwise
+        # scatter parked files into whatever directory it happened to be in.
+        parked = Path(__file__).resolve().parents[3] / "backup" / "deleteable"
         stamp = int(datetime.now().timestamp())
         for existing in sorted(store.glob(f"{stem}.*")) + [Path(path)]:
             if existing.exists() and existing.name.startswith(stem):
