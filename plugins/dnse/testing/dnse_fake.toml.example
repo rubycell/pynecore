@@ -1,0 +1,31 @@
+# #157 — config for the OFFLINE fake venue. Copy to workdir/config/plugins/dnse_fake.toml
+#
+# This is a SEPARATE file on purpose. The live dnse_broker.toml is never read by a fake run and
+# never edited by one, so a fake run cannot disturb live credentials or endpoints, and a
+# mis-typed provider name fails to find a config rather than quietly using the real one.
+#
+# The credentials here are deliberately nonsense. The fake venue does not verify signatures, and
+# a real key in this file would be a live credential sitting in a test fixture path.
+api_key = "fake-venue-not-a-real-key"
+api_secret = "fake-venue-not-a-real-secret"
+
+# Resolved by the fake's own /accounts endpoint; stated here so no account lookup is needed.
+account_no = "0001000000"
+
+# The fake accepts any trading token. Stated inline so the run never reads the real token file,
+# which is the one piece of live state a test must not touch.
+trading_token = "fake-venue-token"
+token_file = "plugins/dnse/testing/fixtures/NON_EXISTENT_token.json"
+
+# Endpoints. These are placeholders: FakeVenueBroker starts its own loopback server and
+# overwrites both in memory with the port it actually bound. They matter anyway, because
+# provider.is_production reads them, and a production host in either one would make the run
+# announce itself as LIVE DNSE before the override ran.
+base_url = "http://127.0.0.1:0"
+ws_url = "ws://127.0.0.1:0"
+
+# Fills are driven by replayed prints, not by polling, so the poll intervals only pace the
+# engine's own reconcile loop. Kept small so an offline run finishes quickly.
+order_poll_interval = 0.05
+bar_poll_interval = 0.05
+enable_ws_order_events = false
