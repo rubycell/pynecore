@@ -284,6 +284,59 @@ entry modify. It is also not specific to derived days: the same vehicle against 
 parks 38 times in 110 seconds. Whether the plugin should keep re-attempting a cancel on a
 conditional whose child it has already adopted is a separate question, for its own card.
 
+## A fake run does not end when its bars run out — it blocks
+
+Measured 2026-09-18 on both new fill-tier vehicles, and it is not specific to them.
+
+`FAKE_VENUE_LIVE_BARS=40` replayed all forty live bars in about **thirty seconds** — and then the
+process stayed alive with the log not growing, blocked in the live loop waiting for a next bar
+from a day that is exhausted. F12 sat that way for six minutes until it was killed (exit 144,
+expected after your own kill). F09 did the same and was killed by its own `timeout 600` wrapper
+(exit 124).
+
+**Three consequences for anyone driving this fake:**
+
+1. **`FAKE_VENUE_LIVE_BARS` bounds what is REPLAYED, not how long the process lives.** Every fake
+   run needs an explicit stop — a `timeout`, or a kill once the record file stops changing. Do
+   not wait for it to finish; it will not.
+2. **The record file, not process exit, is the completion signal.** It is rewritten after every
+   state transition, so it is complete long before the process is stopped. Grades stand despite a
+   run being killed or timing out — which is exactly the property the record file was built for.
+3. **Read the status of the RUN, not of the wrapper.** `timeout N pyne run … ; echo $?` leaves the
+   real number in the echo and **zero** as the command's status, because the shell reports the
+   last command. That shape produced a reported "exit code 0" when the truth was 124. Capture to
+   a variable, or put nothing after the command. Same family as the pipe-exit trap already
+   written into the plan docs.
+
+### Is the block a defect? No — but its SILENCE is
+
+The blocking is deliberate and it is right. `watch_ohlcv` ends with `await self._exhausted.wait()`
+on an `asyncio.Event`, so a replay that has served its last bar parks rather than returning.
+That models the venue correctly: a real feed never ends either, and the engine's live path has no
+"the data is finished" state. Giving it one would teach the engine a shutdown path that
+production never takes, which is the same mistake as a fake that refuses where the venue accepts.
+An exhausted replay is a quiet feed, and a quiet feed is a thing that really happens.
+
+What is wrong is that it goes quiet **without saying so**, and two things combine to make that
+worse than it looks:
+
+- **Nothing is logged when the last bar is handed over.** From outside, "finished replaying" and
+  "hung" are the same observation: a live process and a log that stopped growing. Every consumer
+  is therefore forced to guess with a timeout.
+- **The engine's own staleness watchdog is switched off here** (`feed_timeout_bars = None`), for a
+  good and documented reason: a paced replay trips it and the engine then substitutes its own
+  flat bars forever. But the consequence is that the fake has *no* staleness signal at all, so
+  the one mechanism that would otherwise surface the silence is the one we removed.
+
+So the missing piece is an **end-of-replay signal**, not a change to the loop and not an exit.
+The seam already exists and is simply never used: `self._exhausted` is created and waited on, and
+nothing ever sets it. Setting it at the last bar, with a log line naming how many bars were
+served, would let a runner wait on a signal instead of on a timeout and let a human tell the two
+states apart at a glance — while leaving the parking behaviour, which is the correct model,
+exactly as it is.
+
+Filed as a #157 follow-up rather than changed here.
+
 ## Known gaps
 
 - **The WebSocket half is not served over the socket.** The vendored connection passes an SSL
