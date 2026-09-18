@@ -5963,7 +5963,19 @@ def __test_flat_close_spares_journal_legs_of_an_opening_parent__(tmp_path):
 
 
 def __test_restart_on_a_flat_book_retires_journal_legs_of_gone_parents__(tmp_path):
-    """A flat restart must cancel adopted exit legs whose parent owns nothing.
+    """A flat restart PRESERVES adopted exit legs whose parent owns nothing.
+
+    FORK (#151, upstream 6.9.4 / 45bc8103 re-derived): upstream retires the
+    legs on the first sync. On this fork the restart sweep's flat evidence is
+    the in-memory position after startup adoption -- a snapshot, and after
+    the #73 clamp possibly 0 while the venue holds exposure -- never a fill
+    of ours. A bare ``_cleanup_position_tracking`` cancels on DNSE, so the
+    sweep routes the restart pass through ``flat_evidence_unconfirmed`` and
+    marks the parent in ``_unconfirmed_flat_pending``; reconcile retires it
+    once the flat is confirmed (see the resolution pin below). RED on the
+    naive merge: the cancel count is what this asserts, not a log line.
+
+    Upstream's original rationale, kept for the reader:
 
     The flat-close sweep only runs on a closing fill. When the prior
     process died between a venue-side TP fill and the cancel of its OCA
@@ -6003,10 +6015,216 @@ def __test_restart_on_a_flat_book_retires_journal_legs_of_gone_parents__(tmp_pat
         engine.sync(BAR_TS)
 
         assert pos.size == 0.0
+        assert not b.cancel_calls, (
+            "the restart sweep issued a venue cancel on unconfirmed flat "
+            f"evidence: {[getattr(e.intent, 'from_entry', None) for e in b.cancel_calls]}")
+        assert engine._unconfirmed_flat_pending == {"S2", "S3"}  # type: ignore[attr-defined]
+        live_parents = {row.from_entry for row in ctx.iter_live_orders()}
+        assert live_parents == {"S2", "S3"}, "a preserved leg must stay in the journal"
+
+
+def __test_151_restart_sweep_keyword_decides_cancel_not_the_row_shape__(tmp_path):
+    """Control for the restart pin: the SAME level-carrying rows are retired
+    when the sweep is told the flat is venue-confirmed.
+
+    Shows that the keyword decides, not the row shape: ``venue_confirmed=True``
+    is what the close-fill caller passes (its own closing fill is the
+    evidence), and with it the orphan legs cancel exactly as before #151.
+    """
+    from pynecore.core.broker.storage import BrokerStore
+    from pynecore.core.broker.run_identity import RunIdentity
+
+    with BrokerStore(tmp_path / "broker.sqlite", plugin_name="testbroker") as store:
+        ctx = store.open_run(
+            RunIdentity(
+                strategy_id="t025", symbol=SYMBOL, timeframe="60",
+                account_id="testbroker-demo", label=None,
+            ),
+            script_source="src", script_path="t025.py",
+        )
+        b = MockBroker()
+        pos = BrokerPosition()
+        engine = OrderSyncEngine(
+            broker=b,  # type: ignore[arg-type]
+            position=pos, symbol=SYMBOL, run_tag=RUN_TAG,
+            mintick=0.01, store_ctx=ctx,
+        )
+        for parent in ("S2", "S3"):
+            ctx.upsert_order(
+                f"test-{parent.lower()}x-s0", symbol=SYMBOL, side="buy", qty=156.0,
+                state="confirmed", intent_key=f"{parent}-X\0{parent}",
+                exchange_order_id=f"X-SL-{parent}", from_entry=parent,
+                sl_level=78307.9,
+                extras={"kind": "exit_leg", "leg": "sl", "exit_id": f"{parent}-X"},
+            )
+        engine.sync(BAR_TS)
+        assert not b.cancel_calls, "the restart pass must preserve first"
+
+        engine._retire_orphan_exits_on_flat_book(  # type: ignore[attr-defined]
+            journal_only=True, venue_confirmed=True)
         cancelled = {
             getattr(env.intent, 'from_entry', None) for env in b.cancel_calls
         }
         assert cancelled == {"S2", "S3"}
+
+
+def __test_151_restart_sweep_collects_no_parent_from_level_less_journal_rows__(tmp_path):
+    """The DNSE journal shape -- ``from_entry`` set, NO ``sl_level``/``tp_level``
+    -- is invisible to the restart sweep: zero parents, so nothing is cancelled
+    and nothing is marked pending.
+
+    Written proof of a measured fact (card #132, 2026-09-16: 0 of 155 DNSE
+    journal rows carried a level; card #151 premise P5): the sweep's selector
+    requires a level. Green before and after #151. It exists so the next
+    reader does not widen the selector -- or start journaling levels on DNSE
+    -- without revisiting the restart decision this file pins.
+    """
+    from pynecore.core.broker.storage import BrokerStore
+    from pynecore.core.broker.run_identity import RunIdentity
+
+    with BrokerStore(tmp_path / "broker.sqlite", plugin_name="testbroker") as store:
+        ctx = store.open_run(
+            RunIdentity(
+                strategy_id="t025", symbol=SYMBOL, timeframe="60",
+                account_id="testbroker-demo", label=None,
+            ),
+            script_source="src", script_path="t025.py",
+        )
+        b = MockBroker()
+        pos = BrokerPosition()
+        engine = OrderSyncEngine(
+            broker=b,  # type: ignore[arg-type]
+            position=pos, symbol=SYMBOL, run_tag=RUN_TAG,
+            mintick=0.01, store_ctx=ctx,
+        )
+        for parent in ("S2", "S3"):
+            ctx.upsert_order(
+                f"test-{parent.lower()}x-s0", symbol=SYMBOL, side="buy", qty=1.0,
+                state="confirmed", intent_key=f"{parent}-X\0{parent}",
+                exchange_order_id=f"X-SL-{parent}", from_entry=parent,
+                extras={"kind": "exit_leg", "leg": "sl", "exit_id": f"{parent}-X"},
+            )
+        engine.sync(BAR_TS)
+
+        assert pos.size == 0.0
+        assert not b.cancel_calls
+        assert engine._unconfirmed_flat_pending == set()  # type: ignore[attr-defined]
+        assert {row.from_entry for row in ctx.iter_live_orders()} == {"S2", "S3"}
+
+
+def __test_151_preserved_restart_legs_are_retired_once_reconcile_confirms_the_flat__(tmp_path):
+    """Resolution of the restart preserve: reconcile's sustained-flat confirm
+    retires the legs the restart sweep left pending.
+
+    Without this pin the ``_unconfirmed_flat_pending`` mark could be dropped
+    and the restart pin would still pass -- a leg preserved and never retired
+    is a stranded live order. A single flat observation must NOT retire
+    (#122: one read is never proof of absence); a flat sustained past
+    ``EXTERNAL_FLATTEN_CONFIRM_GRACE_S`` must.
+    """
+    from pynecore.core.broker.storage import BrokerStore
+    from pynecore.core.broker.run_identity import RunIdentity
+
+    with BrokerStore(tmp_path / "broker.sqlite", plugin_name="testbroker") as store:
+        ctx = store.open_run(
+            RunIdentity(
+                strategy_id="t025", symbol=SYMBOL, timeframe="60",
+                account_id="testbroker-demo", label=None,
+            ),
+            script_source="src", script_path="t025.py",
+        )
+        b = MockBroker()
+        pos = BrokerPosition()
+        engine = OrderSyncEngine(
+            broker=b,  # type: ignore[arg-type]
+            position=pos, symbol=SYMBOL, run_tag=RUN_TAG,
+            mintick=0.01, store_ctx=ctx,
+        )
+        for parent in ("S2", "S3"):
+            ctx.upsert_order(
+                f"test-{parent.lower()}x-s0", symbol=SYMBOL, side="buy", qty=156.0,
+                state="confirmed", intent_key=f"{parent}-X\0{parent}",
+                exchange_order_id=f"X-SL-{parent}", from_entry=parent,
+                sl_level=78307.9,
+                extras={"kind": "exit_leg", "leg": "sl", "exit_id": f"{parent}-X"},
+            )
+        engine.sync(BAR_TS)
+        assert not b.cancel_calls
+        assert engine._unconfirmed_flat_pending == {"S2", "S3"}  # type: ignore[attr-defined]
+
+        engine._last_position_fill_monotonic = (  # type: ignore[attr-defined]
+            time.monotonic() - EXTERNAL_FLATTEN_CONFIRM_GRACE_S - 1.0)
+        b.position = None
+        engine.reconcile()
+        engine.reconcile()
+        assert not b.cancel_calls, "a flat observation inside the grace must not retire"
+
+        engine._flat_observed_with_intents_since -= (  # type: ignore[attr-defined]
+            EXTERNAL_FLATTEN_CONFIRM_GRACE_S + 1.0)
+        engine.reconcile()
+        cancelled = {
+            getattr(env.intent, 'from_entry', None) for env in b.cancel_calls
+        }
+        assert cancelled == {"S2", "S3"}, "the confirmed flat must retire the preserved legs"
+        assert engine._unconfirmed_flat_pending == set()  # type: ignore[attr-defined]
+
+
+def __test_151_close_fill_sweep_cancels_only_after_our_own_closing_fill__(tmp_path):
+    """The two callers are told apart by the cancel COUNT: the restart pass
+    does not cancel, our own closing fill does.
+
+    Same shape as ``__test_flat_close_retires_journal_only_adopted_legs__``
+    (adopted exposure, journal-only legs under a pine id this script never
+    declares). Guards the close-fill call site: drop ``venue_confirmed=True``
+    there and the fill preserves instead of retiring -- red.
+    """
+    from decimal import Decimal
+    from pynecore.core.broker.storage import BrokerStore
+    from pynecore.core.broker.run_identity import RunIdentity
+    from pynecore.types.strategy import ADOPTED_STARTUP_ENTRY_ID
+
+    with BrokerStore(tmp_path / "broker.sqlite", plugin_name="testbroker") as store:
+        ctx = store.open_run(
+            RunIdentity(
+                strategy_id="t025", symbol=SYMBOL, timeframe="60",
+                account_id="testbroker-demo", label=None,
+            ),
+            script_source="src", script_path="t025.py",
+        )
+        b = MockBroker()
+        b.spot_inventory_port = SimpleNamespace(
+            position_dust_threshold=Decimal("0.00001"),
+        )
+        pos = BrokerPosition()
+        engine = OrderSyncEngine(
+            broker=b,  # type: ignore[arg-type]
+            position=pos, symbol=SYMBOL, run_tag=RUN_TAG,
+            mintick=0.01, store_ctx=ctx,
+        )
+        pos.size = 0.009995
+        pos.sign = 1.0
+        pos.avg_price = 2500.0
+        pos.reconstruct_parent_trade(
+            entry_id=ADOPTED_STARTUP_ENTRY_ID, size=0.009995,
+            entry_price=2500.0,
+        )
+        ctx.upsert_order(
+            "test-l1x-s0", symbol=SYMBOL, side="sell", qty=0.00999,
+            state="confirmed", intent_key="L1-X\0L1",
+            exchange_order_id="X-SL-1", from_entry="L1", sl_level=2431.03,
+            extras={"kind": "exit_leg", "leg": "sl", "exit_id": "L1-X"},
+        )
+        engine.sync(BAR_TS)
+        assert not b.cancel_calls, "nothing of ours filled yet"
+
+        engine._route_event(  # type: ignore[attr-defined]
+            _fill_event('sell', 0.00999, 2494.87, pine_id="",
+                        leg=LegType.CLOSE, xchg_id="xchg-close"))
+        assert pos.size == 0.0
+        assert any(
+            getattr(env.intent, 'from_entry', None) == "L1"
+            for env in b.cancel_calls
+        ), "our own closing fill is confirmed flat evidence: the orphan leg must be retired"
 
 
 def __test_restart_on_a_flat_book_spares_journal_legs_of_an_opening_parent__(tmp_path):
@@ -17113,7 +17331,7 @@ def __test_122_flat_book_orphan_retire_cancels_on_a_native_oca_venue__():
     engine._active_intents.pop("L", None)
     cancels_before = len(b.cancel_calls)
 
-    engine._retire_orphan_exits_on_flat_book()
+    engine._retire_orphan_exits_on_flat_book(venue_confirmed=True)
 
     assert len(b.cancel_calls) > cancels_before, (
         "the orphan protective exit was retired WITHOUT a cancel on a "

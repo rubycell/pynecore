@@ -6372,7 +6372,7 @@ class OrderSyncEngine:
             # inventory while the surviving reservation shrank each new
             # partial exit to the 5e-06 dust and starved the entry).
             if closing_leg and self._position.size == 0:
-                self._retire_orphan_exits_on_flat_book()
+                self._retire_orphan_exits_on_flat_book(venue_confirmed=True)
             # Defensive-close FILL: when a defensive-close marker is in
             # flight, the FILL event arrives carrying the synthetic
             # CloseIntent's pine_id rather than the parent entry id, so
@@ -9293,9 +9293,21 @@ class OrderSyncEngine:
         )
 
     def _retire_orphan_exits_on_flat_book(
-            self, *, journal_only: bool = False,
+            self, *, journal_only: bool = False, venue_confirmed: bool = False,
     ) -> None:
         """Retire exit tracking whose parent id owns nothing on a flat book.
+
+        FORK (#151): ``venue_confirmed`` says whether the flat is evidenced by
+        a fill OF OURS (the close-fill caller passes ``True``) or only by the
+        in-memory position (the restart caller, upstream 45bc8103, passes
+        nothing). On a software-OCA venue a bare cleanup CANCELS at the venue,
+        and the restart snapshot can read 0 while the venue holds exposure
+        (the #73 clamp adopts only the run-owned slice; a lagging replica can
+        answer 0 for a live position, #124-OBS). So an unconfirmed flat
+        PRESERVES the leg, marks its parent in ``_unconfirmed_flat_pending``
+        and leaves the retire to reconcile's sustained-flat confirm. A foreign
+        live position keeps the mark for the process lifetime; that is the
+        #73 cannot-attribute limit, and preserve is its fail-closed answer.
 
         Complements the per-entry close-fill cleanup: that path keys on the
         entry ids the FIFO walk / dust flatten consumed, so an exit whose
@@ -9360,9 +9372,29 @@ class OrderSyncEngine:
                                          LEG_STATE_CANCEL_TENTATIVE)
                    for leg in self._partial_bracket_engine.iter_legs()):
                 continue
+            if not venue_confirmed:
+                # The RESTART caller (upstream 45bc8103): the only flat
+                # evidence is the in-memory position after startup adoption,
+                # a snapshot that may be clamped to 0 (#73) or stale
+                # (#124-OBS). A bare cleanup would cancel at the venue on a
+                # software-OCA plugin. Preserve, mark, and let reconcile's
+                # sustained-flat confirm retire it (the idiom of the
+                # parent_flat_snapshot cascade and the modify-reject site).
+                _blog_info(
+                    "flat book left exit tracking under parent %r with no "
+                    "open trade — flat evidence is the restart snapshot, not "
+                    "a fill of ours: preserved as unconfirmed, reconcile owns "
+                    "the confirmed retire (#151)",
+                    pid,
+                )
+                self._unconfirmed_flat_pending.add(pid)
+                self._cleanup_position_tracking(
+                    pid, flat_evidence_unconfirmed=True)
+                continue
             _blog_warning(
                 "flat book left exit tracking under parent %r with no open "
-                "trade — retiring the orphan exits (adopted-leg shape)",
+                "trade — venue flat confirmed by our own closing fill, "
+                "retiring the orphan exits (adopted-leg shape)",
                 pid,
             )
             # EXTERNAL-FLATTEN SEMANTICS, same as
@@ -9373,14 +9405,15 @@ class OrderSyncEngine:
             # AND drop the mapping, orphaning a live protective order. Found by
             # asking which OTHER callers share the semantics that made the flag
             # necessary, rather than only fixing the caller that was reported.
-            # AUTHORITATIVE: this path is reached only via a closing-leg FILL
-            # OF OURS (see its single caller), so the position's closure is
-            # evidenced by our own execution, not by a snapshot that might be
-            # stale. Adopted legs under a foreign parent are not necessarily in
-            # the venue's OCA group for that fill, so they need our explicit
-            # cancel — which is what the flag provides. Pre-existing tests pin
-            # that this path RETIRES; preserving instead would break a real
-            # contract.
+            # AUTHORITATIVE ONLY WITH ``venue_confirmed``: the close-fill
+            # caller reaches here via a closing-leg FILL OF OURS, so the
+            # position's closure is evidenced by our own execution, not by a
+            # snapshot that might be stale. (Since upstream 6.9.4 this function
+            # has TWO callers; the restart one is routed above.) Adopted legs
+            # under a foreign parent are not necessarily in the venue's OCA
+            # group for that fill, so they need our explicit cancel — which is
+            # what the flag provides. Pre-existing tests pin that this path
+            # RETIRES; preserving instead would break a real contract.
             self._cleanup_position_tracking(
                 pid, venue_flattened_externally=True)
 
