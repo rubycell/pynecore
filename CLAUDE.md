@@ -199,6 +199,16 @@ The two-read rule STAYS — hazard 2 is real and orthogonal. But it was credited
 catching hazard 1, which it never could: both reads return the same unsigned magnitude and
 agree with each other.
 
+**DOCUMENTED amend restriction, NOT measured (DNSE FAQ #33, read 2026-09-18):** a DERIVATIVE
+amend may change price OR quantity, never both, and the amended quantity must EXCEED what has
+already filled. A STOCK amend may change both — which IS measured (#117) and agrees with the
+same row, so the stock half is the calibration for how far the document reaches. The fake
+enforces it labelled DOCUMENTED; a live amend that changes two fields and succeeds overturns
+it, and whoever measures that should delete the branch rather than argue with it. Note what
+"changes" means: the plugin PUTs the full order, so an unchanged quantity rides along with a
+changed price on every amend — a guard on fields PRESENT rather than fields CHANGED breaks
+Live-L1-T06-AmendNormal, which passed on the venue 2026-08-14 (caught by that pin, 2026-09-18).
+
 ## STOCK amend is CANCEL+REPLACE with a NEW id; write rejects are CODED (measured 2026-09-15)
 
 Live-measured on prod (#117 probe, funded stock account):
