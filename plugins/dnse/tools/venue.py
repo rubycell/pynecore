@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from dataclasses import dataclass
+from enum import Enum
 
 from pynecore.core.broker.models import CancelDispositionOutcome
 
@@ -107,6 +109,106 @@ def read_state(b: DNSEBroker, symbol: str):
     position = asyncio.run(b.get_position(symbol))     # raises on read failure
     working = asyncio.run(b.get_open_orders(symbol))   # raises if books unavailable
     return position, working
+
+
+class UmbrellaState(Enum):
+    """What an OCO umbrella actually IS right now — decided by its CHILD."""
+
+    ARMED = "ARMED"          #: the bracket is live; this exposure is stopped
+    SPENT = "SPENT"          #: the child is gone; the bracket is dead
+    UNKNOWN = "UNKNOWN"      #: the child could not be resolved — do not guess
+
+
+@dataclass(frozen=True)
+class Umbrella:
+    """One OCO umbrella, with the stop levels the NORMAL book never shows."""
+
+    id: str
+    state: UmbrellaState
+    child_id: str | None
+    stop_price: float | None
+    stop_order_price: float | None
+    price: float | None
+    side: str | None
+    quantity: float | None
+
+
+def _f(value):
+    """-> float, or None. A missing level must stay None, never become 0.0."""
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def oco_umbrellas(b: DNSEBroker, normal_rows: list | None = None
+                  ) -> list[Umbrella] | None:
+    """-> the OCO umbrellas on the account, or ``None`` if the book is UNREADABLE.
+
+    ``get_open_orders`` scans ``_CATEGORIES = ("NORMAL", "STOP")`` and never lists
+    the OCO book (broker.py:198), so the order carrying a bracket's STOP price is
+    invisible to every caller of it — ``status``, ``flat``, the flatten sweep and
+    the #132 sidecar alike. Widening ``_CATEGORIES`` is NOT the fix: it was weighed
+    and rejected on #43 (it would double-count ``get_open_orders`` and cost +50% of
+    the Get-Orders budget forever), and the engine needs the narrow scan. This is
+    an additive, toolkit-side read instead.
+
+    **ARMED vs SPENT comes from the CHILD, never from the umbrella's own row.**
+    Measured live 2026-09-18: after its child was cancelled and with the account
+    flat, a spent umbrella still read ``Activated`` with ``price=1988.8``,
+    ``stopPrice=1980.8`` and ``stopOrderPrice=1980.6`` — every field identical to
+    when it was protecting a real position. `Activated` is terminal for the
+    conditional itself (operator, CLAUDE.md): it means the umbrella created its
+    normal-book order and can do nothing else, in BOTH the live and the dead case.
+    So the row cannot distinguish them and only the child can.
+
+    ``None`` is reserved for a failed read. An empty list means "no umbrellas",
+    and the two must never share a value — a caller that conflates them reports an
+    unreadable book as an unprotected account, or worse, as a clean one.
+    """
+    rows, _ = b._read_book_rows_sync("OCO")
+    if rows is None:
+        return None                      # unreadable != empty (never "no cover")
+    if not rows:
+        return []
+    if normal_rows is None:
+        normal_rows, _ = b._read_book_rows_sync("NORMAL")
+    by_id = {str(r.get("id")): r for r in (normal_rows or [])}
+    out = []
+    for row in rows:
+        # THE LINKAGE FIELD IS NOT ON THE LISTING. Measured 2026-09-18 against
+        # prod: an OCO book row carries stopPrice/stopOrderPrice/durationType/
+        # symbol but NOT ``externalOrderId`` — that exists only on the ORDER
+        # DETAIL. So the child cannot be joined from rows already in hand, and
+        # one detail read per umbrella is the floor, not an avoidable cost.
+        # Ask the OCO book DIRECTLY rather than via ``_detail_today``, which
+        # walks all three books and would triple this.
+        child_id = row.get("externalOrderId")
+        if child_id is None:
+            try:
+                status, body = b.client.get_order_detail(
+                    b.account_id, str(row.get("id")), b.market_type,
+                    order_category="OCO")
+                if status == 200 and isinstance(body, dict):
+                    child_id = body.get("externalOrderId")
+            except Exception:                                     # noqa: BLE001
+                child_id = None       # unresolved -> UNKNOWN, never ARMED
+        child_id = str(child_id) if child_id is not None else None
+        child = by_id.get(child_id) if child_id else None
+        if child is None:
+            state = UmbrellaState.UNKNOWN
+        else:
+            status = str(child.get("orderStatus", "")).upper()
+            state = (UmbrellaState.ARMED
+                     if status in ("NEW", "PENDINGNEW", "PARTIALLYFILLED")
+                     else UmbrellaState.SPENT)
+        out.append(Umbrella(
+            id=str(row.get("id")), state=state, child_id=child_id,
+            stop_price=_f(row.get("stopPrice")),
+            stop_order_price=_f(row.get("stopOrderPrice")),
+            price=_f(row.get("price")), side=row.get("side"),
+            quantity=_f(row.get("quantity"))))
+    return out
 
 
 def classify_working(b: DNSEBroker, orders: list) -> tuple[list, list]:
