@@ -42,11 +42,50 @@ broker plugins placing the orders directly, running 24/7 in a datacenter.
 - **Schedule** — trading window per venue (DNSE session phases + pre-open
   token mint; crypto 24/7), maintenance windows, auto-stop at contract expiry.
 
+### 2.1 Instance lifecycle
+
+The operator-visible states and the transitions between them. Every arrow is
+an action in §3 — if a transition is not on this diagram, the UI must not
+offer it.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> draft
+    draft --> armed: params saved
+    armed --> draft: edit params
+    armed --> running: Start — pre-flight gate + flat check
+    running --> paused: Pause — block new entries, exits still flow
+    paused --> running: Resume
+    running --> stopped: Stop — position LEFT OPEN at venue
+    running --> stopped: Flatten and stop — cancel_all then close_all
+    paused --> stopped: Stop / Flatten and stop
+    stopped --> running: Start — re-adopts venue position
+    running --> quarantined: engine latch, unexpected cancel
+    running --> halted: kill switch
+    quarantined --> stopped: operator resolves
+    halted --> stopped
+    stopped --> [*]
+```
+
+Three things the diagram is meant to make hard to get wrong:
+
+- **`stale` is not on it.** Staleness is *derived* (heartbeat silent > 5 min
+  while `ended_ts_ms IS NULL`), not a state anyone transitions into — see
+  §4.3. A stale instance is still `running` as far as the operator's intent
+  is concerned; what changed is our confidence, not its lifecycle.
+- **The two paths out of `running` are different arrows on purpose.** `Stop`
+  leaves the position at the venue; `Flatten and stop` closes it. §3 requires
+  them to be visibly distinct controls, so they are drawn as distinct edges.
+- **`stopped → running` re-adopts.** Restart is not a fresh start: the engine
+  re-owns the venue position via `run_id` identity, which is why the same
+  arrow carries the adoption warning in §3's *Change params* row.
+
 ## 3. Control semantics (must be exact — this is real money)
 
 | Action | Meaning | Implementation |
 |---|---|---|
-| **Start / Go live** | launch process behind the plugin's **L0 gate** + flat-check; instance runs warmup then live | supervisor spawns `pyne run … --broker --run-label <instance>`; refuses on gate ≠ 0 |
+| **Start / Go live** | launch process behind whatever **pre-flight check the plugin exposes**; instance runs warmup then live | supervisor spawns `pyne run … --broker --run-label <instance>`; refuses unless the plugin's pre-flight answers OK. The platform defines the *contract* (ok / not-ok / could-not-determine) and never the venue procedure behind it — that belongs to each plugin's own development process |
 | **Pause** (TV "pause alert") | engine keeps running and *observing*; **no new entries**; protective exits, cancels and closes still flow | NEW engine control (§4): reversible operator latch, same block as quarantine's entry gate |
 | **Resume** | clear the latch | control channel |
 | **Stop** | graceful SIGINT → `run stopped` summary, `ended_ts_ms` set; open position/orders **stay at the venue** and are re-adopted on next start (`run_id` identity + orphan adoption) — matches Hummingbot's *force*-stop button ("cancels orders", leaves position), not its graceful one (§9.6) | supervisor; UI must show "position left open" explicitly, visually distinct from Flatten & stop |
@@ -73,19 +112,74 @@ broker plugins placing the orders directly, running 24/7 in a datacenter.
 5. Optional: `--log-file`; per-input `group` already in metadata — verify
    `.toml` emits it so the form can reproduce TV's section headers.
 
+### 4.6 Where run status comes from — one reader, two consumers
+
+Status is **derived**, never stored: no `runs.status` column, so no migration
+and no second source of truth to drift. The derivation lives in exactly one
+module, which is what makes the CLI a usable test oracle for the API — any
+disagreement between `pyne runs ls` and the dashboard is a bug in one
+consumer, not a difference of opinion about what "running" means.
+
+```mermaid
+flowchart LR
+    subgraph journal["broker.sqlite — read-only WAL, written by the engine"]
+        LV["live_runs VIEW<br/>ended_ts_ms IS NULL AND heartbeat &lt; 5 min"]
+        EV["events<br/>*_quarantine, stale_run_cleaned"]
+        SP["spot_inventory_epoch<br/>active / quarantined / closed"]
+        RC["run_controls (new, §4.1)<br/>desired_state + acked_ts_ms"]
+    end
+    subgraph proc["process truth — new in §4.2"]
+        PID["runs.pid / hostname / argv<br/>is the process actually alive?"]
+    end
+    journal --> FR["fleet_reader.py<br/>single derivation"]
+    proc --> FR
+    FR --> ST["live | stale | ended | paused | quarantined | halted"]
+    ST --> CLI["pyne runs ls / show / events / tail<br/>ships in P0, no UI needed"]
+    ST --> API["api + SSE → Fleet page"]
+```
+
+Two notes for whoever implements it:
+
+- **`stale` and `dead` are different answers and the sources differ.** The
+  journal can only ever say "I have not heard from it in 5 minutes"; only the
+  PID check can say "the process is gone." That distinction is the whole
+  point of §4.2 — without it a crashed bot cannot be relaunched until the
+  stale window expires, because the single-instance guard still sees an
+  active `run_id`.
+- **Precedence is not yet decided.** When an instance is simultaneously
+  quarantined *and* stale, which wins? The diagram deliberately shows sources
+  feeding one derivation rather than a resolution ladder, because that
+  ordering is a real decision and should be made explicitly in P0 rather than
+  falling out of whatever order the `if` statements happen to be written in.
+
 ## 5. Platform architecture (single VPS)
 
+```mermaid
+flowchart TB
+    BR["browser"] -->|"TLS + WireGuard / Tailscale"| CA["Caddy"]
+    CA --> API["api — FastAPI + SSE<br/>own sqlite: instances, presets, audit"]
+    API --> SUP["supervisor<br/>systemd-run transient unit, one per instance"]
+    SUP -->|spawns| W1["instance workdir 1<br/>pyne run … --broker"]
+    SUP -->|spawns| WN["instance workdir N<br/>pyne run … --broker"]
+    W1 --> D1[("broker.sqlite")]
+    WN --> DN[("broker.sqlite")]
+    D1 -.->|"read-only WAL"| FR["fleet reader"]
+    DN -.->|"read-only WAL"| FR
+    FR -->|SSE| API
+    W1 --> CC[("shared candle cache — PYNE_DATA_DIR<br/>one .ohlcv per provider/symbol/tf")]
+    WN --> CC
+    SUP --> VA["venue adapters<br/>plugin pre-flight · offline tri-state reads · credential refresh"]
+    FR --> AL["alerts → Telegram / email"]
+    D1 -.-> BK["nightly backup → object storage"]
 ```
-[browser] —TLS/VPN→ Caddy → api (FastAPI, SSE)  ─┐
-                              ↓ own sqlite (instances, presets, audit)
-                        supervisor (systemd-run transient units, 1 per instance)
-                              ↓ spawns                 ↓ read-only WAL
-                 instance workdirs  ─ broker.sqlite ─ fleet reader → SSE
-                              ↓ PYNE_DATA_DIR
-                        shared candle cache (one .ohlcv per provider/symbol/tf)
-                 venue adapters: L0 gates, offline reads (tri-state), token cron
-                 alerts → Telegram/email; backups → object storage nightly
-```
+
+The load-bearing detail is the **arrow direction into `broker.sqlite`**: the
+engine writes it, and everything on the dashboard side reads it over a
+read-only WAL connection. Nothing in the control plane writes to an
+instance's journal. The single exception is the `run_controls` table (§4.1),
+which is the one place operator intent flows the other way — and it is
+deliberately a separate table with its own ack column, so "what the operator
+asked for" can never be confused with "what the engine did."
 
 - **Process model**: `systemd-run` transient units per instance (auto-restart
   policy, journald capture, survives api restarts) — not bare children.
@@ -93,17 +187,21 @@ broker plugins placing the orders directly, running 24/7 in a datacenter.
   log, live log tail; polling fallback.
 - **Frontend**: Vite + React + TS + Tailwind; forms generated from the
   inputs schema; Lightweight-Charts chart page fed by `--viz-journal` (phase 5).
-- **Tests**: fixture `broker.sqlite` built by the real `BrokerStore`; stub
-  `pyne` binary for supervisor tests; the vnstock three-layer Playwright
-  golden net with `--prove-read-only`; e2e on **Binance testnet** (proven)
-  and the DNSE fake venue. Mainnet only via the plugin's own guards.
+- **Tests** (platform-owned only): fixture `broker.sqlite` built by the real
+  `BrokerStore`; stub `pyne` binary for supervisor tests; the vnstock
+  three-layer Playwright golden net with `--prove-read-only`. **Venue
+  conformance is explicitly out of scope here** — live venue procedures and
+  their gates belong to each plugin's own development process, and the
+  platform consumes their published result rather than re-running or
+  re-specifying them.
 
 ## 6. Hosting, security, operations (the "24/7 in a datacenter" part)
 
 - **Region**: DNSE is Vietnam-only; Binance/Bybit serve Asia from SG/TYO.
   Pick a Singapore or Vietnam VPS (Vultr/Hetzner-SG/Viettel IDC). 2 vCPU /
   4 GB is plenty — bar-close bots are idle 99 % of the time; size for I/O
-  and uptime, not CPU. **Always-on NTP** (Binance `recvWindow`, L0 checks skew).
+  and uptime, not CPU. **Always-on NTP** — clock skew breaks signed requests
+  (e.g. Binance `recvWindow`).
 - **Exposure**: no public dashboard port. WireGuard/Tailscale to the box, or
   Cloudflare Access in front of Caddy; TLS everywhere; single-operator login
   + TOTP; every mutating action audit-logged with actor + reason.
@@ -125,13 +223,13 @@ broker plugins placing the orders directly, running 24/7 in a datacenter.
 
 | Phase | Deliverable | Gate |
 |---|---|---|
-| **P0 (1–2 d)** engine substrate | `pyne runs` CLI, derived status, pid/argv migration, `run_controls` table + pause latch | pause on a testnet bot blocks a scripted entry, resume lets the next one through; measured, not assumed |
-| **P1 (1 wk)** hosted read-only fleet | VPS provisioned (WireGuard, Caddy, NTP, backups), api + SSE + Instances list + Events log with CSV export, systemd-run supervisor **read path** | the Binance testnet staged suite runs on the VPS and is watched from your laptop; golden net green |
-| **P2 (1 wk)** instance lifecycle | create instance from strategy + asset, Inputs/Properties forms from `.toml`, start behind L0 gate, stop, pause/resume, flatten, kill switch, audit | every action verified from the venue record on testnet; a failing L0 blocks start; "position left open" shown on stop |
+| **P0 (1–2 d)** engine substrate | `pyne runs` CLI, derived status, pid/argv migration, `run_controls` table + pause latch | pause on a sandbox bot blocks a scripted entry, resume lets the next one through; measured, not assumed |
+| **P1 (1 wk)** hosted read-only fleet | VPS provisioned (WireGuard, Caddy, NTP, backups), api + SSE + Instances list + Events log with CSV export, systemd-run supervisor **read path** | a bot running on the VPS is watched from your laptop; golden net green |
+| **P2 (1 wk)** instance lifecycle | create instance from strategy + asset, Inputs/Properties forms from `.toml`, start behind the plugin's pre-flight, stop, pause/resume, flatten, kill switch, audit | every action verified from the venue record; a not-ok pre-flight blocks start; "position left open" shown on stop |
 | **P3 (1 wk)** accounts + alerts + schedule | offline tri-state venue reads, alert rules → Telegram, DNSE session schedule + token timer, contract-expiry auto-stop | a killed process pages within 2 min; a DNSE bot starts pre-open and stops at close unattended for 3 sessions |
 | **P4 (3–4 d)** param workflow | presets import/export/defaults, controlled-restart param change with adoption warning, "preview backtest" of the instance's params over cached data (equity + trades) | preview equals `pyne run` file-mode output for the same `.toml` |
 | **P5** chart + polish | Lightweight-Charts with trades/orders from `--viz-journal`, style tab, mobile layout | — |
-| **P6** first real money | one DNSE strategy at minimum size behind everything above | 2-week unattended soak on testnet + DNSE with zero silent failures first |
+| **P6** first real money | one strategy at minimum size behind everything above | 2-week unattended soak with zero silent failures first |
 
 ## 8. Decisions needed
 

@@ -223,3 +223,32 @@ Fable-side (agents), none touching the running step-3 engine or the frozen tree'
    cancelled like 09-15's 10:56 -> the logs now name the actor; rests -> the discriminator
    moves to "something the 09-15 run DID" (its chasing replaces).
 Order matters: #113 first (it exists only at open), then the fill A/B, then the idle probe.
+
+---
+
+## AFTERNOON v2 (post-pivot, ~13:10) — live stood down; pull Thursday's front-end into today
+
+State: l3 stood down (#128 closed — all cancels were the operator's); #129 live-verified;
+leak remediated (f830a622); all wrap-up commits pushed (worker 58787aaa/9fce3ffd, Fable
+059d7b3b); board-hygiene agent closing In-review/Done cards; worker on Friday prep
+(roll probe design first, new-file law applies).
+
+Priorities, in order:
+- P1. **#120 fix panel TODAY** (repro is done, 3 paths + candidates on the card) — 3-lens
+  adversarial review -> adjudication -> tomorrow implements. #120 is the top protection
+  hole (the #124 re-arm chains into it).
+- P2. **#132 watchdog design panel** — design options post + 3 lenses (detector placement,
+  grace-window math vs the poll-only conditional facts (#130), defensive-action policy).
+  After P1's spawn or in parallel if capacity allows.
+- P3. **A3 token-ops diagnosis** (leftover from the morning plan): why the 08:00 refresh
+  cron silently missed + the token_status exit-code gate nit. Diagnose today; crontab
+  changes are operator-side.
+- P4. Board hygiene: review the closure agent's report; evidence-close #118/#119 if the
+  agent's pass did not already take them.
+- P5. **(OPERATOR CALL) WS-vs-poll latency A/B could run TODAY instead of Friday**: #129
+  is live at HEAD, so the next fill is the FIRST-EVER live WS order-source start. Needs a
+  tiny transport-marker log edit (reviewed) + one small l2b-style round-trip before
+  ~14:00. If declined, it stays Friday per the outline.
+- P6. #122 fix panel + #127 panel — capacity-dependent; otherwise tomorrow after #120.
+Tomorrow (expiry day, no live): implement #120 per adjudication, then #132 design->build
+start, #122 next.
