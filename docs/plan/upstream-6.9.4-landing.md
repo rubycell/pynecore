@@ -43,8 +43,9 @@ rebase** — the restart caller should route through the fork's `flat_evidence_u
    caller (~:6375, our own closing fill = confirmed flat) passes `venue_confirmed=True` → keeps
    `venue_flattened_externally=True` (cancel); the restart caller passes only `journal_only=True` →
    `_cleanup_position_tracking(pid, flat_evidence_unconfirmed=True)` → preserve, confirm later.
-3. The existing close-fill caller ALSO passes `journal_only=True` — otherwise upstream's new in-memory
-   pass starts running on our measured close-fill path.
+3. WITHDRAWN at the panel (09-18): the close-fill caller passes ONLY `venue_confirmed=True`. The
+   in-memory pass in `_retire_orphan_exits_on_flat_book` is the FORK's own code, not upstream's, so
+   `journal_only=True` there would have deleted fork behaviour on the measured close-fill path.
 4. Red-first pins, two-sided: (i) restart + journal protective leg + clamped-to-0 adoption → ZERO venue
    cancel requests counted on the fake client (not a log line), leg preserved as unconfirmed — RED on
    the naive merge; (ii) close-fill flat → cancel still issued (#122 tests keep passing).
@@ -66,7 +67,7 @@ upstream's version. **Grep-proof of the merged function (1 def, 91 lines): upstr
 `_cleanup_position_tracking(pid, venue_flattened_externally=True)`; `flat_evidence_unconfirmed`: 0
 occurrences; callers: fork close-fill at ~6375 (passes nothing → upstream's NEW in-memory pass now
 runs on our measured close-fill path) and upstream restart at ~12789 (`journal_only=True`).** =
-OUTCOME A, the silent cancel, exactly as predicted. Step 3 above is necessary, not optional.
+OUTCOME A, the silent cancel, exactly as predicted. (Step 3 was later withdrawn — see the plan.)
 
 **Fork invariant confirmed by reading structure (not defaults):** a BARE `_cleanup_position_tracking(pid)`
 on our fork CANCELS on DNSE — the only preserve exit is `if flat_evidence_unconfirmed:`; otherwise
