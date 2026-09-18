@@ -237,6 +237,13 @@ bb3310dbc0c3b206127e10a933ae448beebd85d74f012aaf13dd83c2d7f0582b  plugins/dnse/p
 801b1da903bc400b9ed3f86c51f1a16a808a0b90afb60712237d38274496829c  plugins/dnse/testing/venue_http.py
 adacc78bba9c880462d28f5db6d0629bf3b6a822f48140410e4e47a1542b9eb4  plugins/dnse/testing/dnse_fake.toml.example
 20b69d574f3d179459c682819c26bffae2f27cad93d43f4c4104d7a7943fb7ba  plugins/dnse/pyproject.toml
+# 2026-09-18 #157 boundary at 9b336dfb (Worker4, autonomous; consolidated batch — supersedes earlier lines for the same paths)
+5330e3a89ced9db86ec92e78d7e07943da98b0671eb5096e49579c07105fa835  plugins/dnse/testing/venue_http.py
+32846e71f3ff1ebe8a07cf5a60c598d079ffc1562d7f1cc7462d2708f901ab29  plugins/dnse/testing/venue_mutants.py
+ca83c9aa9fe28f7910d8e4565b6b3eed62a60e7fe8f89ca6f076971d6c74c398  plugins/dnse/testing/README.md
+7f1bdfda2edd6b1f5270260c76c3f78e044ca206ffb8320f4d44f5fc86f217e2  plugins/dnse/pynecore_dnse/fake_broker.py
+18eb3bd4a5d28f002dccb985a5f7f86e50031d683aa223c14de487fb7b42cbb1  plugins/dnse/tests/test_venue_http.py
+95c9401e21e717050e267d568fc62fcecbcc84b46b7774be8f5a5e729cb6d795  plugins/dnse/tests/test_collection_sweep.py
 # 2026-09-18 #151 stage 3 (i) step 1 — landing worktree land-694: restart test rewritten to preserve + four #151 pins (record mirrored into land-694's manifest by the landing session)
 bb6f50f195d93e7388e92feb399d4462fa1bd3b0583ddab2dc31b0f5b2a91bc3  tests/t00_pynecore/core/test_025_order_sync_engine.py
 # 2026-09-18 #151 stage 3 (i) step 2 — land-694: venue_confirmed kw; restart path preserves via _unconfirmed_flat_pending; close-fill caller venue_confirmed=True

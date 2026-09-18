@@ -334,6 +334,28 @@ def _mutant_fake_broker_skips_config_endpoint_check(venue_core):
     _ = venue_core
 
 
+def _mutant_terminal_cancel_refusal_is_transient(venue_core):
+    """WRONG: the refusal on a venue-amended terminal id clears after a retry.
+
+    This is precisely the assumption the engine's deferral guard was built on, and #162 is what
+    happened when the venue did not honour it. If this mutant escapes, the replay is not pinning
+    the property that cost 66 seconds of unprotected position.
+    """
+    original = venue_core.FakeVenue.cancel
+    seen = {"n": 0}
+
+    def patched(self, order_id):
+        order = self._orders.get(order_id)
+        if order is not None and order["orderStatus"] in venue_core._TERMINAL:
+            seen["n"] += 1
+            if seen["n"] > 1:
+                return dict(order)
+        return original(self, order_id)
+
+    venue_core.FakeVenue.cancel = patched
+    _ = venue_core
+
+
 def _control_noop(venue_core):
     """NOT a mutant: changes nothing. Its targeted test must still PASS.
 
@@ -403,6 +425,9 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "http_collapses_reject_code": (
         "test_venue_http.py::__test_a_cancel_refusal_carries_the_venue_code_over_the_wire__",
         _mutant_http_collapses_reject_code),
+    "terminal_cancel_refusal_is_transient": (
+        "test_162_park_replay.py::__test_the_forced_cancel_is_refused_and_stays_refused__",
+        _mutant_terminal_cancel_refusal_is_transient),
     "fake_broker_skips_config_endpoint_check": (
         "test_venue_http.py::__test_the_fake_broker_refuses_a_production_endpoint_from_the_config__",
         _mutant_fake_broker_skips_config_endpoint_check),
