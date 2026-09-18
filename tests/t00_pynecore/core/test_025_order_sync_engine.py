@@ -2238,6 +2238,52 @@ def __test_re_entry_over_a_consumed_same_side_anchor_mints_a_fresh_coid__(tmp_pa
         assert (replayed["L"].run_tag, replayed["L"].bar_ts_ms) == (RUN_TAG, later_bar)
 
 
+def __test_151_filled_but_open_anchor_is_not_spent_on_the_dnse_journal_shape__(tmp_path):
+    """Control for the closed-row clause above: a row fully FILLED but NOT
+    closed keeps its anchor, and the same-side re-entry rebuilds the SAME coid.
+
+    This is the only shape the DNSE plugin produces: ``journal_terminal``
+    never closes a row that carries executed quantity (it is the run's
+    exposure ledger for the #73 ownership clamp), so on DNSE upstream 6.9.4's
+    ``closed_ts_ms`` clause is unreachable and the anchor survives -- the
+    pyramiding-cap re-declaration of a still-open fill. Fails the day the
+    predicate widens to "any filled row" (#151 decision ii).
+    """
+    from pynecore.core.broker.storage import BrokerStore
+    from pynecore.core.broker.idempotency import build_client_order_id, KIND_ENTRY
+
+    anchored_coid = build_client_order_id(
+        run_tag="prev", pine_id="L", bar_ts_ms=BAR_TS,
+        kind=KIND_ENTRY, retry_seq=0,
+    )
+    later_bar = BAR_TS + 60_000
+    with BrokerStore(tmp_path / "broker.sqlite", plugin_name="testbroker") as store:
+        ctx = store.open_run(_restart_identity(), script_source="src", script_path="t025.py")
+        ctx.record_envelope(key="L", bar_ts_ms=BAR_TS, retry_seq=0, run_tag="prev")
+        ctx.upsert_order(
+            anchored_coid, symbol=SYMBOL, side="buy", qty=1.0, filled_qty=1.0,
+            state="confirmed", intent_key="L", pine_entry_id="L",
+            exchange_order_id="xchg-prev",
+        )
+        # deliberately NOT closed: the DNSE exposure-ledger shape
+        assert ctx.get_order(anchored_coid).closed_ts_ms is None
+        b = MockBroker()
+        pos = BrokerPosition()
+        engine = OrderSyncEngine(
+            broker=b,  # type: ignore[arg-type]
+            position=pos, symbol=SYMBOL, run_tag=RUN_TAG,
+            mintick=1.0, store_ctx=ctx,
+        )
+        pos.entry_orders["L"] = _entry_order("L", 1.0)
+        engine.sync(later_bar)
+        assert len(b.entry_calls) == 1
+        envelope = b.entry_calls[0]
+        assert envelope.client_order_id(KIND_ENTRY) == anchored_coid, (
+            "a filled-but-open row must keep its persisted anchor; a fresh coid "
+            "here means the spent predicate widened past the closed-row clause")
+        assert (envelope.run_tag, envelope.bar_ts_ms, envelope.retry_seq) == ("prev", BAR_TS, 0)
+
+
 def __test_same_bar_re_entry_over_a_consumed_anchor_bumps_the_retry__(tmp_path):
     """On the anchor's own bar the consumed same-side anchor bumps instead.
 

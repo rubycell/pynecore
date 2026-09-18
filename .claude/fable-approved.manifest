@@ -149,3 +149,5 @@ c283817197bd40bfc317dba589e5d8c6f78e5f5920f0e6f8f9b701f9f483b69e  .claude/hooks/
 # 2026-09-18 #151 stage 3 (i) — approvals recorded by Fable (DNSEPlugin) for the landing worktree; commit these lines with the decision commit
 bb6f50f195d93e7388e92feb399d4462fa1bd3b0583ddab2dc31b0f5b2a91bc3  tests/t00_pynecore/core/test_025_order_sync_engine.py
 c5f7bef8895a02604e9af5b75606088d93acc02cf00157997b088523f114a617  src/pynecore/core/broker/sync_engine.py
+# 2026-09-18 #151 stage 3 (ii) — approval by Fable
+22d217a97222d46ee18e33f0a47930d31952423ea25624f6dafa6f628ffca6e2  tests/t00_pynecore/core/test_025_order_sync_engine.py
