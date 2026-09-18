@@ -36,8 +36,25 @@ determine (position unreadable, or attribution unavailable).
 """
 import asyncio
 import sqlite3
+import sys
 import time
 from pathlib import Path
+
+#: #152. The OCO book is not in ``_CATEGORIES``, so ``get_open_orders`` cannot
+#: see a bracket's umbrella and the sweep used to leave ours resting while
+#: reporting the account clean (measured 2026-09-18 09:59). The read lives in
+#: the venue toolkit, so this needs it — but THIS IS THE EMERGENCY TOOL and it
+#: must always LOAD. A hard import would let a broken ``venue.py`` stop the
+#: flatten at exactly the moment someone needs it, so the failure is tolerated
+#: here and converted into could-not-determine at the point of use.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    import venue                                                  # noqa: E402
+except Exception as _venue_exc:                                   # noqa: BLE001
+    venue = None
+    _VENUE_IMPORT_ERROR = f"{type(_venue_exc).__name__}: {_venue_exc}"
+else:
+    _VENUE_IMPORT_ERROR = ""
 
 from pynecore.core.broker.models import (
     CancelDispositionOutcome, CloseIntent, DispatchEnvelope,
@@ -51,6 +68,23 @@ _RESOLVED = frozenset({
     CancelDispositionOutcome.TOO_LATE_TO_CANCEL,
     CancelDispositionOutcome.STILL_OPEN,
 })
+
+
+class _UmbrellaChild:
+    """A bracket's NORMAL child, presented to the sweep as a cancellable order.
+
+    The sweep cancels by ``.id``; this makes the CHILD the thing cancelled while
+    keeping the umbrella's id for the log line, so nobody reading the output has
+    to work out which of the two was actually touched.
+    """
+
+    __slots__ = ("id", "umbrella_id", "side", "qty")
+
+    def __init__(self, child_id, umbrella_id):
+        self.id = str(child_id)
+        self.umbrella_id = str(umbrella_id)
+        self.side = "?"
+        self.qty = None
 
 
 def owned_live_ids(store_path, account_id: str) -> "set[str] | None":
@@ -272,7 +306,64 @@ def flatten(broker, symbol: str, owned_ids: "set[str] | None",
         # SHARED account: report, never cancel (hard rule).
         print(f"foreign live order (operator's — NOT touched): "
               f"id={order.id} {order.side} qty={order.qty}")
+
+    # --- #152: the OCO book, which `working` structurally cannot contain ----
+    # ORDER MATTERS AND AN EARLIER CUT OF THIS GOT IT WRONG. This block only
+    # DECIDES; it never returns. Returning could-not-determine from here would
+    # abort the sweep, so one unresolvable umbrella would stop the tool
+    # retiring protection it can see perfectly well — the wrong failure
+    # direction for an emergency flatten, which should do every piece of work
+    # it CAN and then report what it could not establish.
+    oco_undetermined = ""
+    umbrellas = []
+    if venue is None:
+        oco_undetermined = (f"the venue helper failed to import "
+                            f"({_VENUE_IMPORT_ERROR})")
+    else:
+        try:
+            found = venue.oco_umbrellas(broker)
+        except Exception as exc:                              # noqa: BLE001
+            found = None
+            oco_undetermined = f"{type(exc).__name__}: {exc}"
+        if found is None and not oco_undetermined:
+            oco_undetermined = "the OCO book did not answer"
+        umbrellas = found or []
+    if oco_undetermined:
+        print(f"COULD NOT READ the OCO book: {oco_undetermined}. An armed "
+              f"bracket would be invisible to this sweep, so the account will "
+              f"NOT be reported clean.")
+    else:
+        unknown = [u for u in umbrellas
+                   if u.state is venue.UmbrellaState.UNKNOWN
+                   and str(u.id) in owned_ids]
+        for u in unknown:
+            # Not provably spent and not provably safe to spend: cancelling
+            # risks retiring live protection, calling it clean hides it.
+            print(f"OCO umbrella UNRESOLVED (child unknown): "
+                  f"{venue.fmt_umbrella(u)}")
+        if unknown:
+            oco_undetermined = ("an umbrella's child could not be resolved, so "
+                                "whether protection survives is unknown")
+        # An ARMED umbrella is swept THROUGH ITS CHILD. Measured 2026-09-18
+        # 10:00:12: cancelling the umbrella id answers CO-ORD-001 404 on the
+        # STOP book then CO-ORD-013 "order is done" on the OCO book and
+        # resolves nothing, while cancelling the CHILD at 09:59:26 moved the
+        # umbrella's modifiedDate to that instant — the child's cancel is what
+        # spends the bracket.
+        for u in umbrellas:
+            if u.state is not venue.UmbrellaState.ARMED:
+                continue                  # SPENT is already terminal, not dirt
+            if str(u.id) not in owned_ids:
+                print(f"foreign OCO umbrella (operator's — NOT touched): "
+                      f"{venue.fmt_umbrella(u)}")
+                continue
+            if u.child_id and str(u.child_id) not in {str(o.id) for o in ours}:
+                ours.append(_UmbrellaChild(u.child_id, u.id))
+
     if not ours:
+        if oco_undetermined:
+            print(f"sweep INCOMPLETE — {oco_undetermined}.")
+            return 2
         print("sweep: no owned working orders — clean")
         return 0
 
@@ -283,10 +374,47 @@ def flatten(broker, symbol: str, owned_ids: "set[str] | None",
         if outcome not in _RESOLVED:
             unresolved.append(str(order.id))
     if unresolved:
+        # Deliberately ranked ABOVE the OCO uncertainty: a refused cancel is a
+        # known-bad disposition on an order we can name, which is more
+        # actionable than "something on a book we could not read".
         print(f"sweep INCOMPLETE — disposition UNKNOWN for {unresolved}; "
               f"the venue may still hold them (e.g. a #51 refusal window). "
               f"Cancel via the app or retry later. NOT retrying (#58).")
         return 1
+    if oco_undetermined:
+        # The sweep DID run and every cancel resolved; what remains unknown is
+        # only whether the OCO book hid a bracket from it.
+        print(f"sweep ran, but COULD NOT DETERMINE the OCO picture — "
+              f"{oco_undetermined}. Check venue.py status before treating this "
+              f"account as clean.")
+        return 2
     print(f"sweep complete: {len(ours)} owned order(s) resolved; "
           f"{len(foreign)} foreign order(s) reported untouched")
     return 0
+
+
+if __name__ == "__main__":
+    # #152. This file is a LIBRARY: it has no argument parsing and no broker
+    # construction, so running it as a script did exactly nothing and exited 0
+    # — measured, including `python flatten.py --help`, which printed not one
+    # character. For an EMERGENCY tool that is the worst possible answer: an
+    # operator reaching for the flatten under pressure gets silence and a
+    # success code, and has no way to tell that from a flatten that ran and
+    # found the account already clean.
+    #
+    # Exit 2, not 1: this is could-not-determine. Nothing was read, nothing was
+    # cancelled, and no question about the account was answered.
+    import sys as _sys
+    print(
+        "flatten.py is a LIBRARY, not a command — it parses no arguments and\n"
+        "constructs no broker, so running it does nothing at all.\n"
+        "\n"
+        "Use the runner, which builds the broker, loads attribution from the\n"
+        "journal and closes before it sweeps:\n"
+        "\n"
+        "    .venv/bin/python plugins/dnse/testing/live_test/flatten_api.py [--dry-run]\n"
+        "\n"
+        "Exiting 2 (COULD NOT DETERMINE): nothing was read and nothing was\n"
+        "cancelled, so this says NOTHING about whether the account is flat.",
+        file=_sys.stderr)
+    _sys.exit(2)

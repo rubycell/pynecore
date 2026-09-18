@@ -23,6 +23,20 @@ class _FakeClient:
     A response may be a canned ``(status, body)`` tuple or a callable receiving the
     call's args. Any unset method returns ``(200, {})``. Every call is recorded in
     ``.calls`` as ``(method_name, args, kwargs)``; ``.count(name)`` tallies one method.
+
+    PER-CATEGORY ORDER BOOKS (#152). DNSE's books are DISJOINT — an order lives on
+    exactly one of NORMAL / STOP / OCO, and ``_read_book_rows_sync`` asks for one
+    category at a time via ``order_category=``. A single ``get_orders`` response
+    served every category, so a STOP conditional also came back from the OCO
+    listing and was mistaken for a bracket umbrella. To model the real venue, pass
+    a DICT keyed by category::
+
+        _FakeClient(get_orders={"STOP": (200, {"orders": [...], "totalPages": 1}),
+                                "OCO":  (200, {"orders": [], "totalPages": 1})})
+
+    A category absent from the dict answers empty, not the other categories' rows.
+    A NON-dict response keeps the old behaviour and serves every category, so
+    tests that do not care about the distinction are untouched.
     """
 
     def __init__(self, **responses):
@@ -36,6 +50,12 @@ class _FakeClient:
         def _call(*args, **kwargs):
             self.calls.append((name, args, kwargs))
             resp = self._responses.get(name)
+            if isinstance(resp, dict) and "order_category" in kwargs:
+                # Per-category book. An unregistered category is EMPTY rather
+                # than absent-and-falling-back: falling back would put a STOP
+                # order on the OCO book, which is the shape this exists to stop.
+                resp = resp.get(str(kwargs["order_category"]),
+                                (200, {"orders": [], "totalPages": 1}))
             if callable(resp):
                 return resp(*args, **kwargs)
             return resp if resp is not None else (200, {})

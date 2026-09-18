@@ -75,7 +75,10 @@ def _short_position_book(state):
                       "fillQuantity": 1})
 
     def _orders(_acct, _mkt, order_category=None, **_k):
-        if state.get("swept") or order_category == "NORMAL":
+        # #152: the books are DISJOINT — this conditional lives on the STOP
+        # book, so the OCO listing must NOT return it. Before this, it came
+        # back from every category and was mistaken for a bracket umbrella.
+        if state.get("swept") or order_category in ("NORMAL", "OCO"):
             return (200, {"orders": [], "totalPages": 1})
         return (200, {"orders": [{"id": "prot-cond-1", "symbol": "VN30F1M",
                                   "side": "NB", "quantity": 1,
@@ -702,3 +705,205 @@ def __test_a_store_with_no_order_refs_table_still_answers__(tmp_path):
     conn.execute("INSERT INTO runs VALUES (?,?,?)", (1, "ACC001", "DNSE Broker"))
     conn.commit(); conn.close()
     assert tool.owned_live_ids(db, "ACC001") == {"39356"}
+
+
+# === #152 step 3 — the sweep and clean check must reach the OCO book =======
+# Measured 2026-09-18 09:59. flatten_api closed the position, swept TP child
+# 39356, printed "sweep complete: 2 owned order(s) resolved" and exited 0 —
+# while umbrella damadq2vfqkc7397o0tg was still resting on the OCO book with
+# stopPrice 1980.8. venue.py flat then also answered exit 0. The account was
+# reported clean TWICE with our own bracket still on it.
+#
+# CANCEL THE CHILD, NEVER THE UMBRELLA. Also measured, at 10:00:12:
+#     venue.py cancel damadq2vfqkc7397o0tg
+#       -> CO-ORD-001 http=404 "Order Not Found"     (STOP book)
+#       -> CO-ORD-013 http=400 "order is done"       (OCO book)
+#       -> exit 1, "STILL LIVE — recheck"
+# whereas sweeping the CHILD at 09:59:26 moved the umbrella's modifiedDate to
+# that instant: the child's cancel is what spends the bracket.
+
+def _umb(uid="damadq2vfqkc7397o0tg", state="ARMED", child="39356"):
+    return tool.venue.Umbrella(
+        id=uid, state=getattr(tool.venue.UmbrellaState, state), child_id=child,
+        stop_price=1980.8, stop_order_price=1980.6, price=1988.8,
+        side="NS", quantity=1.0)
+
+
+def __test_sweep_cancels_an_owned_armed_umbrella_by_its_CHILD_id__(
+        fake_client, tmp_path, monkeypatch):
+    """The umbrella id must never reach the cancel endpoint: the venue refuses
+    it (CO-ORD-013 "order is done") and the child is what actually spends the
+    bracket."""
+    monkeypatch.setattr(tool.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(tool.venue, "oco_umbrellas", lambda b, **k: [_umb()])
+    b = _broker(fake_client, tmp_path,
+                get_positions=(200, {"positions": []}),
+                get_orders=(200, {"orders": [], "totalPages": 1}))
+
+    tool.flatten(b, "VN30F1M", {"damadq2vfqkc7397o0tg", "39356"})
+
+    cancels = [c for c in b._client.calls if c[0] == "cancel_order"]
+    sent = str(cancels)
+    assert cancels, "the armed bracket was not swept"
+    assert "damadq2vfqkc7397o0tg" not in sent, (
+        "the UMBRELLA id was sent to cancel — measured refusal CO-ORD-013")
+    assert "39356" in sent, "the CHILD is what spends the bracket"
+
+
+def __test_sweep_leaves_a_SPENT_umbrella_alone__(
+        fake_client, tmp_path, monkeypatch):
+    """A spent umbrella is already terminal. Cancelling it is the CO-ORD-013
+    path again and would make every post-flatten sweep report an unresolved
+    disposition on an account that is genuinely clean."""
+    monkeypatch.setattr(tool.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(tool.venue, "oco_umbrellas",
+                        lambda b, **k: [_umb(state="SPENT")])
+    b = _broker(fake_client, tmp_path,
+                get_positions=(200, {"positions": []}),
+                get_orders=(200, {"orders": [], "totalPages": 1}))
+
+    rc = tool.flatten(b, "VN30F1M", {"damadq2vfqkc7397o0tg", "39356"})
+
+    assert rc == 0, "a spent umbrella is not dirt"
+    assert b._client.count("cancel_order") == 0
+
+
+def __test_sweep_leaves_an_umbrella_we_do_not_own__(
+        fake_client, tmp_path, monkeypatch):
+    """Now that we can SEE umbrellas, the shared-account rule has to hold for
+    them too — an unowned one is the operator's protection."""
+    monkeypatch.setattr(tool.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(tool.venue, "oco_umbrellas",
+                        lambda b, **k: [_umb(uid="theirs", child="99999")])
+    b = _broker(fake_client, tmp_path,
+                get_positions=(200, {"positions": []}),
+                get_orders=(200, {"orders": [], "totalPages": 1}))
+
+    tool.flatten(b, "VN30F1M", {"39356"})
+
+    assert b._client.count("cancel_order") == 0
+
+
+def __test_an_UNKNOWN_umbrella_is_exit_2_and_is_never_cancelled__(
+        fake_client, tmp_path, monkeypatch):
+    """An umbrella whose child cannot be resolved is not provably spent and not
+    provably ours to spend. Cancelling it risks retiring live protection;
+    calling the account clean hides it. Could-not-determine, and no write."""
+    monkeypatch.setattr(tool.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(tool.venue, "oco_umbrellas",
+                        lambda b, **k: [_umb(state="UNKNOWN", child=None)])
+    b = _broker(fake_client, tmp_path,
+                get_positions=(200, {"positions": []}),
+                get_orders=(200, {"orders": [], "totalPages": 1}))
+
+    rc = tool.flatten(b, "VN30F1M", {"damadq2vfqkc7397o0tg"})
+
+    assert rc == 2, f"UNKNOWN umbrella must be could-not-determine, got {rc}"
+    assert b._client.count("cancel_order") == 0
+
+
+def __test_an_unreadable_OCO_book_is_exit_2_not_a_clean_sweep__(
+        fake_client, tmp_path, monkeypatch):
+    """The 09:59 symptom in its most dangerous form: if the OCO book cannot be
+    read, the sweep has no idea whether a bracket survived it. A failed read
+    must never be the clean answer."""
+    monkeypatch.setattr(tool.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(tool.venue, "oco_umbrellas", lambda b, **k: None)
+    b = _broker(fake_client, tmp_path,
+                get_positions=(200, {"positions": []}),
+                get_orders=(200, {"orders": [], "totalPages": 1}))
+
+    assert tool.flatten(b, "VN30F1M", set()) == 2
+
+
+def __test_a_broken_venue_import_is_exit_2_and_says_why__(
+        fake_client, tmp_path, monkeypatch, capsys):
+    """flatten is the EMERGENCY tool and must always LOAD, so the venue import
+    is tolerant — but a tool that cannot read the OCO book must not report the
+    account clean. venue is None -> exit 2, with a line naming the reason, so
+    the operator learns the helper is broken rather than inferring it from a
+    verdict that looks fine."""
+    monkeypatch.setattr(tool.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(tool, "venue", None)
+    b = _broker(fake_client, tmp_path,
+                get_positions=(200, {"positions": []}),
+                get_orders=(200, {"orders": [], "totalPages": 1}))
+
+    rc = tool.flatten(b, "VN30F1M", set())
+    out = capsys.readouterr().out
+
+    assert rc == 2, f"a broken OCO helper must be could-not-determine, got {rc}"
+    assert "OCO" in out, "the operator must be told WHICH read is unavailable"
+    assert b._client.count("cancel_order") == 0
+
+
+def __test_running_flatten_as_a_script_refuses_loudly__():
+    """#152. Measured: `python flatten.py` and `python flatten.py --help` both
+    exited 0 having printed NOTHING, because the file is a library with no
+    __main__ block. For an emergency tool that is the worst answer available —
+    an operator reaching for the flatten under pressure gets silence and a
+    success code, indistinguishable from a flatten that ran and found the
+    account clean.
+
+    Deliberately a SUBPROCESS pin: it needs no broker, no fake client and no
+    store, because the failure it guards is what happens when someone runs the
+    file directly. Asserting on an in-process import could never see it.
+    """
+    import subprocess
+    import sys as _sys
+
+    result = subprocess.run(
+        [_sys.executable, str(_TOOL_PATH)],
+        capture_output=True, text=True, timeout=60)
+
+    assert result.returncode == 2, (
+        f"running flatten.py returned {result.returncode} having done nothing; "
+        f"exit 0 here reads as 'the account is clean' (measured 2026-09-18)")
+    combined = result.stdout + result.stderr
+    assert "flatten_api.py" in combined, (
+        "the refusal must name the tool that DOES work, or the operator is "
+        "left with a failure and no next step")
+
+
+def __test_a_STOP_order_does_not_appear_on_the_OCO_book__(fake_client, tmp_path):
+    """#152. DNSE's books are DISJOINT: an order lives on exactly one of
+    NORMAL / STOP / OCO. The fake client used to serve ONE get_orders response
+    for every category, so an owned STOP conditional also came back from the
+    OCO listing, arrived at the umbrella classifier with no externalOrderId,
+    and graded UNKNOWN — making the sweep refuse to run on an account that was
+    perfectly readable.
+
+    That is a TEST DOUBLE that cannot represent the venue it stands for, which
+    is worse than one that is merely incomplete: it invents a state production
+    cannot reach and then the code is shaped around it.
+    """
+    b = _broker(fake_client, tmp_path, get_orders={
+        "STOP": (200, {"orders": [
+            {"id": "prot-cond-1", "symbol": "VN30F1M", "side": "NB",
+             "quantity": 1, "fillQuantity": 0, "orderStatus": "New"}],
+            "totalPages": 1}),
+    })
+
+    stop_rows, _ = b._read_book_rows_sync("STOP")
+    oco_rows, _ = b._read_book_rows_sync("OCO")
+    normal_rows, _ = b._read_book_rows_sync("NORMAL")
+
+    assert [r["id"] for r in stop_rows] == ["prot-cond-1"]
+    assert oco_rows == [], (
+        "a STOP conditional appeared on the OCO book — the fake is serving one "
+        "response for every category and cannot model disjoint books")
+    assert normal_rows == []
+
+
+def __test_a_single_response_still_serves_every_category__(fake_client, tmp_path):
+    """The back-compat half, and the reason this change is safe for the other
+    700+ pins: a NON-dict response keeps the old behaviour exactly. Without
+    this guard the per-category work would be free to break every existing
+    test that registers one flat get_orders."""
+    b = _broker(fake_client, tmp_path, get_orders=(200, {"orders": [
+        {"id": "shared-1", "symbol": "VN30F1M", "side": "NB", "quantity": 1,
+         "fillQuantity": 0, "orderStatus": "New"}], "totalPages": 1}))
+
+    for category in ("NORMAL", "STOP", "OCO"):
+        rows, _ = b._read_book_rows_sync(category)
+        assert [r["id"] for r in rows] == ["shared-1"], category
