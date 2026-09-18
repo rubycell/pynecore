@@ -217,11 +217,93 @@ still live and the cancel still failing, makes the arm path dispatch.
 So the restriction is lifted by **#164**, not by #162. This applies to ANY bracket vehicle,
 not just l2c; the enter-once latch is a vehicle-level mitigation, not the fix.
 
+### SINGLE ROUND TRIPS ARE PERMITTED — and this is compliance, not an override
+
+Operator decision, conveyed by DNSEPlugin, 2026-09-18 ~12:20. Recorded with its
+provenance rather than as a direct quote, because I did not receive it firsthand.
+
+**Read the restriction literally: it prohibits RE-ENTRY after a stop.** A run that cannot
+re-enter does not engage it. The enter-once latch makes re-entry impossible, so a
+single-round-trip run COMPLIES with the rule as written rather than being excused from it.
+That is a stronger footing than an exception, and it is why these runs may proceed while
+#164 is still open.
+
+**The mitigation is verified in the built artifact, not assumed.** From `HEAD`'s generated
+`l2c_oco_execution.py`:
+
+```
+21:  hasTraded: PersistentSeries[bool] = False
+25:  if strategy.opentrades > 0 or strategy.closedtrades > 0:
+26:      hasTraded = True
+28:  if barstate.isrealtime and strategy.opentrades == 0 and (not hasTraded):
+```
+
+`closedtrades` increments on the close and persists, which is what survives a round trip
+completing inside one bar — the exact case that defeated the first latch and produced the
+naked position. Pinned by `plugins/dnse/tests/test_l2c_latch.py`, which reads the GENERATED
+file and evaluates the guard against that state rather than grepping for a field name.
+
+**Why #164 cannot bite a single round trip.** The write-only ledger only refuses to RE-arm;
+the FIRST arm writes an empty key and works, which run A demonstrated live. A naked window
+needs a SECOND position, and the latch forbids one. If a run somehow produces a second
+entry, the latch has failed and the run is aborted immediately — that, not #164, is the
+condition to watch for.
+
+**What stays forbidden**: any vehicle without a verified enter-once latch, and any run
+permitting more than one round trip, until #164 lands.
+
 ## Preconditions and the abort rule
 
 L0 green, `venue.py flat` exit 0 before launch, operator watching, DNSE app open. Size 1,
 one round-trip per run. Any id that will not cancel, or a position not bracketed within one
 bar, stops the run and is reported with the ids immediately.
+
+**A RUN ENDS WHEN ITS PROCESS IS STOPPED, NOT WHEN ITS TRADE IS GRADED.** Stop the engine
+explicitly the moment the round trip completes, and confirm no `pyne` process for the
+vehicle remains before launching the next one.
+
+Measured 2026-09-18: run B's engine was still alive when run A2 launched, so two l2c
+engines ran concurrently on a netting account for seven minutes — the exact state this plan
+forbids, and the reason it forbids it is that two vehicles net against each other and BOTH
+results become meaningless. No harm resulted, verified rather than assumed: the only new
+venue row after the A2 cutoff was A2's own entry, and run B dispatched zero entries after
+its fill because the `closedtrades` latch held.
+
+The cause was an assumption, not an oversight in the rules: "the trade is graded" was taken
+for "the run is over". **The vehicle does not self-terminate** — the enter-once latch stops
+it RE-ENTERING, it does not stop the engine, which keeps evaluating bars until it is killed
+or times out. Run A this morning only ended because it was killed. One-at-a-time therefore
+needs an explicit stop, not the assumption that a finished measurement means a finished
+process.
+
+It was found by someone checking something else entirely: `ps -o lstart` on the first
+matching process returned the earlier run's start time. A check that prints what it
+actually saw, rather than only answering the question it was asked, catches what nobody
+thought to look for.
+
+**READ THE TOOL'S EXIT STATUS, NEVER A PIPE'S — and this is the third time today one check
+answered about a different object than the claim it was used to support.**
+
+At the A2 abort the cleanup check was written as:
+
+```
+.venv/bin/python plugins/dnse/tools/venue.py flat 2>&1 | tail -1
+echo "FLAT EXIT: $?"          # <- this is TAIL's status, not venue.py's
+```
+
+It printed `FLAT EXIT: 0` while the very output above it listed a LIVE order. Re-run with
+the status captured to a variable (`cmd > f 2>&1; rc=$?`) it returned **exit 1, NOT CLEAN,
+1 LIVE order** — an unfilled entry conditional that had to be cancelled. Trusting the first
+line would have left a resting order on the account overnight.
+
+Its two siblings from the same day: a backstop verified by evaluating the PINE expression
+while the GENERATED `.py` still said something different, and a watcher whose silence was
+read as a quiet market when the watcher itself had died. All three have one shape — the
+check and the claim were about different objects — and all three looked like success.
+
+So, for every gate in this plan: capture the status to a variable, read the summary LINE as
+well as the code, and before trusting any check name one broken state it would CATCH and one
+it would MISS.
 
 **Flatten with `plugins/dnse/testing/live_test/flatten_api.py`** — it has an entry point,
 argument parsing and `--dry-run`. `plugins/dnse/tools/flatten.py` is a LIBRARY MODULE: it
