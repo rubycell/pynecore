@@ -6,9 +6,20 @@ greps at the end to reproduce it.
 
 ## 1. The REST surface the plugin can reach
 
+> **CORRECTED 2026-09-18** after the #157 panel (reviewer 1, correctness lens). The first
+> version of this section said 24 paths and claimed the token-mint endpoints and
+> `positions/{id}/close` were "not SDK paths". Both were wrong: a `sort -u` over the whole
+> vendored SDK gives **31** unique path literals, and the position and pnl-config endpoints are
+> in the SDK (`_vendor/dnse/api/client.py:81`). They all reach the wire through `_request` and
+> the `_http` PoolManager, so the in-process seam covers them. The undercount came from a grep
+> anchored on three path prefixes rather than on every literal. Re-run:
+> `grep -rhoE '"/[^"]*"|f"/[^"]*"' plugins/dnse/pynecore_dnse/_vendor/dnse/ | sort -u | wc -l`
+
 `client.py:84` delegates by `__getattr__` to the vendored SDK, so the plugin's REST surface
 IS the SDK's surface. The vendored SDK (11 files under
-`plugins/dnse/pynecore_dnse/_vendor/dnse/`) builds these 24 paths:
+`plugins/dnse/pynecore_dnse/_vendor/dnse/`) builds **31** unique paths; the prefix-anchored
+subset below is the part the first pass found, and stage A's remaining work is to enumerate all
+31 against the mirror:
 
 | group | paths |
 |---|---|
@@ -17,11 +28,30 @@ IS the SDK's surface. The vendored SDK (11 files under
 | positions | `/accounts/{a}/positions` (the only path spelled in the plugin itself, `client.py:57`) |
 | market | `/market/instruments`, `/market/trading-session`, `/market/working-dates` |
 | price | `/price/ohlc`, `/price/{s}/quotes`, `/price/{s}/quotes/latest`, `/price/{s}/trades`, `/price/{s}/trades/latest`, `/price/{s}/trades/volume-profile`, `/price/{s}/close`, `/price/{s}/expected-price`, `/price/{s}/foreign-trading`, `/price/{s}/secdef`, `/price/{index}/market-index` |
+| positions (missed by the first pass) | `/positions/{id}`, `/positions/{id}/close`, `/positions/{id}/pnl-configs` |
+| registration (missed by the first pass) | `/registration/send-email-otp`, `/registration/trading-token` |
+| broker (missed by the first pass) | `/brokers/accounts/care-by` |
+| root | `/` |
 
-Not in this list and still required, because they are not SDK paths: the token-mint endpoints
-(`dnse-2-fa-verification.md` in the mirror) and `POST /accounts/{a}/positions/{id}/close`.
-**Stage A action:** confirm each against the mirror and mark which the plugin actually calls
-today versus which exist for completeness. The fake serves the called set first.
+### The CALLED set — what the fake must serve first
+
+The plugin reaches the SDK by name, so only the methods it actually calls matter for stage C.
+Measured with `grep -oE 'client\.[a-z_]+\(' broker.py provider.py`, 16 distinct methods:
+
+| calls | method | serves |
+|---|---|---|
+| 7 | `get_order_detail` | the poll ladder — the single most exercised endpoint |
+| 4 | `get_ohlc` | bars over REST, history and latest |
+| 2 each | `put_order`, `get_instruments`, `get_accounts` | amend; catalogue and roll; account discovery |
+| 1 each | `post_order`, `cancel_order`, `get_orders`, `get_order_history`, `get_positions`, `get_execution_detail`, `get_balances`, `get_loan_packages`, `get_latest_trade`, `get_expected_price`, `get_security_definition` | the rest of the order and account surface |
+
+Everything else among the 31 exists in the SDK but is not called by the plugin today, so the
+fake may answer those with an explicit "not implemented" rather than a plausible fiction — a
+fake that invents a response for an uncalled endpoint would pin a shape nothing produces.
+
+**Stage A remaining work:** cross-check these 16 against the mirror page for each, and confirm
+the response shape the fake must serve comes from `MEASURED_FACTS.md` where the venue deviates
+from its own documentation.
 
 ## 2. The WebSocket surface
 
