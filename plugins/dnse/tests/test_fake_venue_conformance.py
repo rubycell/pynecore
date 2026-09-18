@@ -23,14 +23,11 @@ Sources, per fact:
 """
 import pytest
 
-# The module under construction. Until it exists this import fails, which is the first RED.
-fake_venue = pytest.importorskip(
-    "pynecore_dnse.fake_venue",
-    reason="#157: the fake venue does not exist yet — this suite is the acceptance criterion "
-           "written test-first; remove this guard once the module lands.",
-)
-FakeVenue = fake_venue.FakeVenue
-VenueReject = fake_venue.VenueReject
+# A PLAIN import, deliberately. This started as `pytest.importorskip`, which was wrong: once
+# the module existed the guard was inert, but any future import error would have turned all
+# twelve pins into twelve SKIPS, and a skipped pin reads as a passing suite. An import failure
+# here must be LOUD (panel review 3/3, 2026-09-18).
+from pynecore_dnse.venue_core import FakeVenue, VenueReject  # noqa: E402
 
 
 # --------------------------------------------------------------------------- helpers
