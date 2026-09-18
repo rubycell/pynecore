@@ -272,6 +272,9 @@ dedb3744695947862844035eeb7f7a01eeaeb52a7a706b42d5e6e16d389256c7  plugins/dnse/t
 # 2026-09-18 #157 R10 instrumented pass at 60a2c774 (Worker4): fake half cleared; engine emits IDLE-SYNTH bars instead of consuming the paced live bars
 c2b0d0cfae5147fc35120b8da2dbc87aca40ebde0f894f3293a471a9d28a7843  plugins/dnse/testing/venue_http.py
 7ba708ca84d748b13b57fc1fb7546d69bbc7708f8ad31021a506a3474f942f21  plugins/dnse/pynecore_dnse/fake_broker.py
+# 2026-09-18 #157 R10 end-of-day at 2a6abebb (Worker4): feed_timeout_bars=None on the fake (watchdog off); second synthesiser (bar_grace, live_runner.py:763-787) still wall-clock -> re-stamping is Monday's first item
+9deaf7e25464688c696d3cc417e780ed2b0b5ae4adbb72a7ab6c3a5cab63ee14  plugins/dnse/pynecore_dnse/fake_broker.py
+30eb67fe3c468019e478c5fe519cf90a95fc46ab77a265b3dcbdf8e821e2cd23  plugins/dnse/testing/venue_http.py
 6bca480694a87414913f19438078041091c150f28060443c50bd19093348672a  plugins/dnse/testing/venue_mutants.py
 6429f925b1a120cfc1bd876899210cf646bec7a20c08311e75a539b6c2659d5f  plugins/dnse/pynecore_dnse/fake_broker.py
 3542b300c1ec62a1b0f2dacbff057d3cd92b19d4730a15f2d112c98ac37fcee2  plugins/dnse/tests/test_fake_venue_conformance.py
