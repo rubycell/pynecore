@@ -387,6 +387,15 @@ DNSE nets per symbol and the venue has no notion of "this run's" orders. Hence
 
 ## DNSE testing (read before touching the plugin or running anything live)
 
+**Standing authorisation (operator, 2026-09-18): agents may run L0, L1 and L2 test cases
+autonomously** — no per-run operator word is needed to launch them. The preconditions still
+apply every time: the L0 gate passes first (exit 0), `venue.py flat` answers 0 before any
+L2 launch, the run is flat again by 14:25, and results are graded from the venue record.
+**L3 (uncertain stop distance and/or size ≥ 2) still needs the operator's explicit word per
+run**, and entering an OTP or any credential remains prohibited for every agent. This
+supersedes the "never execute an order-placing command" line in earlier executor prompts
+for L0–L2 only.
+
 Test cases are named **`Live-L<level>-<case>`** (e.g. `Live-L1-T11-OcaCancelMember`,
 `Live-L3-F05-LongStopLimit`) — use ONLY these IDs in plans, cards and conversation;
 the canonical registry with live status is the first table in
