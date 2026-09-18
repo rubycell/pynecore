@@ -161,7 +161,28 @@ class _Handler(BaseHTTPRequestHandler):
             bars = self.catalogue["bars"]
             if cursor is not None:
                 bars = [b for b in bars if b["timestamp"] <= cursor]
-            return self._send(200, {"data": bars})
+            # TradingView-UDF parallel arrays, with `t` in SECONDS — the venue's own shape,
+            # measured against production 2026-09-18: the keys are exactly c, h, l, nextTime,
+            # o, t, v, and there is no `s` status field at all.
+            #
+            # This served `{"data": [ {timestamp, open, ...} ]}` until the second pass, and
+            # nothing noticed for weeks: FakeVenueBroker overrides download_ohlcv and
+            # watch_ohlcv, so no reader of this payload was reached through the normal fake
+            # door. Through the other door — the direct-client scripts — it broke two readers,
+            # and the quiet one was the dangerous one. `_stop_already_crossed` reads
+            # `body.get("c")`, found nothing, and FAILED OPEN with False, so a stop the market
+            # had already passed read as not crossed: no exception, no log line, and the branch
+            # under test never ran. A fake that makes a safety check answer "no problem" is
+            # worse than a fake that crashes.
+            return self._send(200, {
+                "t": [int(b["timestamp"]) // 1000 for b in bars],
+                "o": [float(b["open"]) for b in bars],
+                "h": [float(b["high"]) for b in bars],
+                "l": [float(b["low"]) for b in bars],
+                "c": [float(b["close"]) for b in bars],
+                "v": [float(b.get("volume", 0.0)) for b in bars],
+                "nextTime": 0,
+            })
 
         if parsed.path.endswith("/secdef"):
             band = self.catalogue["band"]

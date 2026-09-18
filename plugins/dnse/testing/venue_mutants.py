@@ -721,6 +721,54 @@ def _mutant_parity_window_from_a_trade_stamp(venue_core):
     _ = venue_core
 
 
+
+def _mutant_ohlc_serves_the_old_dict_shape(venue_core):
+    """WRONG: /price/ohlc answers {"data": [ {timestamp, open, ...} ]} again.
+
+    THE REAL HISTORICAL BUG, restored. This is what the fake served until the second pass of the
+    suite run, and it survived a round-1 review that rated it LOW because FakeVenueBroker
+    overrides download_ohlcv, so the payload "could not be reached". It could: the direct-client
+    scripts are another door, and through that door it broke the L0 gate loudly and
+    _stop_already_crossed SILENTLY, the latter by failing open to False.
+
+    The mutant targets the SILENT reader. A mutant caught by an exception is a weaker
+    demonstration than one caught by a safety check quietly giving the wrong answer.
+    """
+    import venue_http
+    original = venue_http._Handler._send
+
+    def patched(self, status, payload):
+        if isinstance(payload, dict) and "t" in payload and "nextTime" in payload:
+            payload = {"data": [
+                {"timestamp": t * 1000, "open": o, "high": h, "low": low, "close": c,
+                 "volume": v}
+                for t, o, h, low, c, v in zip(payload["t"], payload["o"], payload["h"],
+                                              payload["l"], payload["c"], payload["v"])]}
+        return original(self, status, payload)
+
+    venue_http._Handler._send = patched
+    _ = venue_core
+
+
+
+def _mutant_phase_is_always_continuous(venue_core):
+    """WRONG: the venue is open at every instant, which is what it did before the second pass.
+
+    The consequence is not a wrong answer but a MISSING QUESTION: with the venue permanently
+    open, no closed-hours or ATC behaviour can be posed at all, so T33 could only ever fail and
+    the lunch-queue case could not be reproduced.
+    """
+    venue_core.phase_at = lambda timestamp_ms: "continuous"
+    original = venue_core.FakeVenue.advance_to
+
+    def patched(self, timestamp_ms):
+        self.phase = "continuous"
+        return self.phase
+
+    venue_core.FakeVenue.advance_to = patched
+    _ = original
+
+
 MUTANTS: dict[str, tuple[str, object]] = {
     "oco_spawns": ("__test_the_oco_stop_leg_amends_the_existing_child_in_place_and_never_spawns__",
                    _mutant_oco_spawns),
@@ -844,6 +892,12 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "parity_window_from_a_trade_stamp": (
         "test_trade_list_parity.py::__test_the_window_starts_at_the_first_live_bar_not_at_a_wall_clock_trade_time__",
         _mutant_parity_window_from_a_trade_stamp),
+    "ohlc_serves_the_old_dict_shape": (
+        "test_venue_http_ohlc_shape.py::__test_a_stop_below_the_market_is_seen_as_already_crossed__",
+        _mutant_ohlc_serves_the_old_dict_shape),
+    "phase_is_always_continuous": (
+        "test_venue_phase_from_bar_time.py::__test_a_placement_during_the_replayed_lunch_still_works_and_one_after_the_close_does_not__",
+        _mutant_phase_is_always_continuous),
 }
 
 

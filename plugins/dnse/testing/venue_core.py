@@ -27,6 +27,7 @@ market impact, multiple accounts.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from typing import Any
@@ -90,6 +91,38 @@ class VenueServerError(Exception):
         self.message = message
 
 
+
+#: VN30 derivatives session, ICT. The values are the measured venue behaviour recorded in
+#: CLAUDE.md and in the L0 gate's own phase table, kept in ONE place so the fake and the gate
+#: cannot drift: continuous 09:00-11:30 and 13:00-14:30, lunch 11:30-13:00, ATC 14:30-14:45.
+_ICT = timezone(timedelta(hours=7))
+
+
+def phase_at(timestamp_ms: int) -> str:
+    """The trading phase at an epoch-millisecond instant, read in ICT.
+
+    Used with the ORIGINAL timestamp of the bar being replayed, never the shifted one and never
+    the wall clock. The day is re-stamped onto the current minute so the engine's live path stays
+    anchored to a clock it believes, but a replay of a 09:00-to-14:45 session is still a replay of
+    that session: the venue must walk its real phases whatever hour someone runs it at. Deriving
+    the phase from the shifted stamp would merely reproduce the wall clock, which is the thing
+    that made a closed-hours question impossible to pose.
+    """
+    when = datetime.fromtimestamp(timestamp_ms / 1000, _ICT)
+    minutes = when.hour * 60 + when.minute
+    if when.weekday() > 4:
+        return "closed"
+    if 9 * 60 <= minutes < 11 * 60 + 30:
+        return "continuous"
+    if 11 * 60 + 30 <= minutes < 13 * 60:
+        return "lunch"
+    if 13 * 60 <= minutes < 14 * 60 + 30:
+        return "continuous"
+    if 14 * 60 + 30 <= minutes < 14 * 60 + 45:
+        return "atc"
+    return "closed"
+
+
 class FakeVenue:
     """An offline DNSE venue driven by market prints rather than by a clock.
 
@@ -121,6 +154,16 @@ class FakeVenue:
         self._orders: dict[Any, dict] = {}
         self._records: list[dict] = []
         self._seq = 0
+
+    def advance_to(self, timestamp_ms: int) -> str:
+        """Move the venue's clock to the instant of the bar being replayed.
+
+        The phase is DERIVED here rather than passed in, so a caller cannot hand the venue a
+        phase that disagrees with the bar it is replaying. A venue that is never advanced keeps
+        whatever phase it was constructed with, which is what every existing unit pin relies on.
+        """
+        self.phase = phase_at(int(timestamp_ms))
+        return self.phase
 
     # ----------------------------------------------------------------- ids
 

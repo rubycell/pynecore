@@ -371,7 +371,15 @@ class FakeVenueBroker(DNSEBroker):
             await asyncio.sleep(self._live_pace)
             bar = self._live_bars[self._idx]
             self._idx += 1
-            self._day.replay_bar(self._live_orig_ts[self._idx - 1], into=self._venue)
+            original_ts = self._live_orig_ts[self._idx - 1]
+            # The venue's trading phase follows the ORIGINAL stamp of the bar being replayed, not
+            # the shifted one and not the wall clock. The day is re-stamped so the engine's live
+            # path stays anchored, but a replay of a 09:00-to-14:45 session is still a replay of
+            # that session, and the venue must walk its real phases whatever hour it is run at.
+            # Before this the phase was fixed at construction and always "continuous", so a
+            # closed-hours or ATC question could not be posed at all.
+            self._venue.advance_to(original_ts)
+            self._day.replay_bar(original_ts, into=self._venue)
             # Move the history cursor with the stream, so a history read never returns a bar the
             # replay has not reached (see venue_http's /price/ohlc clamp).
             self._server.catalogue["replay_cursor"] = bar.timestamp
