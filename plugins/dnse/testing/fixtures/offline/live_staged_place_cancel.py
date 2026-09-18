@@ -1,0 +1,235 @@
+"""
+@pyne
+
+This code was compiled by Pine2Pyne — the Pine Script to PyneCore's Python compiler.
+"""
+
+from pynecore.lib import (
+    NA, bar_index, close, display, format, input, log, na, open, plot, script, strategy, string, time, timestamp
+)
+from pynecore.types import PersistentSeries, Series
+
+@script.strategy('LIVE staged place+cancel', overlay=True, pyramiding=0, initial_capital=500000000, default_qty_type=strategy.fixed, default_qty_value=1, margin_long=18.48, margin_short=18.48, slippage=1, calc_on_every_tick=False, process_orders_on_close=False)
+def main(
+    winStart=input.time(timestamp("2030-01-01T00:00:00+07:00"), "Trade window START"),
+    winEnd=input.time(timestamp("2030-01-01T23:59:00+07:00"), "Trade window END"),
+    startState=input.int(0, "Start at state (0=T1 .. 14=T21)", minval=0, maxval=14)
+):
+    state: PersistentSeries[int] = startState
+    placedBar: PersistentSeries[int] = na(int)
+    stageStep: PersistentSeries[int] = 0
+    lvlEntry: PersistentSeries[float] = na(float)
+    lvlStop: PersistentSeries[float] = na(float)
+    lvlTP: PersistentSeries[float] = na(float)
+    lvlAmend: PersistentSeries[float] = na(float)
+    lvlAmend2: PersistentSeries[float] = na(float)
+    announced: PersistentSeries[bool] = False
+
+    isGreen = close > open
+    pending = not na(placedBar)
+    started = time >= winStart
+    canPlace = started and time <= winEnd
+    if started:
+        if not announced:
+            log.info("[L1] === STAGED PLACE/CANCEL v2 — window open. Tests T1-T9, 1 contract " + "each, every order >=4.5% away so none can fill. startState={0} ===", startState)
+            log.info("[L1] plan: T1/T2 limit place+cancel | T3 +exit(stop) | T4 OCA cancel-entry-only " + "| T5 native-OCO cancel-entry-only | T6 amend NORMAL | T7 amend STOP (#18 500) " + "| T8 cancel_all both books | T9 strategy.order() | T19 #85 cancel+replace x2 " + "| T20 #86 dual-field amend split | T21 #87 both-set sole owner")
+            announced = True
+        log.info("[L1] bar={0} close={1} candle={2} state={3} step={4} pending={5} pos={6}", bar_index, string.tostring(close, format.mintick), ("GREEN" if isGreen else "RED"), state, stageStep, ("yes" if pending else "no"), strategy.position_size)
+        if canPlace and (not pending) and state < 15:
+            if state == 0:
+                lvlEntry = close * 0.95
+                strategy.entry("T1", strategy.long, limit=lvlEntry, comment="T1")
+                placedBar = bar_index
+                log.info("[L1] TEST 1 PLACE id=T1 LONG limit={0} (-5%) — expect one NORMAL LO, filled=0", string.tostring(lvlEntry, format.mintick))
+            elif state == 1:
+                lvlEntry = close * 1.05
+                strategy.entry("T2", strategy.short, limit=lvlEntry, comment="T2")
+                placedBar = bar_index
+                log.info("[L1] TEST 2 PLACE id=T2 SHORT limit={0} (+5%)", string.tostring(lvlEntry, format.mintick))
+            elif state == 2:
+                lvlEntry = close * 0.95
+                lvlStop = close * 0.94
+                strategy.entry("T3", strategy.long, limit=lvlEntry, comment="T3")
+                strategy.exit("X3", from_entry="T3", stop=lvlStop, comment_loss="X3")
+                placedBar = bar_index
+                log.info("[L1] TEST 3 PLACE id=T3 limit={0} + X3 stop={1} — exit reaches the venue " + "pre-fill (measured); both cancelled explicitly next bar", string.tostring(lvlEntry, format.mintick), string.tostring(lvlStop, format.mintick))
+            elif state == 3:
+                lvlEntry = close * 1.05
+                lvlStop = close * 1.055
+                strategy.entry("T4", strategy.short, limit=lvlEntry, oca_name="t4", oca_type=strategy.oca.cancel, comment="T4")
+                strategy.exit("X4", from_entry="T4", stop=lvlStop, oca_name="t4", comment_loss="X4")
+                placedBar = bar_index
+                log.info("[L1] TEST 4 PLACE id=T4 limit={0} + X4 stop={1} (oca) — next bar cancels " + "ENTRY ONLY; X4 EXPECTED TO REMAIN (cascade reverted, #19 open) — cancel " + "the orphan manually after grading", string.tostring(lvlEntry, format.mintick), string.tostring(lvlStop, format.mintick))
+            elif state == 4:
+                lvlEntry = close * 0.95
+                lvlTP = close * 1.05
+                lvlStop = close * 0.94
+                strategy.entry("T5", strategy.long, limit=lvlEntry, comment="T5")
+                strategy.exit("X5", from_entry="T5", limit=lvlTP, stop=lvlStop, comment_profit="X5tp", comment_loss="X5sl")
+                placedBar = bar_index
+                log.info("[L1] TEST 5 PLACE id=T5 limit={0} + X5 tp={1}/sl={2} -> NATIVE OCO — first " + "Level-1 use of the OCO umbrella book. Next bar cancels ENTRY ONLY: X5 " + "EXPECTED TO REMAIN (cascade reverted, #19 open) — cancel manually after", string.tostring(lvlEntry, format.mintick), string.tostring(lvlTP, format.mintick), string.tostring(lvlStop, format.mintick))
+            elif state == 5:
+                lvlEntry = close * 0.95
+                lvlAmend = close * 0.955
+                strategy.entry("T6", strategy.long, limit=lvlEntry, comment="T6")
+                placedBar = bar_index
+                log.info("[L1] TEST 6 PLACE id=T6 LONG limit={0} (-5%) — NEXT bar re-issues at {1} " + "(-4.5%): an AMEND on the NORMAL book (worked 2026-08-10; re-verify on 6.8.5)", string.tostring(lvlEntry, format.mintick), string.tostring(lvlAmend, format.mintick))
+            elif state == 6:
+                lvlStop = close * 1.05
+                lvlAmend = close * 1.045
+                strategy.entry("T7", strategy.long, stop=lvlStop, comment="T7")
+                placedBar = bar_index
+                log.info("[L1] TEST 7 PLACE id=T7 buy-STOP {0} (+5%) — NEXT bar re-issues at {1} " + "(+4.5%): an AMEND on a CONDITIONAL. DNSE 500s (#18); expect a [BROKER] " + "park+verify WARNING, not a crash — then prove it still cancels", string.tostring(lvlStop, format.mintick), string.tostring(lvlAmend, format.mintick))
+            elif state == 7:
+                lvlEntry = close * 0.95
+                lvlStop = close * 1.05
+                strategy.entry("T8a", strategy.long, limit=lvlEntry, comment="T8a")
+                strategy.entry("T8b", strategy.long, stop=lvlStop, comment="T8b")
+                placedBar = bar_index
+                log.info("[L1] TEST 8 PLACE T8a limit={0} AND T8b stop={1} — two ids across BOTH " + "books; next bar strategy.cancel_all(), never before fired live", string.tostring(lvlEntry, format.mintick), string.tostring(lvlStop, format.mintick))
+            elif state == 8:
+                lvlEntry = close * 0.95
+                strategy.order("T9", strategy.long, limit=lvlEntry, comment="T9")
+                placedBar = bar_index
+                log.info("[L1] TEST 9 PLACE via strategy.order() LONG limit={0} — order() has never " + "touched the broker; expect identical NORMAL-LO routing to entry()", string.tostring(lvlEntry, format.mintick))
+            elif state == 9:
+                lvlEntry = close * 0.95
+                lvlAmend = close * 1.05
+                lvlStop = close * 1.05
+                strategy.entry("Ga", strategy.long, limit=lvlEntry, oca_name="g11", oca_type=strategy.oca.cancel, comment="Ga")
+                strategy.entry("Gb", strategy.short, limit=lvlAmend, oca_name="g11", oca_type=strategy.oca.cancel, comment="Gb")
+                strategy.entry("Gc", strategy.long, stop=lvlStop, oca_name="g11", oca_type=strategy.oca.cancel, comment="Gc")
+                placedBar = bar_index
+                log.info("[L1] TEST 11 PLACE oca.cancel x3 ACROSS BOOKS: Ga limit={0} (NORMAL) + " + "Gb limit={1} (NORMAL) + Gc stop={2} (CONDITIONAL) — next bar cancels " + "ONLY Ga. KEY: Gb and Gc must REMAIN resting (OCA fires on FILL, not cancel)", string.tostring(lvlEntry, format.mintick), string.tostring(lvlAmend, format.mintick), string.tostring(lvlStop, format.mintick))
+            elif state == 10:
+                lvlEntry = close * 0.95
+                lvlStop = close * 1.05
+                strategy.entry("Ra", strategy.long, limit=lvlEntry, oca_name="g12", oca_type=strategy.oca.reduce, comment="Ra")
+                strategy.entry("Rb", strategy.long, stop=lvlStop, oca_name="g12", oca_type=strategy.oca.reduce, comment="Rb")
+                placedBar = bar_index
+                log.info("[L1] TEST 12 PLACE oca.reduce x2: Ra limit={0} + Rb stop={1} — BOTH must " + "rest FULL qty=1 at the venue (reduce acts only on a fill); next bar " + "cancel_all sweeps them", string.tostring(lvlEntry, format.mintick), string.tostring(lvlStop, format.mintick))
+            elif state == 11:
+                lvlEntry = close * 0.95
+                lvlAmend = close * 1.05
+                strategy.entry("Na", strategy.long, limit=lvlEntry, oca_name="g13", oca_type=strategy.oca.none, comment="Na")
+                strategy.entry("Nb", strategy.short, limit=lvlAmend, oca_name="g13", oca_type=strategy.oca.none, comment="Nb")
+                placedBar = bar_index
+                log.info("[L1] TEST 13 PLACE oca.none (SHARED name g13): Na limit={0} + Nb limit={1} " + "— next bar cancels ONLY Na; Nb must be untouched (none = independent)", string.tostring(lvlEntry, format.mintick), string.tostring(lvlAmend, format.mintick))
+            elif state == 12:
+                lvlStop = close * 1.05
+                lvlAmend = close * 1.046
+                lvlAmend2 = close * 1.047
+                strategy.entry("T19", strategy.long, stop=lvlStop, comment="T19")
+                placedBar = bar_index
+                log.info("[L1] TEST 19 PLACE id=T19 buy-STOP {0} (+5%) — next TWO bars re-issue at " + "{1} then {2}. Post-#85 expect CANCEL+REPLACE each time (old string id " + "Canceled, FRESH id placed), NO http=500 park. #51 caveat: run pre-open", string.tostring(lvlStop, format.mintick), string.tostring(lvlAmend, format.mintick), string.tostring(lvlAmend2, format.mintick))
+            elif state == 13:
+                lvlEntry = close * 0.95
+                lvlAmend = close * 0.955
+                strategy.entry("T20", strategy.long, limit=lvlEntry, comment="T20")
+                placedBar = bar_index
+                log.info("[L1] TEST 20 PLACE id=T20 LONG limit={0} (-5%) qty=1 — next bar re-issues " + "at {1} (-4.5%) AND qty=2: BOTH fields changed. #86 expects TWO sequential " + "single-field amends, SAME id, venue ends price+qty both new", string.tostring(lvlEntry, format.mintick), string.tostring(lvlAmend, format.mintick))
+            elif state == 14:
+                lvlStop = close * 1.05
+                lvlEntry = close * 0.95
+                strategy.entry("T21", strategy.long, limit=lvlEntry, stop=lvlStop, comment="T21")
+                placedBar = bar_index
+                log.info("[L1] TEST 21 PLACE id=T21 BOTH-SET stop={0} limit={1} — #87: plugin is " + "SOLE OWNER (one conditional stop-limit, string id). Expect 'entry-stop " + "watch ... NOT armed ... sole owner' and NO 'armed entry-stop watch' line", string.tostring(lvlStop, format.mintick), string.tostring(lvlEntry, format.mintick))
+        if pending and bar_index > placedBar:
+            if state == 5 and stageStep == 0:
+                strategy.entry("T6", strategy.long, limit=lvlAmend, comment="T6amend")
+                stageStep = 1
+                placedBar = bar_index
+                log.info("[L1] TEST 6 AMEND id=T6 -> limit {0} — expect [BROKER] 'modifying ...' " + "then the venue accepting the new price", string.tostring(lvlAmend, format.mintick))
+            elif state == 9 and stageStep == 0:
+                strategy.cancel("Ga")
+                stageStep = 1
+                placedBar = bar_index
+                log.info("[L1] TEST 11 CANCEL Ga ONLY — [BROKER] must show exactly ONE cancel; " + "Gb (NORMAL) and Gc (STOP book) must still be resting at the venue")
+            elif state == 11 and stageStep == 0:
+                strategy.cancel("Na")
+                stageStep = 1
+                placedBar = bar_index
+                log.info("[L1] TEST 13 CANCEL Na ONLY — Nb must be untouched (oca.none)")
+            elif state == 6 and stageStep == 0:
+                strategy.entry("T7", strategy.long, stop=lvlAmend, comment="T7amend")
+                stageStep = 1
+                placedBar = bar_index
+                log.info("[L1] TEST 7 AMEND id=T7 -> stop {0} — post-#85 expect CANCEL+REPLACE " + "(see TEST 19), no longer the #18 500-park. Run must continue and the " + "order must still cancel next bar", string.tostring(lvlAmend, format.mintick))
+            elif state == 12 and stageStep == 0:
+                strategy.entry("T19", strategy.long, stop=lvlAmend, comment="T19r1")
+                stageStep = 1
+                placedBar = bar_index
+                log.info("[L1] TEST 19 REPLACE 1 id=T19 -> stop {0} — expect [BROKER] cancel of the " + "original string id (Canceled at the venue) + a FRESH conditional id", string.tostring(lvlAmend, format.mintick))
+            elif state == 12 and stageStep == 1:
+                strategy.entry("T19", strategy.long, stop=lvlAmend2, comment="T19r2")
+                stageStep = 2
+                placedBar = bar_index
+                log.info("[L1] TEST 19 REPLACE 2 id=T19 -> stop {0} — the replacement itself must " + "replace again (mapping follows the newest id; warn-throttle re-armed)", string.tostring(lvlAmend2, format.mintick))
+            elif state == 13 and stageStep == 0:
+                strategy.entry("T20", strategy.long, 2, limit=lvlAmend, comment="T20amend")
+                stageStep = 1
+                placedBar = bar_index
+                log.info("[L1] TEST 20 AMEND id=T20 -> limit {0} AND qty 2 — expect TWO sequential " + "[BROKER] amend PUTs (one per field, price first), SAME NORMAL id; venue " + "detail must end price={0} quantity=2", string.tostring(lvlAmend, format.mintick))
+            else:
+                if state == 0:
+                    strategy.cancel("T1")
+                    log.info("[L1] TEST 1 CANCEL id=T1")
+                elif state == 1:
+                    strategy.cancel("T2")
+                    log.info("[L1] TEST 2 CANCEL id=T2")
+                elif state == 2:
+                    strategy.cancel("T3")
+                    strategy.cancel("X3")
+                    log.info("[L1] TEST 3 CANCEL id=T3 and id=X3 (both, explicitly)")
+                elif state == 3:
+                    strategy.cancel("T4")
+                    log.info("[L1] TEST 4 CANCEL id=T4 ONLY — X4 EXPECTED TO REMAIN (no cascade " + "post-revert, #19 open); cancel the orphan manually after grading")
+                elif state == 4:
+                    strategy.cancel("T5")
+                    log.info("[L1] TEST 5 CANCEL id=T5 ONLY — X5 (OCO leg) EXPECTED TO REMAIN " + "(no cascade post-revert, #19 open); cancel it manually after grading")
+                elif state == 5:
+                    strategy.cancel("T6")
+                    log.info("[L1] TEST 6 CANCEL id=T6 (post-amend)")
+                elif state == 6:
+                    strategy.cancel("T7")
+                    log.info("[L1] TEST 7 CANCEL id=T7 (post-500) — proves a parked amend does not " + "wedge the order: it must still cancel cleanly")
+                elif state == 7:
+                    strategy.cancel_all()
+                    log.info("[L1] TEST 8 strategy.cancel_all() — BOTH T8a (NORMAL) and T8b (STOP) " + "must go; venue book must be clear of ours")
+                elif state == 8:
+                    strategy.cancel("T9")
+                    log.info("[L1] TEST 9 CANCEL id=T9")
+                elif state == 9:
+                    strategy.cancel("Gb")
+                    strategy.cancel("Gc")
+                    log.info("[L1] TEST 11 CANCEL Gb and Gc (the survivors) — book must then be " + "clear of the whole g11 group")
+                elif state == 10:
+                    strategy.cancel_all()
+                    log.info("[L1] TEST 12 cancel_all — Ra and Rb must both go")
+                elif state == 11:
+                    strategy.cancel("Nb")
+                    log.info("[L1] TEST 13 CANCEL Nb (the survivor)")
+                elif state == 12:
+                    strategy.cancel("T19")
+                    log.info("[L1] TEST 19 CANCEL id=T19 — must hit the LATEST replacement id " + "(two ancestors already Canceled); venue then clear of all three")
+                elif state == 13:
+                    strategy.cancel("T20")
+                    log.info("[L1] TEST 20 CANCEL id=T20 (post-split-amend, same id throughout)")
+                elif state == 14:
+                    strategy.cancel("T21")
+                    log.info("[L1] TEST 21 CANCEL id=T21 (the single conditional stop-limit)")
+                log.info("[L1] TEST {0} DONE — state {1}->{2}", (state + 7 if state >= 12 else (state + 2 if state >= 9 else state + 1)), state, state + 1)
+                placedBar = na
+                stageStep = 0
+                state += 1
+                if state == 15:
+                    log.info("[L1] === ALL TESTS DONE (T1-T9 + OCA T11-T13 + T19-T21). Verify at the venue that NOTHING of ours " + "is still working, then stop the run. ===")
+        if strategy.position_size != 0:
+            log.error("[L1] !!! UNEXPECTED FILL: pos={0} avg={1} — cancelling all and flattening", strategy.position_size, string.tostring(strategy.position_avg_price, format.mintick))
+            strategy.cancel_all()
+            strategy.close_all(comment="SAFETY-FLATTEN")
+
+    plot(state, "state", display=display.data_window)
+    plot(strategy.position_size, "pos", display=display.data_window)
+    plot(lvlEntry, "entry_lvl", display=display.data_window)
+    plot(lvlStop, "stop_lvl", display=display.data_window)
