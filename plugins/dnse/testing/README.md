@@ -80,6 +80,25 @@ Each mutant makes the venue wrong in one specific way and names the ONE test tha
 Mutants are runtime patches, never source edits, because a file-copy restore can leave stale
 bytecode running the mutant while the source looks correct.
 
+## Tests that cannot fail
+
+Three ways a green result can mean nothing. They are collected here because they share a shape:
+in each case the test is incapable of going red, so its passing carries no information, and in
+each case it reads as reassurance.
+
+**A case whose two arms read the same source cannot answer a question about agreement between
+sources.** The L4 bar-parity probe compares what `watch_ohlcv` yielded against a referee
+`/price/ohlc` fetch. Against production those are independent, so a disagreement is real
+evidence — a revision, a forming-bar leak. Against this fake they are one static list, so
+agreement is arithmetic rather than a finding. The probe still proves something narrow and worth
+having (the feed leaked no forming bar and synthesised none), but its headline verdict is not
+about the venue at all.
+
+This generalises past L4. **Any parity-shaped case must name its two sources and show they are
+independent before its green means anything.** It is the same failure as our own pins agreeing
+with the fake because both came from one head: a comparison between two things that share an
+origin measures the origin, not the things.
+
 **A mutant must remove the BEHAVIOUR, not relabel its output.** Measured 2026-09-18: a mutant
 written to break order-history paging rewrote the response ENVELOPE — the `start` and `end`
 fields — while its target pin asserts on the ROWS. It ESCAPED, and correctly so: it had changed
