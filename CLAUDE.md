@@ -158,8 +158,13 @@ Fork-specific venue plugins, editable-installed (so they import as
   (`DNSEBroker` — native STOP/OCO conditional orders). REST order path (no WS
   order-event transport yet, #107; sub-minute bars are WS per-print, #100), built on the
   **vendored** DNSE openapi-sdk at `plugins/dnse/pynecore_dnse/_vendor/dnse/` (v2.2.0
-  since 2026-09-11 — `_vendor/VENDOR_INFO.txt` is the ground truth, not this line; only
-  `python/dnse` is vendored, NOT `python/examples`)
+  since 2026-09-11 — `_vendor/VENDOR_INFO.txt` is the ground truth, not this line). The
+  SDK's own `python/examples` are vendored SEPARATELY and never edited, at
+  `plugins/dnse/testing/examples/upstream/` (its own VENDOR_INFO.txt, pinned to an upstream
+  commit); five of the seven run against the fake venue and are part of the suite, because
+  the vendor's examples ask questions we did not write — 2026-09-18 they found three fake
+  defects that answered CLEANLY and were simply not answers to the question asked, a class
+  our own pins cannot find.
   (do NOT pip-install the SDK). Run: `pyne run <out>.py dnse:VN30F1M@5` for data,
   `… dnse_broker:VN30F1M@5 --broker` for live orders. Tests: `plugins/dnse/tests/`
   — `pytest` with functions named `__test_*__` (see `pytest.ini`); mock via the
