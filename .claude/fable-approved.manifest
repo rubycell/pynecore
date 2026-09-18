@@ -260,6 +260,9 @@ c2b0d0cfae5147fc35120b8da2dbc87aca40ebde0f894f3293a471a9d28a7843  plugins/dnse/t
 # 2026-09-18 #157 R10 end-of-day at 2a6abebb (Worker4): feed_timeout_bars=None on the fake (watchdog off); second synthesiser (bar_grace, live_runner.py:763-787) still wall-clock -> re-stamping is Monday's first item
 9deaf7e25464688c696d3cc417e780ed2b0b5ae4adbb72a7ab6c3a5cab63ee14  plugins/dnse/pynecore_dnse/fake_broker.py
 30eb67fe3c468019e478c5fe519cf90a95fc46ab77a265b3dcbdf8e821e2cd23  plugins/dnse/testing/venue_http.py
+# 2026-09-18 #157 R10 DONE at affb991c (Worker4): replay re-stamped onto the wall clock on all four surfaces; parity 6/6 trades in the live window, order-matched, price tol 5.0, time column not asserted
+09d45994c5a5be2a5aa080b03322ced5496b8cbbcf79a1201beace7b2f7502d4  plugins/dnse/pynecore_dnse/fake_broker.py
+55a2a1dd27b67362c3c7c051a3e8a58470b0aa9147bffd82bf2d5dcf81e5f6e3  plugins/dnse/testing/fixtures/offline/trade_list_parity.py
 6bca480694a87414913f19438078041091c150f28060443c50bd19093348672a  plugins/dnse/testing/venue_mutants.py
 6429f925b1a120cfc1bd876899210cf646bec7a20c08311e75a539b6c2659d5f  plugins/dnse/pynecore_dnse/fake_broker.py
 3542b300c1ec62a1b0f2dacbff057d3cd92b19d4730a15f2d112c98ac37fcee2  plugins/dnse/tests/test_fake_venue_conformance.py
