@@ -16175,6 +16175,18 @@ class OrderSyncEngine:
                 # ``execute_cancel`` still returns ``False``: the working
                 # order has not been cancelled. Keep the key parked for the
                 # next retry rather than releasing an un-landed cancel.
+                #
+                # #162 — EXCEPT when the boolean is hiding a TERMINAL target.
+                # Measured live 2026-09-18: the venue amended an OCO child
+                # from the TP price to the stop price IN PLACE and filled it
+                # there; the cancel of that same id was then refused
+                # permanently (``ORDER_CANCEL_STATUS_REJECTED``, "order is
+                # done"). ``False`` cannot say WHY, so this park never
+                # cleared, every later exit dispatch was deferred behind it
+                # (the finding-28 guard, behaving correctly), and a re-entry
+                # ran with NO protective order for 66 s.
+                if self._release_park_if_target_terminal(old, key):
+                    continue
                 _blog_warning(
                     "forced cancel retry for %r returned False (still "
                     "pending); will retry next sync", format_intent_key(key),
@@ -16185,6 +16197,72 @@ class OrderSyncEngine:
                 "parked forced cancel for %r landed; released",
                 format_intent_key(key),
             )
+
+    #: Outcomes that DISCHARGE a forced-cancel obligation: the working order is
+    #: provably not working any more. ``STILL_OPEN`` belongs here despite its
+    #: name — :class:`CancelDispositionOutcome` defines it as "a fresh
+    #: ``execute_cancel`` round SUCCEEDED (the order was in fact still live and
+    #: is now cancelled)", and the cancel-tentative resolver already treats it
+    #: alongside ``CANCEL_CONFIRMED``. ``UNKNOWN`` is deliberately ABSENT: a
+    #: poll timeout, an unparseable read-back row, or a STOP/OCO shell with no
+    #: child named all answer ``UNKNOWN``, and those keep parking as before.
+    _PARK_DISCHARGING_OUTCOMES = frozenset({
+        CancelDispositionOutcome.CANCEL_CONFIRMED,
+        CancelDispositionOutcome.TOO_LATE_TO_CANCEL,
+        CancelDispositionOutcome.STILL_OPEN,
+        CancelDispositionOutcome.ALREADY_FILLED,
+    })
+
+    def _release_park_if_target_terminal(self, old: Intent, key: str) -> bool:
+        """#162 — release an EXIT park whose cancel target is provably gone.
+
+        ADDITIVE, NEVER A SUBSTITUTION. The boolean stays the primary release
+        in the caller; only a ``False`` reaches here. A bool-only plugin maps
+        BOTH boolean results to ``UNKNOWN`` (:mod:`pynecore.core.plugin.broker`
+        default), so consulting the outcome FIRST would turn a landed cancel
+        into ``UNKNOWN`` on every venue that does not override it and park it
+        forever — manufacturing this very defect elsewhere.
+
+        EXIT PARKS ONLY. The entry arm of the caller carries the ``qty > 0.0``
+        guard that keeps the restart case safe (a journal-rebuilt park carries
+        the qty=0.0 placeholder); an outcome-based release would bypass it.
+
+        RELEASED THROUGH THE MOOT SHAPE, NOT THE LANDED TEARDOWN. The landed
+        path in :meth:`_dispatch_cancel_strict` marks the ids in
+        ``_strategy_cancel_expected_ids`` and pops ``_order_mapping`` /
+        ``_drop_envelope``, after which :meth:`_route_event` can no longer
+        match a later fill to its intent. Discharging the obligation must not
+        also LOSE THE FILL, so this mirrors the moot-park release: pop the key,
+        journal it complete, log, and leave the mapping intact.
+
+        :return: ``True`` when the park was released (the caller continues).
+        """
+        if not isinstance(old, ExitIntent):
+            return False
+        cancel = CancelIntent(pine_id=key, symbol=self._symbol)
+        try:
+            outcome = self._run_async(
+                self._broker.execute_cancel_with_outcome(
+                    self._build_cancel_envelope(cancel)),
+            )
+        except (ExchangeConnectionError, OrderDispositionUnknownError):
+            # Unresolved, not terminal: stay parked and retry next sync.
+            return False
+        if outcome not in self._PARK_DISCHARGING_OUTCOMES:
+            return False
+        self._forced_cancel_pending.pop(key, None)
+        # Purge the durable row too, or the discharged obligation re-arms on
+        # every restart (``_absorb_journal_retry_rows``) — the same reason the
+        # moot-park release calls this.
+        if self._store_ctx is not None:
+            self._store_ctx.record_complete(key)
+        _blog_info(
+            "parked forced cancel for %r released as DISCHARGED (%s) — the "
+            "target is no longer working, so the cancel obligation is met; "
+            "mapping kept so a later fill still routes (#162)",
+            format_intent_key(key), outcome.value,
+        )
+        return True
 
     def _retire_reversal_closing_surfaces(self, intent: EntryIntent) -> None:
         """Best-effort teardown of the old position's closing surfaces.

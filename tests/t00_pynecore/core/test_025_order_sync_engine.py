@@ -49,6 +49,7 @@ from pynecore.core.broker.models import (
     CANCEL_REASON_VENUE_REDUCE_ONLY,
     CANCEL_REASON_VENUE_OCO_UMBRELLA_TERMINAL,
     BrokerEvent,
+    CancelDispositionOutcome,
     CapabilityLevel,
     CloseIntent,
     DispatchEnvelope,
@@ -134,6 +135,11 @@ class MockBroker:
     raise_on_next_modify_exit: Exception | None = None
     raise_on_next_cancel: Exception | None = None
     false_on_next_cancel: bool = False
+    #: #162 — what :meth:`execute_cancel_with_outcome` answers. ``None`` keeps
+    #: the BrokerPlugin default meaning (both booleans collapse to
+    #: ``UNKNOWN``), which is what a bool-only venue reports.
+    cancel_outcome: CancelDispositionOutcome | None = None
+    cancel_outcome_calls: list[DispatchEnvelope] = field(default_factory=list)
     raise_on_next_get_open_orders: Exception | None = None
     raise_on_next_get_position: Exception | None = None
     #: Number of ``get_position`` reads that actually reached the broker. Used to
@@ -225,6 +231,19 @@ class MockBroker:
             self.false_on_next_cancel = False
             return False
         return True
+
+    async def execute_cancel_with_outcome(self, envelope):
+        """#162 — the outcome variant the park retry consults on a ``False``.
+
+        Defaults to ``UNKNOWN``, which is what the BrokerPlugin base class
+        reports for a bool-only plugin (it collapses BOTH booleans to
+        ``UNKNOWN``). Tests that want a terminal answer set
+        ``cancel_outcome`` explicitly.
+        """
+        self.cancel_outcome_calls.append(envelope)
+        if self.cancel_outcome is None:
+            return CancelDispositionOutcome.UNKNOWN
+        return self.cancel_outcome
 
     async def modify_entry(self, old, new):
         self.modify_entry_calls.append((old, new))
@@ -18055,3 +18074,103 @@ def __test_122_park_guard_precedes_the_envelope_build__(tmp_path):
         assert _durable_rows() == rows_before, (
             "a DEFERRED modify mutated the parked key's durable journal rows"
         )
+
+
+# === #162 — a forced-cancel park whose target became terminal =================
+
+
+def _park_an_exit_cancel(engine, key="X162"):
+    """Park a forced cancel for an EXIT intent and return it.
+
+    Built directly rather than through a scenario: the existing park fixtures
+    all park ENTRY intents (``pos.entry_orders["S"]``), and the #162 release is
+    deliberately ``ExitIntent``-scoped — the entry arm keeps its ``qty > 0.0``
+    restart guard.
+    """
+    exit_intent = ExitIntent(
+        pine_id=key, from_entry="E162", symbol=SYMBOL, side="sell",
+        qty=1.0, tp_price=51_000.0, sl_price=49_000.0,
+    )
+    engine._park_forced_cancel(key, exit_intent)
+    assert key in engine._forced_cancel_pending, "setup failed to park"
+    return exit_intent
+
+
+def __test_162_park_releases_when_the_cancel_target_is_already_filled__():
+    """THE REGRESSION. Measured live 2026-09-18 (#159, #162).
+
+    The venue amended an OCO child from the TP price to the stop price IN
+    PLACE and filled it there. The cancel of that same id is then refused
+    permanently (``ORDER_CANCEL_STATUS_REJECTED``, "order is done"), so
+    ``execute_cancel`` answers ``False`` forever, the park never clears, and
+    every later exit dispatch is deferred behind it — a re-entry ran with no
+    protective order for 66 s.
+
+    Asserting the park is GONE is asserting the next exit can dispatch: the
+    finding-28 deferral reads exactly this dict.
+    """
+    b, engine, _pos = _reconcile_deficit_setup()
+    _park_an_exit_cancel(engine)
+
+    b.false_on_next_cancel = True                       # the permanent refusal
+    b.cancel_outcome = CancelDispositionOutcome.ALREADY_FILLED
+
+    engine._retry_forced_cancels()
+
+    assert "X162" not in engine._forced_cancel_pending, (
+        "the park survived a terminal target — the next exit would be deferred "
+        "behind a cancel the venue can never accept (#162)"
+    )
+    assert b.cancel_outcome_calls, (
+        "the outcome path was never consulted; the boolean was trusted alone"
+    )
+
+
+def __test_162_park_is_kept_when_the_outcome_is_unknown__():
+    """CONTROL — the fix must NOT release on every failed cancel.
+
+    A poll timeout, an unparseable read-back row, or a STOP/OCO shell with no
+    child named all answer ``UNKNOWN``. Those are genuinely unresolved and must
+    keep parking exactly as before. Without this the pin would bless any
+    release and the fix could silently discard live obligations.
+    """
+    b, engine, _pos = _reconcile_deficit_setup()
+    _park_an_exit_cancel(engine)
+
+    b.false_on_next_cancel = True
+    b.cancel_outcome = CancelDispositionOutcome.UNKNOWN
+
+    engine._retry_forced_cancels()
+
+    assert "X162" in engine._forced_cancel_pending, (
+        "an UNKNOWN outcome released the park — unresolved is not terminal"
+    )
+
+
+def __test_162_bool_only_plugin_still_releases_through_the_boolean__():
+    """CONTROL — the cross-venue regression the panel named.
+
+    ``BrokerPlugin``'s default maps BOTH boolean results to ``UNKNOWN``,
+    because a bool-only plugin cannot distinguish them. So the outcome must be
+    consulted ONLY after the boolean has already said not-landed. If the change
+    were a substitution rather than an addition, this venue's LANDED cancel
+    would become ``UNKNOWN`` and park forever — manufacturing #162 elsewhere.
+    """
+    b, engine, _pos = _reconcile_deficit_setup()
+    _park_an_exit_cancel(engine)
+
+    # A bool-only venue: the cancel lands (True) and the outcome variant is
+    # uninformative, exactly as the base class reports it.
+    b.false_on_next_cancel = False
+    b.cancel_outcome = CancelDispositionOutcome.UNKNOWN
+
+    engine._retry_forced_cancels()
+
+    assert "X162" not in engine._forced_cancel_pending, (
+        "a landed boolean cancel failed to release the park — the outcome path "
+        "was consulted instead of after the boolean"
+    )
+    assert not b.cancel_outcome_calls, (
+        "the outcome path was consulted even though the boolean landed; the "
+        "change must be additive, not a substitution"
+    )
