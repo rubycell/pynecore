@@ -269,6 +269,9 @@ d150baf80c3654e17edbefa9924c580d947688c87db37dd1297a717b5309340a  plugins/dnse/t
 113d9d16cebc07863bc88cdc115ed4d3023d37d2611135a6bc1a6b5bf633f193  plugins/dnse/testing/venue_core.py
 4cfc756b8afa3766f2d7bee6533fdc0f80b5b2ff8a03350436db220e1bbb5637  plugins/dnse/testing/venue_http.py
 dedb3744695947862844035eeb7f7a01eeaeb52a7a706b42d5e6e16d389256c7  plugins/dnse/testing/venue_http.py  # 32e8bd5c: totalPages served (not the R10 cause)
+# 2026-09-18 #157 R10 instrumented pass at 60a2c774 (Worker4): fake half cleared; engine emits IDLE-SYNTH bars instead of consuming the paced live bars
+c2b0d0cfae5147fc35120b8da2dbc87aca40ebde0f894f3293a471a9d28a7843  plugins/dnse/testing/venue_http.py
+7ba708ca84d748b13b57fc1fb7546d69bbc7708f8ad31021a506a3474f942f21  plugins/dnse/pynecore_dnse/fake_broker.py
 6bca480694a87414913f19438078041091c150f28060443c50bd19093348672a  plugins/dnse/testing/venue_mutants.py
 6429f925b1a120cfc1bd876899210cf646bec7a20c08311e75a539b6c2659d5f  plugins/dnse/pynecore_dnse/fake_broker.py
 3542b300c1ec62a1b0f2dacbff057d3cd92b19d4730a15f2d112c98ac37fcee2  plugins/dnse/tests/test_fake_venue_conformance.py
