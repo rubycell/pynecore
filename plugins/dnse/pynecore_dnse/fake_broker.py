@@ -101,6 +101,44 @@ class FakeVenueBroker(DNSEBroker):
             "ensure_config's cache is inherited by subclasses; see the card.",
             type(self.config).__name__)
 
+    def _reset_own_bar_store(self) -> None:
+        """Park this fake's OWN accumulated bar file so warmup replays only this run's slice.
+
+        Measured 2026-09-18, and it invalidated a whole afternoon of probe results. The bar store
+        ACCUMULATES across runs: a run that saved 399 warmup bars then streamed 300 live ones
+        left all 699 in the file, so the NEXT run warmed up on 704 bars — including every bar
+        this run intended to stream live. The staged probe's window therefore opened during
+        WARMUP (measured: its first gated bar was 2026-09-16 13:28, while live trading only began
+        at 2026-09-17 14:11) and every stage was consumed against the backtest engine, which
+        routes no orders. The symptom was "the probe places nothing", and the cause was nothing
+        to do with the probe or the venue.
+
+        Only THIS broker's own file is touched: ``fakevenuebroker_*`` is written by nothing else,
+        and no real ``dnse_*`` data is involved. It is MOVED, never deleted, per the house rule —
+        it is a regenerated artefact, but the rule does not carve out exceptions.
+        """
+        path = getattr(self, "ohlcv_path", None)
+        if path is None:
+            return
+        store, stem = Path(path).parent, Path(path).stem
+        parked = Path("backup/deleteable")
+        stamp = int(datetime.now().timestamp())
+        for existing in sorted(store.glob(f"{stem}.*")) + [Path(path)]:
+            if existing.exists() and existing.name.startswith(stem):
+                parked.mkdir(parents=True, exist_ok=True)
+                existing.replace(parked / f"{existing.name}.{stamp}")
+        # The writer was built in __init__ against the file just moved away, so it is REBUILT
+        # rather than cleared: the provider's context manager asserts it is not None, and
+        # nulling it turns this reset into an AssertionError at teardown (measured).
+        from pynecore.core.ohlcv import OHLCVWriter
+        from pynecore.lib.timeframe import _process_tf
+        modifier, multiplier = _process_tf(self.timeframe or "1")
+        period = f"{multiplier}{modifier}" if modifier else str(multiplier)
+        self.ohlcv_file = OHLCVWriter(Path(path), period)
+        # The provider opens its writer in __enter__, which already ran against the old file, so
+        # the replacement must be opened here or every save raises "writer is not open".
+        self.ohlcv_file.open()
+
     def _ensure_venue(self) -> None:
         """Start the fake venue and repoint this run's endpoints at it, once."""
         if getattr(self, "_server", None) is not None:
@@ -122,6 +160,8 @@ class FakeVenueBroker(DNSEBroker):
         for label, url in (("base_url", self.config.base_url), ("ws_url", self.config.ws_url)):
             VenueHTTP.assert_not_production(url)
             _ = label
+
+        self._reset_own_bar_store()
 
         day = load_day(path)
         self._day = day
