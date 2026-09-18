@@ -61,6 +61,7 @@ server closed the connection early (the close itself is the finding).
 import argparse
 import asyncio
 import datetime
+import gzip
 import hashlib
 import hmac
 import json
@@ -256,13 +257,52 @@ def frame_key(frame: dict) -> str:
     return str(frame.get("channel") or frame.get("action") or "<data>")
 
 
+def record_frame(frame: dict, counts, samples: dict,
+                 secret_ids: "tuple[str, ...]" = (), dump_fh=None) -> str:
+    """Count, MASK, sample and optionally PERSIST one frame. Returns the text.
+
+    Factored out of the capture loop so it can be driven with canned frames:
+    the loop itself only exists inside a live websocket session, so anything
+    left in it is untestable by construction, and the three properties that
+    matter here are exactly the ones a live socket cannot demonstrate safely.
+
+    ORDER IS THE WHOLE POINT. The dump is written from ``text`` AFTER masking.
+    Identifier fields live INSIDE the nested payload (``frame["order"]`` /
+    ``frame["position"]``), not at the top level — a top-level-only lookup
+    silently masked NOTHING and printed a real account number into an evidence
+    file on 2026-09-16, caught by the scrub gate rather than by this code.
+    ``investorId`` only LOOKED masked because it was also passed in
+    ``secret_ids`` and got replaced by value. Writing the dump before the mask
+    would reintroduce that once per frame, at a quarter of a million frames a
+    session.
+    """
+    key = frame_key(frame)
+    counts[key] += 1
+    text = json.dumps(frame)
+    for scope in (frame, frame.get("order"), frame.get("position")):
+        if not isinstance(scope, dict):
+            continue
+        for field in ("accountNo", "custodyCode", "investorId"):
+            value = scope.get(field)
+            if value:
+                text = text.replace(str(value), "<masked>")
+    for secret in secret_ids:
+        if secret:
+            text = text.replace(str(secret), "<masked>")
+    samples.setdefault(key, text[:600])
+    if dump_fh is not None:
+        dump_fh.write(text + "\n")
+    return text
+
+
 def _now() -> str:
     return datetime.datetime.now(
         datetime.timezone(datetime.timedelta(hours=7))).strftime("%H:%M:%S")
 
 
 async def _capture(cfg, channels, seconds: int, label: str,
-                   secret_ids: "tuple[str, ...]" = ()) -> tuple:
+                   secret_ids: "tuple[str, ...]" = (),
+                   dump_fh=None, progress_every: float = 60.0) -> tuple:
     """One authenticated capture session on ONE socket.
 
     Returns ``(exit_code, counts, samples)`` — the counts are what makes a
@@ -273,6 +313,8 @@ async def _capture(cfg, channels, seconds: int, label: str,
     samples: dict[str, str] = {}
     started = time.monotonic()
     closed_early: "str | None" = None
+    dumped = 0
+    last_progress = started
 
     ts = int(time.time())
     nonce = str(int(time.time() * 1_000_000))
@@ -314,27 +356,21 @@ async def _capture(cfg, channels, seconds: int, label: str,
                     if action == "ping":
                         await ws.send(json.dumps({"action": "pong"}))
                     continue
-                key = frame_key(frame)
-                counts[key] += 1
-                text = json.dumps(frame)
-                # Identifier fields live INSIDE the nested payload
-                # (``frame["order"]`` / ``frame["position"]``), not at the top
-                # level — a top-level-only lookup silently masked NOTHING and
-                # printed a real account number into an evidence file on
-                # 2026-09-16 (caught by the scrub gate, not by this code).
-                # investorId only LOOKED masked because it was also passed in
-                # ``secret_ids`` and got replaced by value.
-                for scope in (frame, frame.get("order"), frame.get("position")):
-                    if not isinstance(scope, dict):
-                        continue
-                    for field in ("accountNo", "custodyCode", "investorId"):
-                        value = scope.get(field)
-                        if value:
-                            text = text.replace(str(value), "<masked>")
-                for secret in secret_ids:
-                    if secret:
-                        text = text.replace(str(secret), "<masked>")
-                samples.setdefault(key, text[:600])
+                record_frame(frame, counts, samples, secret_ids, dump_fh)
+                if dump_fh is not None:
+                    dumped += 1
+                # A capture whose only output is a summary at the deadline
+                # cannot be checked while there is still time to relaunch
+                # it. Measured 2026-09-18: the log sat unchanged for 95
+                # minutes and liveness had to be inferred from process CPU.
+                now = time.monotonic()
+                if progress_every and now - last_progress >= progress_every:
+                    last_progress = now
+                    top = ", ".join(f"{k}={v}" for k, v in
+                                    counts.most_common(4))
+                    print(f"[{label}] +{now - started:.0f}s frames="
+                          f"{sum(counts.values())} dumped={dumped} {top}",
+                          file=sys.stderr, flush=True)
         except websockets.exceptions.ConnectionClosed as exc:
             # #92: the close IS the measurement — report, never traceback.
             elapsed = time.monotonic() - started
@@ -398,6 +434,16 @@ async def main() -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seconds", type=int, default=45)
+    ap.add_argument("--dump", default=None,
+                    help="persist every frame as one JSON line to this "
+                         "path (gzip when it ends .gz). Written AFTER "
+                         "identifier masking. Without it the frames are "
+                         "COUNTED AND DISCARDED — 351,731 frames were lost "
+                         "that way on 2026-09-18 (#157)")
+    ap.add_argument("--progress-seconds", type=float, default=60.0,
+                    help="per-channel progress to stderr this often; 0 "
+                         "disables. A capture that only reports at its "
+                         "deadline cannot be checked in time to relaunch")
     ap.add_argument("--symbol", default=None,
                     help="dated contract for the market channels "
                          "(e.g. 41I1GA000). Default: resolve VN30F1M at "
@@ -427,6 +473,27 @@ async def main() -> int:
                          "second joining 5s late — the report shows which "
                          "one the server drops")
     args = ap.parse_args()
+
+    dump_fh = None
+    if args.dump:
+        dump_path = Path(args.dump).expanduser().resolve()
+        try:
+            dump_path.relative_to(REPO)
+            inside_repo = True
+        except ValueError:
+            inside_repo = False
+        # workdir/ is gitignored; anywhere else in the tree is not, and a
+        # 150-250 MB capture must never become a commit candidate.
+        if inside_repo and not str(dump_path).startswith(str(REPO / "workdir")):
+            print(f"REFUSING --dump {dump_path}: inside the repo but "
+                  f"outside workdir/, which is not gitignored. Use "
+                  f"workdir/output/... or a path outside the tree.")
+            return 2
+        dump_path.parent.mkdir(parents=True, exist_ok=True)
+        dump_fh = (gzip.open(dump_path, "wt", encoding="utf-8")
+                   if str(dump_path).endswith(".gz")
+                   else open(dump_path, "w", encoding="utf-8"))
+        print(f"dump: {dump_path} (gzip={str(dump_path).endswith('.gz')})")
 
     cfg = ensure_config(DNSEBrokerConfig,
                         REPO / "workdir" / "config" / "plugins" / "dnse_broker.toml")
@@ -465,8 +532,15 @@ async def main() -> int:
 
     if args.shared_session or not broker_group:
         all_channels = channels + broker_group
-        rc, counts, samples = await _capture(cfg, all_channels, args.seconds,
-                                             "ws", secret_ids)
+        try:
+            rc, counts, samples = await _capture(
+                cfg, all_channels, args.seconds, "ws", secret_ids,
+                dump_fh=dump_fh, progress_every=args.progress_seconds)
+        finally:
+            # gzip BUFFERS: an unclosed handle loses the tail of the
+            # capture, which is the part a crash makes most valuable.
+            if dump_fh is not None:
+                dump_fh.close()
         if broker_group:
             print("\nNOTE: --shared-session — every channel shared ONE socket, "
                   "so these counts are AMBIGUOUS: a frame cannot be attributed "
