@@ -1,0 +1,156 @@
+//@version=6
+// LIVE TEST LEVEL 2c — MEASURE THE OCO LEG EXECUTING. SUPERVISED ONLY.
+//
+// WHY THIS EXISTS. Every L2 case relies on the native OCO bracket, and the census shows
+// NO umbrella leg — neither TP nor SL — has ever been observed EXECUTING on DNSE in any
+// run we have. l2b proved the bracket is PLACED and ARMS on the fill bar; it has never
+// shown what the venue does when a leg actually triggers. That is the whole question here:
+// on trigger, does the venue AMEND the child (same id, new price) or SPAWN a new id, is
+// the other leg cancelled by the venue and when, and does a triggered stop-limit fill or
+// rest unfilled. Until that is measured, the protection every fill-tier case depends on is
+// a design we believe rather than a behaviour we have seen.
+//
+// SHAPE: l2b's, deliberately — a BREAKOUT stop entry at `higherHigh2` with the TP/SL
+// derived from that TRIGGER (never from `close`: measured 2026-09-11 over 275 VN30F1M 15m
+// bars, a close-derived TP sat BELOW the entry on 50.7% of bars). Reusing the shape keeps
+// this comparable with the l2b evidence instead of introducing a second unvalidated
+// vehicle.
+//
+// THREE DIFFERENCES FROM l2b, each one so a LEG CAN ACTUALLY EXECUTE:
+//
+//   1. ENTER-ONCE LATCH. l2b re-enters after every close, which is right for a latency
+//      test and wrong here: repeated round-trips would leave several umbrellas and several
+//      children in the record, and the grading question ("which id did the venue amend")
+//      becomes unanswerable when there are four of each. The latch is set on the first
+//      FILL, not on the first entry dispatch — so the resting entry still CHASES the
+//      moving breakout while flat and unfilled, exactly as l2b does, and only the RE-ENTRY
+//      after a completed round-trip is blocked. Setting it at dispatch instead would pin
+//      the entry to the first bar's breakout level and it might never fill at all.
+//
+//   2. THE MAX-2-CANDLES FLATTEN IS REMOVED. In l2b it closed 13 of 39 episodes at two
+//      bars. Here it would pre-empt the measurement in exactly the cases worth measuring:
+//      a leg that has not triggered within two bars is the interesting one, and killing
+//      the position there guarantees we never see the venue act.
+//
+//   3. THE BACKSTOP SCALES OFF THE SL LEG: `-(slPct + 0.25)`. l2b's fixed -0.3% sat
+//      outside its fixed 0.2% bracket; here the legs are configurable, so the backstop has
+//      to move with them. It is bounded by the SL and NOT by max(tp, sl), because the
+//      backstop is loss-side only and the take-profit setting must not be allowed to
+//      decide the loss limit. A fixed 0.25% margin keeps it clear of a working stop while
+//      still bounding the loss tightly when the stop leg does NOT fill — which is the
+//      failure this run exists to detect, so a fire here is the measurement, not a loss.
+//
+// TWO PLANNED RUNS, same file, inputs only:
+//   run A, STOP-FAVOURED : slPct 0.05, tpPct 0.5  -> SL triggers; backstop -0.30%, ~6 pts
+//   run B, TP-FAVOURED   : tpPct 0.05, slPct 0.3  -> TP triggers; backstop -0.55%, ~11 pts
+// (points at a ~1985 index level; 1 point = 100,000 VND per contract)
+// One leg is put close enough to the trigger that it should execute within a bar or two;
+// the other is parked far away so it stays resting and its venue-side cancellation can be
+// observed. The defaults below (tp 0.2 / sl 0.05) are the briefed values and are NOT
+// either planned run — set the inputs explicitly per run.
+//
+// UNCHANGED GUARDS: 1 lot, pyramiding=0, `barstate.isrealtime` (warmup NEVER trades, so a
+// plain `dnse:` backtest places ZERO trades and that is the offline proof), the pre-placed
+// `strategy.exit` so #121 arms it on the fill bar, and the cancel-before-close ordering in
+// the backstop so no resting leg can re-open exposure after a flatten.
+//
+// PRECONDITION: continuous session, FLAT account, operator watching, DNSE app open.
+strategy("LIVE2c OCO leg execution", overlay=true, pyramiding=0, initial_capital=500000000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     margin_long=18.48, margin_short=18.48,
+     slippage=1,
+     calc_on_every_tick=false, process_orders_on_close=false)
+
+// --- configurable legs (percent off the entry TRIGGER) --------------------------------
+tpPct = input.float(0.2,  "TP % off trigger", minval=0.01, step=0.01)
+slPct = input.float(0.05, "SL % off trigger", minval=0.01, step=0.01)
+
+// The backstop is LOSS-SIDE ONLY, so it must be bounded by the SL leg, never by the TP.
+// An earlier draft used -3 x max(tpPct, slPct), which let the TAKE-PROFIT setting decide
+// the loss limit: with run A at tp 0.5 that bounded the loss at -1.5%, about 30 points or
+// 3,000,000 VND per contract, in exactly the scenario this run exists to detect — a stop
+// leg that fails to fill. Bounding off the SL instead keeps the backstop a fixed 0.25%
+// outside whichever stop is in force, so it never pre-empts a working stop, and a fire
+// here IS the gap-through measurement rather than a loss.
+//   run A (sl 0.05) -> -0.30%    run B (sl 0.3) -> -0.55%
+// WRITTEN WITH NO PARENTHESES ON PURPOSE. Measured 2026-09-18: pine2pyne DROPS
+// parentheses in this expression. `-(slPct + 0.25)` transpiled to `-slPct + 0.25`, and
+// `0.0 - (slPct + 0.25)` transpiled to `0.0 - slPct + 0.25`. Both evaluate to +0.20 at
+// sl 0.05 instead of -0.30 — a POSITIVE threshold, and since the test is
+// `openPnlPct < DOUBLE_CHECK_PCT` the backstop would fire on the first bar of every
+// position, cancel the bracket and flatten, destroying the measurement it protects.
+// `-0.25 - slPct` needs no parentheses, so there are none to drop: it reads the same
+// left-to-right in both languages. Verify against the GENERATED .py, never the .pine,
+// after any edit to this line.
+DOUBLE_CHECK_PCT = -0.25 - slPct
+
+var float tpLevel   = na
+var float slLevel   = na
+var bool  hasTraded = false      // the ENTER-ONCE latch — set on the first FILL
+
+higherHigh2 = high > high[1] ? high : high[1]
+
+// Latch on the first FILL, not on the first dispatch. While flat and unfilled the entry
+// keeps chasing (see note 1 above); once a position has existed, no further round-trip.
+//
+// BOTH CONDITIONS ARE REQUIRED, and `opentrades` ALONE IS NOT ENOUGH. Measured live
+// 2026-09-18 (#159): trade 1 opened at 1994.8 and its stop filled at 1993.7 INSIDE bar
+// 502. `strategy.opentrades` is only observable when the script runs, once per bar close,
+// and order commit is deferred (CLAUDE.md: the count does not change until the NEXT bar
+// after orders fill). So at bar 502's evaluation the entry had not filled, and at bar
+// 503's the position was already closed — `opentrades` read 0 at BOTH boundaries, the
+// latch never fired, the entry block re-issued, and a second position opened. It then sat
+// unprotected for 66 s because an unrelated engine defect (#162) deferred its bracket.
+//
+// `closedtrades` increments on the close and PERSISTS, so it is the condition that
+// survives a round-trip completing inside one bar — which is precisely the fast stop this
+// vehicle exists to produce. The opentrades arm is kept for the ordinary multi-bar case.
+if strategy.opentrades > 0 or strategy.closedtrades > 0
+    hasTraded := true
+
+// (1) the CHASING entry + its pre-placed native OCO bracket — LIVE bars only, once only.
+if barstate.isrealtime and strategy.opentrades == 0 and not hasTraded
+    tpLevel := higherHigh2 * (1.0 + tpPct / 100.0)
+    slLevel := higherHigh2 * (1.0 - slPct / 100.0)
+    strategy.entry("E", strategy.long, stop=higherHigh2, comment="STOP 1-lot")
+    strategy.exit("X", from_entry="E", limit=tpLevel, stop=slLevel, oca_name="brk",
+                  comment_profit="TP", comment_loss="SL")
+    log.info("L2C ENTRY dispatch trigger={0} tp={1} sl={2} tpPct={3} slPct={4}",
+             higherHigh2, tpLevel, slLevel, tpPct, slPct)
+
+// (2) re-issue the pre-placed bracket while the position is open. No oca_type — Pine
+//     strategy.exit has no such parameter and its legs already form a reduce group.
+if strategy.opentrades > 0
+    strategy.exit("X", from_entry="E", limit=tpLevel, stop=slLevel, oca_name="brk",
+                  comment_profit="TP", comment_loss="SL")
+    log.info("L2C EXIT reissue tp={0} sl={1} pos={2}",
+             tpLevel, slLevel, strategy.position_size)
+
+// (3) WHICH LEG CLOSED IT — the measurement this file exists for. exit_comment is TP or
+//     SL as set above. Index is closedtrades-1; the count itself is never a valid index.
+if strategy.position_size == 0 and strategy.position_size[1] != 0 and strategy.closedtrades > 0
+    log.info("L2C CLOSED by={0} entry={1} exit={2} pnl={3}",
+             strategy.closedtrades.exit_comment(strategy.closedtrades - 1),
+             strategy.closedtrades.entry_price(strategy.closedtrades - 1),
+             strategy.closedtrades.exit_price(strategy.closedtrades - 1),
+             strategy.closedtrades.profit(strategy.closedtrades - 1))
+
+// (4) DOUBLE-CHECK backstop, outermost. Cancel first so no resting leg can re-open
+//     exposure after the flatten. PnL% is computed MANUALLY: strategy.opentrades
+//     .profit_percent() reads 0.0 for an OPEN trade (measured 2026-09-11, profit went
+//     0 -> -6 while profit_percent stayed 0.0000), which made this layer dead code.
+//     entry_price and size ARE live on an open trade, so derive it from price. _bsDir
+//     inverts it for a short, without which a losing short would report a gain.
+_bsEntry = strategy.opentrades > 0 ? strategy.opentrades.entry_price(strategy.opentrades - 1) : 0.0
+_bsSize  = strategy.opentrades > 0 ? strategy.opentrades.size(strategy.opentrades - 1) : 0.0
+_bsDir   = _bsSize < 0 ? -1.0 : 1.0
+_bsLive  = strategy.position_size != 0 and not na(_bsEntry) and _bsEntry != 0.0
+openPnlPct = _bsLive ? (close - _bsEntry) / _bsEntry * 100.0 * _bsDir : 0.0
+if strategy.position_size != 0 and openPnlPct < DOUBLE_CHECK_PCT
+    strategy.cancel_all()
+    strategy.close_all(comment="DOUBLECHECK")
+    log.info("L2C BACKSTOP fired at {0} pct, threshold {1}", openPnlPct, DOUBLE_CHECK_PCT)
+
+plot(strategy.position_size, "pos", display=display.data_window)
+plot(tpLevel, "tp", display=display.data_window)
+plot(slLevel, "sl", display=display.data_window)
