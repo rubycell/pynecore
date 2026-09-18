@@ -114,6 +114,45 @@ def __test_an_uncalled_endpoint_answers_404_as_production_does__(served):
     assert status == 404
 
 
+def __test_the_fake_broker_refuses_a_production_endpoint_from_the_config__(tmp_path, monkeypatch):
+    """The CONFIG side of the production guard, not only the server side.
+
+    The broker overwrites base_url with its own loopback port moments after start, so a
+    production host in the toml would usually be harmless by accident. Harmless by accident is
+    not a safety property: a mis-edited config must stop the run.
+    """
+    from pynecore_dnse.fake_broker import FakeVenueBroker
+    from pynecore_dnse.config import DNSEBrokerConfig
+
+    broker = FakeVenueBroker.__new__(FakeVenueBroker)
+    broker.config = DNSEBrokerConfig(api_key="k", api_secret="s",
+                                     base_url="https://openapi.dnse.com.vn",
+                                     ws_url="ws://127.0.0.1:1")
+    broker._server = None
+    monkeypatch.setenv("FAKE_VENUE_DAY", str(tmp_path / "unused.json"))
+
+    with pytest.raises(ProductionRefused):
+        broker._ensure_venue()
+
+
+def __test_the_fake_broker_accepts_a_loopback_config__(tmp_path, monkeypatch):
+    """The discriminating half: a guard that refused every config would pass the test above and
+    make the fake unrunnable. A loopback config must get PAST the endpoint check — it then fails
+    on the missing day file, which proves the endpoint guard was not what stopped it."""
+    from pynecore_dnse.fake_broker import FakeVenueBroker
+    from pynecore_dnse.config import DNSEBrokerConfig
+    from venue_day import MalformedDay
+
+    broker = FakeVenueBroker.__new__(FakeVenueBroker)
+    broker.config = DNSEBrokerConfig(api_key="k", api_secret="s",
+                                     base_url="http://127.0.0.1:0", ws_url="ws://127.0.0.1:0")
+    broker._server = None
+    monkeypatch.setenv("FAKE_VENUE_DAY", str(tmp_path / "missing.json.gz"))
+
+    with pytest.raises((FileNotFoundError, MalformedDay, OSError)):
+        broker._ensure_venue()
+
+
 def __test_a_cancel_refusal_carries_the_venue_code_over_the_wire__(served):
     """The structured reject codes are the contract the engine branches on, so they must survive
     the HTTP round trip rather than collapsing into a bare 400."""

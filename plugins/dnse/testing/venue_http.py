@@ -153,9 +153,15 @@ class _Handler(BaseHTTPRequestHandler):
 
         if parsed.path.endswith("/secdef"):
             band = self.catalogue["band"]
+            # finalTradeDate belongs HERE, on the secdef. broker.py:1344 reads it from
+            # self._secdef(...), not from the instruments row, and without it the plugin falls
+            # back to a COMPUTED third-Thursday date that can be in the past. securityStatus is
+            # "UNSPECIFIED" because that is what the venue actually returns and it is absent
+            # from the documented enum — the fake reproduces the venue, not the documentation.
             return self._send(200, {"symbol": self.catalogue["contract"],
                                     "ceilingPrice": band[0], "floorPrice": band[1],
-                                    "securityStatus": "UNSPECIFIED"})
+                                    "securityStatus": "UNSPECIFIED",
+                                    "finalTradeDate": self.catalogue["final_trade_date"]})
 
         if _EXEC_PATH.match(parsed.path):
             # Production answers 404 for executions on this account (CLAUDE.md), and the plugin

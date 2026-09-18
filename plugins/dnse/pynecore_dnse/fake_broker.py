@@ -114,6 +114,15 @@ class FakeVenueBroker(DNSEBroker):
                 f"{_DAY_ENV} is unset — point it at a venue day (RECORDED or SYNTHETIC). "
                 f"There is no default on purpose: a run must state which day it replayed.")
 
+        # Refuse a production endpoint from the CONFIG side, not only the server side. The
+        # broker overwrites base_url with its own loopback port moments later, so a production
+        # host in the toml would usually be harmless by accident — and "harmless by accident"
+        # is not a safety property. Checked before anything is started, so a mis-edited toml
+        # stops the run instead of being silently overwritten.
+        for label, url in (("base_url", self.config.base_url), ("ws_url", self.config.ws_url)):
+            VenueHTTP.assert_not_production(url)
+            _ = label
+
         day = load_day(path)
         self._day = day
         self._bars = [OHLCV(timestamp=int(b["timestamp"]), open=float(b["open"]),
