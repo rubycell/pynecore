@@ -170,3 +170,44 @@ def __test_the_resize_never_bares_the_armed_protection__(fake_client, tmp_path):
     assert broker._client.count("put_order") == 0, (
         "and never a conditional-book qty amend, which this venue refuses (#18)")
     assert broker._client.count("post_order") == 1, "exactly one additional leg, for the delta"
+
+
+# --------------------------------------------------------------------------- the venue limitation
+
+def __test_shrinking_a_stop_never_reaches_the_wire_either__(fake_client, tmp_path):
+    """OPERATOR, 2026-09-18: "we cannot change size of a stop order." MEASURED ON PRODUCTION the
+    same evening, and this is the first measurement of the QUANTITY case specifically:
+
+        PLACE stop qty=1        http=201  id=damkpiavfqkc7397pnig
+        AMEND qty 1 -> 2        http=500  {"code": "REMOTE_SERVER_ERROR",
+                                           "message": "Error in backend service"}
+        READ BACK after amend   http=200  quantity=1     <- the size did NOT change
+        CANCEL                  http=200  -> Canceled, verified
+
+    #18 (Live-L1-T07-AmendConditional500, re-measured 2026-09-08) had established the 500 for a
+    PRICE amend. The quantity had never been sent, because the plugin adds a leg instead, so the
+    operator's statement was the unmeasured half until now. It also refines #18: the 500 carries
+    a STRUCTURED code, REMOTE_SERVER_ERROR, which is in DNSE's published System Errors list.
+
+    The GROW direction was pinned. The SHRINK was not, and it takes a different code path:
+    ``_is_pure_qty_grow`` returns False, so it falls through to the #85/#93 park. Both directions
+    must reach the venue the same way, which is to say not at all. A shrink that slipped through
+    to a PUT would be a 500 the engine would have to recover from, on the one order whose whole
+    job is to stay armed.
+    """
+    from pynecore.core.broker.exceptions import OrderDispositionUnknownError
+
+    broker = _broker(fake_client, tmp_path)
+    old, new = _envelope(_exit_at(SECOND_FILL)), _envelope(_exit_at(FIRST_FILL))   # 60 -> 50
+    key = old.intent.intent_key
+    broker._order_ids[key] = ["STOP-60"]
+    broker._order_category["STOP-60"] = "STOP"
+
+    with pytest.raises(OrderDispositionUnknownError):
+        asyncio.run(broker.modify_exit(old, new))
+
+    assert broker._client.count("put_order") == 0, (
+        "a stop's size is never amended on the wire, in either direction")
+    assert broker._client.count("cancel_order") == 0, (
+        "and the armed protection is not cancelled — a shrink parks, leaving 60 armed against "
+        "a 50-lot position, which over-protects but never bares it")
