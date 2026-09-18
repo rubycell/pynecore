@@ -78,12 +78,59 @@ from pynecore_dnse.broker import DNSEBrokerConfig                   # noqa: E402
 import websockets                                                    # noqa: E402
 
 WS_URL = "wss://ws-openapi.dnse.com.vn/v1/stream?encoding=json"  # path from the vendored SDK (websocket/client.py)
-CHANNELS = [
-    {"name": "tick.G1.json", "symbols": ["41I1G9000", "HPG"]},
-    {"name": "tick_extra.G1.json", "symbols": ["41I1G9000", "HPG"]},
-    {"name": "ohlc.1.json", "symbols": ["41I1G9000", "HPG"]},
-    {"name": "top_price.G1.json", "symbols": ["41I1G9000"]},
-]
+#: The dated contract to fall back to when resolution fails. It MOVES at every
+#: monthly roll and is therefore the wrong thing to rely on — it exists only so a
+#: failed resolve does not leave the probe with no symbol at all.
+FALLBACK_CONTRACT = "41I1GA000"
+
+
+def market_channels(symbol: str) -> list:
+    """Market-data channels for ONE dated contract, plus HPG as a liveness control.
+
+    BUILT FROM THE SYMBOL AT CALL TIME, NOT HARD-CODED, and the reason is measured.
+    Until 2026-09-18 this list pinned ``41I1G9000`` — the SEPTEMBER contract, which
+    expired on 09-17, after which ``VN30F1M`` repointed to the October code. A probe
+    run with the stale literal subscribes to a RETIRED instrument and receives
+    nothing on the derivative channels, while the HPG rows keep ticking beside it.
+    That reads as a half-alive feed rather than a misconfiguration, which is exactly
+    the shape that once produced a false "the trading WS is silent" verdict that
+    stood for two weeks (see the module docstring). A capture that records silence
+    from a dead symbol is worse than no capture, because it looks like evidence.
+    """
+    return [
+        {"name": "tick.G1.json", "symbols": [symbol, "HPG"]},
+        {"name": "tick_extra.G1.json", "symbols": [symbol, "HPG"]},
+        {"name": "ohlc.1.json", "symbols": [symbol, "HPG"]},
+        {"name": "top_price.G1.json", "symbols": [symbol]},
+    ]
+
+
+def resolve_market_symbol(cfg, override: "str | None") -> str:
+    """The live dated contract for the VN30 front month.
+
+    Order: an explicit ``--symbol`` wins; otherwise ask the venue through
+    ``resolve_contract``, which reads the ``symbolType -> symbol`` mapping and so
+    survives the roll; only if that fails do we use the stale literal, and then
+    LOUDLY, because a wrong symbol here manufactures silence.
+    """
+    if override:
+        print(f"market symbol: {override} (from --symbol)")
+        return str(override)
+    try:
+        from pynecore_dnse.broker import DNSEBroker
+        broker = DNSEBroker(symbol="VN30F1M", timeframe="1", config=cfg)
+        resolved = broker.resolve_contract("VN30F1M")
+        if resolved:
+            print(f"market symbol: {resolved} (resolved from VN30F1M at the venue)")
+            return str(resolved)
+        print("market symbol: resolve_contract returned nothing")
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"market symbol: resolve FAILED ({exc.__class__.__name__}: {exc})")
+    print(f"market symbol: FALLING BACK to {FALLBACK_CONTRACT} — VERIFY THIS IS THE "
+          f"LIVE FRONT MONTH before trusting any silence on the derivative channels")
+    return FALLBACK_CONTRACT
+
+
 TRADING_CHANNELS = [
     # market_type is UPPERCASE per the official docs (Trading Data WebSocket) AND the
     # vendored SDK default (subscribe_order_event market_type="STOCK"). Lowercase
@@ -351,6 +398,13 @@ async def main() -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seconds", type=int, default=45)
+    ap.add_argument("--symbol", default=None,
+                    help="dated contract for the market channels "
+                         "(e.g. 41I1GA000). Default: resolve VN30F1M at "
+                         "the venue, which survives the monthly roll. "
+                         "NEVER leave a stale literal here — a retired "
+                         "contract delivers silence that looks like a "
+                         "dead feed")
     ap.add_argument("--trading", action="store_true",
                     help="subscribe the TRADING channels (order/position "
                          "events) instead of market data — passive, read-only. "
@@ -376,7 +430,8 @@ async def main() -> int:
 
     cfg = ensure_config(DNSEBrokerConfig,
                         REPO / "workdir" / "config" / "plugins" / "dnse_broker.toml")
-    channels = TRADING_CHANNELS if args.trading else CHANNELS
+    channels = (TRADING_CHANNELS if args.trading
+                else market_channels(resolve_market_symbol(cfg, args.symbol)))
 
     investor_id: "str | None" = None
     broker_group: list = []
