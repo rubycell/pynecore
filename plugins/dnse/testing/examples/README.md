@@ -124,6 +124,43 @@ number from here.
 prints the same band for every symbol it asks about. The alternative, fabricating a plausible row
 per symbol, would be worse: it would invent prices for instruments this venue does not carry.
 
+## The token cache, and why the runner redirects it
+
+An example that mints a trading token caches it through `token_store`. Its default path is **next
+to its own module** — `examples/upstream/.trading_token.json` — not the working directory
+(`token_store.py:31-34`), so it lands inside the tree at a fixed path no matter where the runner
+is invoked from. The first run here duly wrote one, and it had to be parked.
+
+The contents are this fake's nonsense token. The file name, the `0600` mode and the shape are a
+real credential cache, and **the habit of one appearing in the repo is the hazard, not the
+bytes.** `token_store` honours `DNSE_TOKEN_CACHE`, so the runner points it at a temporary
+directory and the file never exists in the tree at all. That is worth more than the `.gitignore`
+entry, which only prevents the commit after the mistake has already been made.
+
+If you drive an example some other way, set `DNSE_TOKEN_CACHE` yourself.
+
+## Why these stay in the suite
+
+Six defects were found in this fake on 2026-09-18. Three came from our own pins and three from
+the vendor's examples, and they were not the same kind of defect.
+
+**The three our pins found were shape mismatches that crashed a reader.** A payload the consuming
+code could not parse: it raised, or it fell through a guard and answered `False`. Loud enough to
+chase once something exercised the path.
+
+**The three the examples found answered cleanly and were simply not answers to the question.** An
+account payload keyed on the wrong field. A security definition missing the field that decides
+whether a classification is authoritative or a guess. Four routes that accepted a parameter and
+never read it. Nothing crashed. Every response was well-formed. They were all wrong.
+
+Our own tests cannot find that class, because **we write both the question and the answer.** When
+the same understanding produces the fake and the test of the fake, a shared misreading is
+invisible from the inside — the test agrees with the fake precisely because both came from the
+same head. The vendor's examples are the only input here written by the people who run the venue,
+so they are the only place a misreading of ours can show up as a failure rather than as agreement.
+
+That is the argument for keeping them in the suite rather than treating this as a one-off.
+
 ## The upstream copies
 
 `upstream/` holds the examples exactly as published, so a future run can be diffed against them

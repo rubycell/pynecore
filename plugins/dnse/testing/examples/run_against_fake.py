@@ -26,6 +26,7 @@ import argparse
 import os
 import runpy
 import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
@@ -120,6 +121,19 @@ def main(argv: list[str] | None = None) -> int:
         "DNSE_API_KEY": "fake-venue-key",
         "DNSE_API_SECRET": "fake-venue-secret",
         "DNSE_ACCOUNT_NO": ACCOUNT_NO,
+        # Keep the token cache OUT of the repository.
+        #
+        # An example that mints a trading token caches it through `token_store`, whose default
+        # path is next to its own module — `examples/upstream/.trading_token.json`, not the
+        # working directory (token_store.py:31-34). So it lands INSIDE the tree at a fixed path
+        # on any run, from anywhere. The first run here duly wrote one and it had to be parked.
+        #
+        # The contents are this fake's nonsense token, but the file name, the 0600 mode and the
+        # shape are a real credential cache, and the habit of having one appear in the repo is
+        # the hazard rather than the bytes. `token_store` honours DNSE_TOKEN_CACHE, so the file
+        # is redirected to a temporary directory and never exists in the tree at all. That is
+        # worth more than a .gitignore entry, which only stops the commit after the mistake.
+        "DNSE_TOKEN_CACHE": str(Path(tempfile.gettempdir()) / "fake_venue_trading_token.json"),
     })
     print(f"[FAKE VENUE] {server.base_url} phase={args.phase} "
           f"day={Path(args.day).name} prints={len(venue.records()) and ''}"

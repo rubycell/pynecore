@@ -337,6 +337,30 @@ exactly as it is.
 
 Filed as a #157 follow-up rather than changed here.
 
+## The vendor's own examples are part of this suite
+
+`examples/` runs DNSE's published SDK examples against this fake, unmodified. They are worth the
+trouble for one reason, measured on 2026-09-18.
+
+Six defects were found in the fake that day. Three came from our own pins and three from the
+vendor's examples, and the two sets are not the same kind of thing.
+
+The three our pins found were **shape mismatches that crashed a reader** — a payload the consuming
+code could not parse, so it raised or fell through a guard. Loud, once something exercised the
+path.
+
+The three the examples found **answered cleanly and were simply not answers to the question**: an
+account payload keyed on the wrong field, a security definition missing the field that decides
+whether an instrument classification is authoritative or a guess, and four routes that accepted a
+parameter and never read it. Nothing crashed. Every response was well-formed. All of them wrong.
+
+**Our own tests cannot find that class, because we write both the question and the answer.** When
+the same understanding produces the fake and the test of the fake, a shared misreading is
+invisible from the inside: the test agrees with the fake precisely because both came from the same
+head. The vendor's examples are the only input in this tree written by the people who run the
+venue, which makes them the only place where a misreading of ours shows up as a failure instead of
+as agreement.
+
 ## Known gaps
 
 - **The WebSocket half is not served over the socket.** The vendored connection passes an SSL
