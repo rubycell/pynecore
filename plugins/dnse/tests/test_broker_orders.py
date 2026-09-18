@@ -609,3 +609,65 @@ def __test_to_exchange_order_stop_row_is_stop_type__(fake_client, tmp_path):
                                   "price": 1490.0})
     assert limit.order_type is OrderType.LIMIT
     assert limit.stop_price is None
+
+
+# === #152 — a placed OCO must SAY which umbrella carries the stop ===========
+# The umbrella carries the bracket's STOP on a book `_CATEGORIES` never scans,
+# and the engine logs only the CHILD at exit dispatch. Measured 2026-09-18:
+# grepping a run's log for the umbrella id returned 0 occurrences against 4 for
+# its child, so "what is the stop on this position?" was not answerable from
+# the log — and at 09:50 that question was asked about a LIVE position and had
+# to be answered by reading the OCO book by hand and handing the id to another
+# session.
+
+def _oco_env():
+    return DispatchEnvelope(
+        intent=ExitIntent(pine_id="X", from_entry="E", symbol="VN30F1M",
+                          side="sell", qty=1.0,
+                          tp_price=1988.8, sl_price=1980.8),
+        run_tag="abcd", bar_ts_ms=1_700_000_000_000)
+
+
+def __test_placing_an_OCO_logs_both_ids_and_the_stop__(fake_client, tmp_path, caplog):
+    """One line, at the site that already holds both ids, naming the umbrella
+    and the stop."""
+    import logging
+
+    b = _broker(fake_client, tmp_path,
+                post_order=(201, {"id": "umb-1", "symbol": "VN30F1M",
+                                  "side": "NS", "quantity": 1,
+                                  "fillQuantity": 0, "orderStatus": "Activated",
+                                  "price": 1988.8, "stopPrice": 1980.8}),
+                get_order_detail=(200, {"id": "umb-1", "orderStatus": "Activated",
+                                        "externalOrderId": "39356"}))
+
+    with caplog.at_level(logging.INFO):
+        b._place(_oco_env(), "sell", 1.0, price=1988.8,
+                 category="OCO", stop_price=1980.8)
+
+    hit = [r.getMessage() for r in caplog.records if "#152 OCO bracket" in r.getMessage()]
+    assert hit, f"no #152 bracket line among {len(caplog.records)} log records"
+    line = hit[0]
+    assert "umb-1" in line, "the UMBRELLA id is the whole point of the line"
+    assert "1980.8" in line, (
+        "the STOP must be in the line — it is the field the operator's app and "
+        "venue.py status both fail to show")
+
+
+def __test_a_NORMAL_place_logs_no_bracket_line__(fake_client, tmp_path, caplog):
+    """The discriminating half. Without it the pin would pass on an
+    implementation that logs unconditionally, putting a bracket claim on every
+    ordinary order."""
+    import logging
+
+    b = _broker(fake_client, tmp_path,
+                post_order=(201, {"id": "plain-1", "symbol": "VN30F1M",
+                                  "side": "NB", "quantity": 1,
+                                  "fillQuantity": 0, "orderStatus": "New",
+                                  "price": 1995.0}))
+
+    with caplog.at_level(logging.INFO):
+        b._place(_oco_env(), "buy", 1.0, price=1995.0, category="NORMAL")
+
+    assert not [r for r in caplog.records if "#152 OCO bracket" in r.getMessage()], (
+        "a plain NORMAL order claimed to be an OCO bracket")

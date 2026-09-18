@@ -1576,6 +1576,21 @@ class DNSEBroker(DNSEProvider[DNSEBrokerConfig], BrokerPlugin[DNSEBrokerConfig])
             # #124 instrumentation: retain the umbrella id in memory so a later
             # CANCELLED on this tracked order can be observed against it.
             self._oco_umbrella_ids[str(order.id)] = str(body.get("id"))
+            # #152: and SAY so. The umbrella carries the bracket's STOP price on
+            # a book ``_CATEGORIES`` never scans, so without this line the id
+            # exists only in memory and in ``order_refs`` and is unrecoverable
+            # from a run log. Measured 2026-09-18: grepping a run's log for the
+            # umbrella id returned 0 occurrences against 4 for its child, so
+            # "what is the stop on this position?" was not answerable from the
+            # log at all — and at 09:50 that question was asked about a live
+            # position and had to be answered by reading the OCO book by hand.
+            # ``stopPrice`` comes from the SAME response body (the one
+            # ``_to_exchange_order`` already reads it from at :1120), so this
+            # costs no extra read; it may be None if the venue omits it.
+            log.broker_info(
+                "#152 OCO bracket: umbrella=%s child=%s stop=%s — the STOP "
+                "lives on the umbrella, which get_open_orders does not scan",
+                body.get("id"), order.id, body.get("stopPrice"))
         self._identity[order.id] = (
             getattr(intent, "pine_id", None),
             getattr(intent, "from_entry", None),
