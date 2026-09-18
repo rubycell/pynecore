@@ -241,6 +241,26 @@ trigger involved) — so a cancel of the umbrella answers `CO-ORD-013 "order sta
 is not new"` from second one; cancel the CHILD id instead. `Activated` never means
 "triggered" by itself.
 
+**`Activated` IS TERMINAL FOR THE CONDITIONAL ITSELF (operator, 2026-09-18).** On
+BOTH the STOP and the OCO book, `Activated` means exactly one thing: *it has
+created its normal-book order, and nothing further can be done with it.* The
+conditional row is a spent shell from that moment — it cannot be cancelled
+(`CO-ORD-013 "order is done"`), cannot be amended, and will never act again. All
+remaining behaviour lives on the NORMAL child.
+
+Two consequences that have each cost a live session:
+- **An `Activated` OCO umbrella with a populated `stopPrice` is NOT an armed
+  stop.** Once its child is cancelled the bracket is dead, however live the row
+  looks. Measured 2026-09-18: after `flatten_api.py` swept TP child 39356, the
+  umbrella `damadq2vfqkc7397o0tg` still read `Activated stopPrice=1980.8` on a
+  FLAT account; its `modifiedDate` was the exact instant of the child's cancel,
+  and the venue refused the cancel with `CO-ORD-013 "order is done"`. It was
+  spent, not armed. Do not chase it, and do not report it as a naked stop.
+- **The stop leg is only real while the umbrella's child is alive.** So "is this
+  position stopped?" is answered by the umbrella's `stopPrice` AND a live child —
+  never by the row's status, which reads `Activated` in both the protected and
+  the spent case.
+
 ## DNSE positions are VENUE-DERIVED from fills — we create ORDERS, not positions (confirmed 2026-09-12)
 
 No create-position API exists. You `POST .../orders`; a fill makes the **venue** create/update the
