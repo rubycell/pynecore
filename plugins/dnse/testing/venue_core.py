@@ -266,9 +266,14 @@ class FakeVenue:
         # the amend model corrected in round 1: a fake MORE PERMISSIVE than the venue teaches the
         # engine a capability that will fail live, and no pin of ours can catch it, because the
         # pin and the fake were written from the same belief.
-        if category == "OCO" and self.market_type == "STOCK":
+        # Two independent pages state the same matrix: changelog.md:24-28 as a table, and
+        # dnse-place-order.md:11-14 in prose.
+        if category == "OCO" and self.market_type != "DERIVATIVE":
             raise VenueReject("UNSUPPORTED_ORDER_CATEGORY",
-                              "OCO is a DERIVATIVE-only category; STOCK supports NORMAL and STOP")
+                              f"OCO is a DERIVATIVE-only category; {self.market_type} cannot")
+        if category == "STOP" and self.market_type == "BOND":
+            raise VenueReject("UNSUPPORTED_ORDER_CATEGORY",
+                              "BOND supports NORMAL only — no STOP and no OCO")
 
         cond = self._make(self._new_conditional_id(), "STOP_BOOK", wire_side, qty,
                           price, stop_price, stop_order_price, NEW, category=category)

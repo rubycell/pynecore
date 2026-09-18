@@ -188,3 +188,27 @@ def __test_an_oco_order_is_still_accepted_on_a_derivative__():
         assert order["orderStatus"] == "Activated", "an OCO umbrella is Activated from birth"
     finally:
         server.stop()
+
+
+def __test_conditionals_are_refused_on_a_bond__():
+    """The third row of the published matrix, confirmed by two independent pages:
+    ``changelog.md:24-28`` and ``dnse-place-order.md:11-14``. BOND takes NORMAL only — no STOP
+    and no OCO."""
+    venue, server = _serve(market_type="BOND", contract="VND12345", last=100.0)
+    try:
+        for category in ("STOP", "OCO"):
+            with pytest.raises(VenueReject):
+                venue.place(category=category, side="buy", qty=1, price=100.0, stop_price=99.0)
+    finally:
+        server.stop()
+
+
+def __test_a_plain_order_is_still_accepted_on_a_bond__():
+    """The discriminating half: the same row allows NORMAL, so this must not become a blanket
+    refusal of bonds."""
+    venue, server = _serve(market_type="BOND", contract="VND12345", last=100.0)
+    try:
+        order = venue.place(category="NORMAL", side="buy", qty=1, price=100.0)
+        assert order["orderStatus"] == "New"
+    finally:
+        server.stop()

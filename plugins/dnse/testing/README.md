@@ -80,6 +80,14 @@ Each mutant makes the venue wrong in one specific way and names the ONE test tha
 Mutants are runtime patches, never source edits, because a file-copy restore can leave stale
 bytecode running the mutant while the source looks correct.
 
+**A mutant must remove the BEHAVIOUR, not relabel its output.** Measured 2026-09-18: a mutant
+written to break order-history paging rewrote the response ENVELOPE — the `start` and `end`
+fields — while its target pin asserts on the ROWS. It ESCAPED, and correctly so: it had changed
+nothing the pin looks at. This is the mutant form of a check reading a different object than the
+claim, and it fails in the direction that flatters you, because an escaped mutant reads as "the
+pin is weak" when the truth was "the mutant missed". Before believing an escape, confirm the
+mutant touches the same thing the pin reads.
+
 Read the CONTROL row first. It applies a change that alters nothing and must be reported
 ESCAPED. A harness whose fixture crashes reports every mutant as caught and shows a perfect
 score, so a table of uniform CAUGHT rows means nothing without that row. This already earned its
