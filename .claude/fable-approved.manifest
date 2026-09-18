@@ -174,6 +174,10 @@ ec23c30094d0cef173a4c13e342bf3f73bd62ff9facdc8aa907244196add7395  plugins/dnse/t
 67b7294da7875b0ba0a876642e80eae327f2cb68493e6424f09cd061c8fa0359  .claude/hooks/enforce_ownership.py
 # 2026-09-18 ownership hook rev: captures de-duplicated (longest wins) so a computed target is reported once, whole
 98bc7b2c67fbb8a05d93ef895d7d92f6956ae9fa6df346865d8fa6c03000b7fd  .claude/hooks/enforce_ownership.py
+# 2026-09-18 L0 gate: --allow-conditionals-when-closed (pre-open measurement flag, Worker3; diff reviewed by Fable 08:10)
+d5a5f87649de13c1bcd68135fbcb129cb1475410bbf537a257c7f5ab0f6158a6  plugins/dnse/testing/live_test/level0_venue_semantics/l0_order_semantics.py
+# 2026-09-18 L0 gate: part_limit — far NORMAL-book LO long/short place+cancel (operator request; pre-open behind the same flag) — Worker3, reviewed by Fable 08:22
+0f5bf6fa47f8e89b2abc0d6b147a624a0ef71d360d101141ed93aa4b585c1b9d  plugins/dnse/testing/live_test/level0_venue_semantics/l0_order_semantics.py
 # 2026-09-18 #151 stage 3 (i) step 1 — landing worktree land-694: restart test rewritten to preserve + four #151 pins (record mirrored into land-694's manifest by the landing session)
 bb6f50f195d93e7388e92feb399d4462fa1bd3b0583ddab2dc31b0f5b2a91bc3  tests/t00_pynecore/core/test_025_order_sync_engine.py
 # 2026-09-18 #151 stage 3 (i) step 2 — land-694: venue_confirmed kw; restart path preserves via _unconfirmed_flat_pending; close-fill caller venue_confirmed=True
