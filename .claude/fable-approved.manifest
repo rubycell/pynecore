@@ -347,3 +347,6 @@ ce53ccd6371e6c128b42237a3a5be71588b94121bdd9614a96f1becf684bf5ab  plugins/dnse/t
 # 2026-09-18 #157 second pass landed at a0070311 (Worker4): /price/ohlc serves the venue's parallel-array shape (pins drive reference_close and _stop_already_crossed, mutant restores the dict); phases derived from the ORIGINAL bar stamp
 12d5b89af3cbdef90132115c1472d2dd12075edc5fadeec4a3073cf97860b3fe  plugins/dnse/tests/test_venue_http_ohlc_shape.py
 bff1e21c7bd34b155b76933906f1524ee5187f81fc3f24dfe3c62c7ae09dab95  plugins/dnse/tests/test_venue_phase_from_bar_time.py
+# 2026-09-18 #157 SDK-guide endpoints (Worker4): ppse/position-by-id/close-position, the changelog category matrix (STOCK refuses OCO), history paging
+# 2026-09-18 #157 SDK-guide endpoints (Worker4, rebased): ppse / position-by-id / close-position, category matrix guard on DERIVATIVE, history paging
+5cbbd9e1be9dce8e8e6b6658643bc45e1947118856d1979771d907ccf3df9369  plugins/dnse/tests/test_venue_http_sdk_guide_endpoints.py
