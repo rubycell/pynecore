@@ -255,6 +255,73 @@ def _mutant_tick_source_always_sets_base_url(venue_core):
     _ = venue_core
 
 
+def _mutant_http_binds_all_interfaces(venue_core):
+    """WRONG: the adapter binds any address, so the fake becomes an unauthenticated order
+    endpoint reachable from the network."""
+    import venue_http
+    original = venue_http.VenueHTTP.__init__
+
+    def patched(self, venue, *, host="127.0.0.1", port=0):
+        return original(self, venue, host="127.0.0.1", port=port)   # silently accepts anything
+
+    venue_http.VenueHTTP.__init__ = patched
+    _ = venue_core
+
+
+def _mutant_http_accepts_production_url(venue_core):
+    """WRONG: a production hostname passes the guard, so a runner can drive DNSE believing it is
+    driving the fake."""
+    import venue_http
+    venue_http.VenueHTTP.assert_not_production = staticmethod(lambda base_url: None)
+    _ = venue_core
+
+
+def _mutant_http_refuses_every_url(venue_core):
+    """WRONG in the other direction: the guard refuses everything, including its own loopback.
+
+    The control's mutant. A guard that refuses every url would satisfy the production-refusal pin
+    while making the fake unusable, so the loopback-accepted control has to be able to fail.
+    """
+    import venue_http
+
+    def patched(base_url):
+        raise venue_http.ProductionRefused(base_url)
+
+    venue_http.VenueHTTP.assert_not_production = staticmethod(patched)
+    _ = venue_core
+
+
+def _mutant_http_invents_executions(venue_core):
+    """WRONG: the executions endpoint answers 200 with a plausible payload.
+
+    Production answers 404 on this account, which is why the plugin books at cumulative VWAP.
+    Inventing a payload sends the plugin down a path production never gives it — a fake being
+    helpfully wrong, which is the failure this whole suite exists to prevent.
+    """
+    import venue_http
+    original = venue_http._Handler.do_GET
+
+    def patched(self):
+        from urllib.parse import urlparse
+        if venue_http._EXEC_PATH.match(urlparse(self.path).path):
+            return self._send(200, {"executions": [{"price": 1980.0, "quantity": 1}]})
+        return original(self)
+
+    venue_http._Handler.do_GET = patched
+    _ = venue_core
+
+
+def _mutant_http_collapses_reject_code(venue_core):
+    """WRONG: a refusal returns a bare 400 with no code, so the engine cannot branch on it."""
+    import venue_http
+
+    def patched(self, exc):
+        return self._send(400, {"message": "bad request"})
+
+    venue_http._Handler._reject = patched
+    _ = venue_core
+
+
 def _control_noop(venue_core):
     """NOT a mutant: changes nothing. Its targeted test must still PASS.
 
@@ -308,6 +375,22 @@ MUTANTS: dict[str, tuple[str, object]] = {
     "tick_source_always_sets_base_url": (
         "test_ws_source_endpoint.py::__test_the_tick_source_omits_base_url_when_none_is_configured__",
         _mutant_tick_source_always_sets_base_url),
+    # stage C2: the socket adapter
+    "http_binds_all_interfaces": (
+        "test_venue_http.py::__test_the_adapter_refuses_to_bind_a_non_loopback_address__",
+        _mutant_http_binds_all_interfaces),
+    "http_accepts_production_url": (
+        "test_venue_http.py::__test_the_adapter_refuses_a_production_looking_base_url__",
+        _mutant_http_accepts_production_url),
+    "http_refuses_every_url": (
+        "test_venue_http.py::__test_the_adapter_accepts_its_own_loopback_url__",
+        _mutant_http_refuses_every_url),
+    "http_invents_executions": (
+        "test_venue_http.py::__test_an_uncalled_endpoint_answers_404_as_production_does__",
+        _mutant_http_invents_executions),
+    "http_collapses_reject_code": (
+        "test_venue_http.py::__test_a_cancel_refusal_carries_the_venue_code_over_the_wire__",
+        _mutant_http_collapses_reject_code),
 }
 
 
