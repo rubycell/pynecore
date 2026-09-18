@@ -41,6 +41,36 @@ venue's position netting. Until the operator flattens or provides a sub-account
 (`account_no` in `workdir/config/plugins/dnse_broker.toml`), FILL-tier cases are
 **parked**, not skipped.
 
+### Three groups, five levels (operator decision 2026-09-18)
+
+Read the levels as three groups. Nothing merges; L0, L1 and L4 are unchanged.
+
+| Group | Levels | Places orders | Takes a position |
+|---|---|---|---|
+| No-fill ORDER tests | L0 (venue-semantics gate), L1 (staged no-fill probes + direct probes) | yes, all ≥4.5 % away or cancelled before they can fill | never |
+| No-fill DATA tests | L4 (bar parity, latency, ATC delivery, tick delivery) | no | never |
+| FILL tests | L2, L3 | yes | yes — FILL tier preconditions above |
+
+**The L2 / L3 split is by RISK CONTROL, not by history.**
+- **L2** = a fill case with very tight risk control: the protective stop's distance from the
+  REAL fill price is known and bounded BEFORE the run (a bracket pre-placed on the entry bar,
+  its level fixed relative to the entry trigger or the LO cap — see `l2b_fill_protect_flatten.pine`
+  header), AND the position size is exactly 1 (`default_qty_value=1`, `pyramiding=0`, an
+  enter-once latch).
+- **L3** = a fill case where the stop's distance from the real filled price is uncertain
+  (no stop at all; a stop set from a prior bar's low/high or from `close` rather than the fill;
+  a reactive exit placed only after `position_size > 0`, which arms a bar late — README venue
+  fact below; a trailing stop; a crossed-at-placement entry; a prune/adoption race)
+  AND/OR the position size can reach 2 or more (frozen flip quantity, pyramiding, dual-set
+  entries, two engines).
+
+Ids are never renamed: a row that changes level keeps its `Live-L<n>-…` id and carries the
+note "retiered from L<old> 2026-09-18". Under this criterion the only L2 vehicle today is
+`l2b_fill_protect_flatten` (row `Live-L2-BracketFill`); `Live-L2-SingleFill` is retiered to L3
+(no protective stop at all — see its row). After the retier L2 holds exactly one registry row
+today; that is expected under the definition, not a gap. The move table with per-case reasons is
+`docs/plan/test-levels-retier-2026-09-18.md`.
+
 ## Offline suites — map and red-first anchors (verified 2026-08-25)
 
 Counts as of 2026-08-25 (they grow; re-run for current numbers):
@@ -145,7 +175,8 @@ conversation all use these. (Script-internal log tags map as: `[L1] TEST n` -> L
 - **F9-BracketTrailingSL** (#93 post-fix grade): enter 1, bracket TP+SL, trail the SL two bars → post-#93 expect the LOUD PARK each bar (stale bracket armed, warn once per episode) and NO fabricated success; ALSO measure S4 (seat-1 candidate): one direct PUT of the OCO UMBRELLA's stopPrice — unmeasured; if the venue accepts it, real trailing-SL support dominates the rejected cancel+replace.
 - **F10-FcRejectCapture** (F-C, #87 live item): crossed both-set near-market with `probe_ws_market_data.py --trading` capturing and `--dual` run FIRST (settle #92's single-session hypothesis); reject reason is not recoverable from REST (measured 09-08).
 - **F11-RunnerEndToEnd** (#91): first production `run_fill_case.sh` run doubles as its live validation (same session as F9/F10).
-- **F12-PruneAdoptionRace** (#95 post-fix): conditional entry cancel racing the trigger (the F3/F4 shape) → child must be ADOPTED into key scope and a second per-key ask must answer ALREADY_FILLED, not UNKNOWN.
+- **F12-PruneAdoptionRace** (#95 post-fix): conditional entry cancel racing the trigger (the F3/F4 shape) → child must be ADOPTED into key scope and a second per-key ask must answer ALREADY_FILLED, not UNKNOWN. L3 under the 2026-09-18 criterion (a race; the protective level comes from a prior bar).
+- **Retier notes (2026-09-18, no ids renamed):** F9 (trailing SL), F10-FcRejectCapture (crossed near-market both-set) and F12 are L3 by definition. **UNSURE, not moved:** **F13** (`run_f13_latency.sh`, #146 — no registry row yet) is L2-shaped when the `l2b` vehicle runs and L3-shaped on the `l2` fallback; decide per run from the vehicle named in the runner's grading table. **Id collision:** "F10-FcRejectCapture" above reuses the id of `Live-L3-F10-CrossedStopAtPlacement` in the registry table; it needs its own number before it is registered. Every F01–F11 row below stays L3: their protection exit `P` rests at `low[1]`/`high[1]` (`live_staged_fill.pine` line 98) or at `close * 0.997` (`live_oca_entry_group.pine` line 91), never at a fill-derived distance, and F10 has no protective exit at all.
 - **L4-WsDual** (#92): `--dual` measurement, any trading-hours slot.
 - **L4-AtcWatchdogBoundary** (#98 post-fix): observe a live 1m run across 14:44-14:45 for false reconnect (read-only; pre-fix margin measured 0-4 s).
 - **B3 expiry-week set** (unchanged, operator-gated): rollover ids + GTD-at-finalTradeDate; position-INTO-expiry stays an explicit operator decision.
@@ -211,8 +242,8 @@ finalizes late but the ACK≠completion machinery reads it correctly.
 | **Live-L1-T23-BothSetRestartAdoption** | #99/#87 seam: T16 variant with a BOTH-SET far entry — place, SIGTERM, relaunch: re-owned with NO entry-stop watch armed (no watch-row resurrection), `NOT armed ... sole owner` on the relaunch too, cancel clean (`run_t16_restart.sh` needs a both-set mode or a startState param) | ⏳ planned (2026-09-09 review) |
 | **Live-L1-T24-FlattenDrill** | #91/#96 per-session drill: `run_fill_case.sh <s> --check` gates + `flatten_api.py --dry-run` attribution count sane (post-#96: scoped to account+day) — cheap, run at session open alongside L0 | ⏳ planned (2026-09-09 review) |
 | **Live-L1-T32-AtoProbe** | can a NORMAL limit and a conditional stop be PLACED during ATO/POST-ATO (08:45-09:15)? First-ever measurement (`live_staged_params.py startState=13`; bars don't arrive during pure ATO — POST-ATO 09:00-09:15 is the earliest a bar can carry the phase) | ✅ **08-25 PASS** — both order types ACCEPTED at the earliest POST-ATO bar (09:00:00), neither refused; swept clean by cancel_all() at CONT-AM (09:15:00), both Canceled per venue record. Feeds #28 (native ATC/ATO order-type support) — plain order types already work without special handling at the open |
-| **Live-L2-SingleFill** | one market fill → flatten (`l2_fill_flatten`) | ✅ 08-12 |
-| **Live-L2-BracketFill** | fill + TP/SL bracket → flatten (`l2b_…`) | ⚠️ 08-12 partial |
+| **Live-L2-BracketFill** | fill + TP/SL bracket → flatten (`l2b_fill_protect_flatten`): stop entry at `higherHigh2`, native OCO bracket TP +0.2 % / SL −0.2 % off the TRIGGER, pre-placed on the entry bar, 1 lot, `pyramiding=0`, 2-bar cap. **L2 under the 2026-09-18 criterion**: stop distance fixed before the run relative to the trigger (the fill is capped by the stop child's LO price — `test_stop_fill_price.py`), size exactly 1 | ⚠️ 08-12 partial (`logs/l2b*_evidence.txt`); README venue fact: l2b live 2026-09-15 armed same bar (#121) — no tracked log, row not upgraded |
+| **Live-L2-SingleFill** | one market fill → flatten (`l2_fill_flatten`): band-edge marketable LO, NO protective exit, `strategy.close("E")` on the next evaluation. **Retiered from L2 to L3 2026-09-18** (id kept): no stop at all, so the stop-distance condition is not met — exposure is bounded only by the ±7 % band and the next-bar close | ✅ 08-12 (`logs/l2_evidence.txt`) |
 | **Live-L3-F01-LongMarket** … **F02-ShortMarket** | market fills | ✅ **F01 09-07** (fill → API flatten → #48 external-close detect → protection retired); **F02 PARTIAL 09-07** — entry fill ✅ + protection-sl fill ✅ (flatten race, brief flip re-flattened; probe missed the sub-bar round-trip → timeout path) |
 | **Live-L3-F03-LongStop** … **F04-ShortStop** | stop-entry fills | ✅ **09-07 BOTH** — conditional → Activated → NORMAL child fill attributed to the pine id, API flatten clean (the #39/#41 chain live-proven with real money, both directions) |
 | **Live-L3-F05-LongStopLimit** … **F06-ShortStopLimit** | stop-limit fills (#14 evidence) | ⚠️ **F05 #82 FIXED & re-graded PASS 09-08**: both naked-short doors closed (#82a 8c02e86, #82b 39303b8, capability-scoped). Live proof: `Exit P|E skipped: no position to protect (#82b)` — entry rested ALONE, zero naked orders. Placement correct (ONE STOP+limit, #14 ✓). **New blocker #83**: the engine mis-classified its OWN timeout-cancel of the stop-limit entry as an external cancel → false quarantine; F06 blocked. F05 #82 grade ✅; #83 parks F06-F08 |

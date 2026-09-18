@@ -411,6 +411,23 @@ Grade live results from the VENUE record, never the run log alone. Measured venu
 Trading-token workflow (OTP mint, ~8h TTL, status check): `plugins/dnse/tools/README.md`
 — live runs need a GOOD token first (`tools/token_status.py`).
 
+### The five test levels (operator decision 2026-09-18; the README above is the source)
+
+| Level | What it is | Where it runs | Tier | Precondition | Purpose |
+|---|---|---|---|---|---|
+| L0 | venue-semantics gate (`level0_venue_semantics/l0_order_semantics.py`) | direct client, no engine | no-fill | GOOD token; any hour except ATC and post-close (pre-open needs `--allow-conditionals-when-closed`; 08:45-09:00 unmeasured, #156) | proves auth, both books, place/rest/cancel today |
+| L1 | staged no-fill probes T01–T33 + direct probes + runners | `pyne run … --broker` or direct | no-fill | open session + GOOD token; safe with an open user position | engine→plugin→venue order paths, ≥4.5 % away |
+| L4 | data parity / latency / ATC / tick delivery (`level4_data_parity/`) | passive recorder | no-fill, no orders | no token | bar feed correctness |
+| L2 | fill with TIGHT risk control (`l2b_fill_protect_flatten`) | `--broker`, FLAT account, supervised | FILL | flat account or sub-account, L0 + no-fill smoke green today | the protected fill→bracket→flatten chain |
+| L3 | fill with UNCERTAIN stop distance and/or size ≥2 (`live_staged_fill` F01–F12, F10/F11 vehicles) | `--broker`, FLAT account, supervised | FILL | as L2, plus operator-in-the-loop close protocol | order-type fill semantics, cascades, races |
+
+L2/L3 split criterion: L2 means the protective stop's distance from the REAL fill price is
+known and bounded before the run AND the position size is exactly 1. L3 means the stop's
+distance from the real fill is uncertain (reactive exits, trailing stops, brackets armed a
+bar late, crossed-at-placement, prune/adoption races) and/or the size can reach 2 or more.
+Three groups: no-fill ORDER tests (L0, L1), no-fill DATA tests (L4), FILL tests (L2, L3).
+Mandatory run order every session: L0 (exit 0) → no-fill (L1 smoke T01–T03, L4) → fill LAST.
+
 ### Live-run session mechanics (Claude Code specifics)
 
 - Background bash jobs die at ~10 min — a 1m staged run fits; 3m+ does not.
