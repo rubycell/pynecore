@@ -104,6 +104,29 @@ def owned_live_ids(store_path, account_id: str) -> "set[str] | None":
                 "  AND o.exchange_order_id IS NOT NULL "
                 "  AND o.exchange_order_id != '' "
                 "  AND r.account_id = ?", (account_id,)).fetchall()
+            # #152: an OCO umbrella's venue id is NEVER in `orders` — it is
+            # written to `order_refs` as REF_UMBRELLA_ORDER_ID by
+            # journal_server_ref -> store_ctx.add_ref (journal_wiring.py:91-92)
+            # at the exit dispatch. Until this read existed the ref had ONE
+            # writer and NO reader, so the sweep — which never cancels an
+            # unowned order on this shared netting account — would have filed
+            # our own bracket as "the operator's" the moment it could see it.
+            # Conditional-hash ids, so NO day scoping: they have no cross-day
+            # reuse class and a multi-day GTD bracket is still our protection.
+            try:
+                umbrella_rows = conn.execute(
+                    "SELECT DISTINCT f.ref_value "
+                    "FROM order_refs f JOIN runs r "
+                    "  ON r.run_instance_id = f.run_instance_id "
+                    "WHERE f.ref_type = 'umbrella_order_id' "
+                    "  AND f.ref_value IS NOT NULL AND f.ref_value != '' "
+                    "  AND r.account_id = ?", (account_id,)).fetchall()
+            except sqlite3.OperationalError:
+                # A store predating order_refs. This must NOT become
+                # attribution-UNAVAILABLE: that would exit 2 on every flatten,
+                # including the emergency ones, because of a table that
+                # happens not to exist.
+                umbrella_rows = []
         finally:
             conn.close()
     except sqlite3.Error as exc:
@@ -115,6 +138,7 @@ def owned_live_ids(store_path, account_id: str) -> "set[str] | None":
         if vid.isdigit() and (last_ms or 0) < day_start_ms:
             continue        # stale NORMAL-class id: the cross-day reuse trap
         owned.add(vid)
+    owned.update(str(r[0]) for r in umbrella_rows)
     return owned
 
 

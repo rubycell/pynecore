@@ -589,3 +589,116 @@ def __test_one_stale_flat_read_must_not_authorise_the_sweep__(
         "sanity: the fixture must still be holding the position, or this pin "
         "is measuring a genuine flatten rather than a stale read"
     )
+
+
+# === #152 step 4 — attribution must recognise an OCO umbrella ==============
+# The sweep splits venue orders into ours/foreign by id and NEVER cancels
+# foreign ones (flatten.py:245-250, the shared-netting-account rule). An
+# umbrella's id lives ONLY in `order_refs` under ref_type='umbrella_order_id'
+# and appears nowhere in `orders`, so the moment the sweep can SEE umbrellas it
+# would file our own bracket as "the operator's — NOT touched" and leave it
+# resting. Verified on the live store 2026-09-18:
+#
+#   order_refs: ref_type='umbrella_order_id' ref_value='damadq2vfqkc7397o0tg'
+#               client_order_id='gqii-...' created_ts_ms=1789699817234
+#
+# written by journal_server_ref -> store_ctx.add_ref (journal_wiring.py:91-92)
+# at the exit dispatch instant. One writer, and — until this change — no reader
+# anywhere in src/ or plugins/.
+
+def _store_with_refs(tmp_path, refs):
+    """A journal whose orders table matches the real schema, plus order_refs."""
+    import time
+    db = tmp_path / "broker.sqlite"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE orders (exchange_order_id TEXT, symbol TEXT,"
+                 " closed_ts_ms INTEGER, created_ts_ms INTEGER,"
+                 " updated_ts_ms INTEGER, run_instance_id INTEGER,"
+                 " client_order_id TEXT)")
+    conn.execute("CREATE TABLE runs (run_instance_id INTEGER,"
+                 " account_id TEXT, plugin_name TEXT)")
+    conn.execute("CREATE TABLE order_refs (run_instance_id INTEGER,"
+                 " ref_type TEXT, ref_value TEXT, client_order_id TEXT,"
+                 " created_ts_ms INTEGER)")
+    now_ms = int(time.time() * 1000)
+    old_ms = int((time.time() - 26 * 3600) * 1000)
+    conn.executemany("INSERT INTO orders VALUES (?,?,?,?,?,?,?)", [
+        # the TP child of our bracket, open, ours
+        ("39356", "41I1GA000", None, now_ms, now_ms, 1, "coid-ours"),
+        # a closed row belonging to us
+        ("39336", "41I1GA000", 123, now_ms, now_ms, 1, "coid-done"),
+        # another account's open order
+        ("99999", "41I1GA000", None, now_ms, now_ms, 9, "coid-theirs"),
+    ])
+    conn.executemany("INSERT INTO runs VALUES (?,?,?)", [
+        (1, "ACC001", "DNSE Broker"), (9, "OTHER", "DNSE Broker")])
+    conn.executemany("INSERT INTO order_refs VALUES (?,?,?,?,?)", refs)
+    conn.commit(); conn.close()
+    return db
+
+
+def __test_an_umbrella_ref_puts_its_id_in_the_owned_set__(tmp_path):
+    """Without this the sweep calls OUR OWN bracket the operator's and leaves
+    it resting — worse than not seeing it, because it mislabels it in the one
+    place a human decides whether to touch it."""
+    import time
+    now_ms = int(time.time() * 1000)
+    db = _store_with_refs(tmp_path, [
+        (1, "umbrella_order_id", "damadq2vfqkc7397o0tg", "coid-ours", now_ms)])
+    owned = tool.owned_live_ids(db, "ACC001")
+    assert owned is not None
+    assert "damadq2vfqkc7397o0tg" in owned, (
+        "the umbrella id is in order_refs, never in orders — attribution that "
+        "reads only orders.exchange_order_id cannot see our own bracket")
+    assert "39356" in owned, "the ordinary child path must still work"
+
+
+def __test_a_store_with_no_umbrella_ref_owns_no_umbrella__(tmp_path):
+    """The discriminating half: the id must come from the REF, not from
+    anything that would hand it over regardless."""
+    db = _store_with_refs(tmp_path, [])
+    owned = tool.owned_live_ids(db, "ACC001")
+    assert owned == {"39356"}, owned
+
+
+def __test_another_accounts_umbrella_ref_stays_foreign__(tmp_path):
+    """Attribution is scoped by the custody boundary. A ref written by a run on
+    a DIFFERENT account is not ours, and on a shared netting account cancelling
+    it would be cancelling the operator's protection."""
+    import time
+    now_ms = int(time.time() * 1000)
+    db = _store_with_refs(tmp_path, [
+        (9, "umbrella_order_id", "theirs-umbrella", "coid-theirs", now_ms)])
+    owned = tool.owned_live_ids(db, "ACC001")
+    assert "theirs-umbrella" not in owned, owned
+
+
+def __test_a_prior_day_umbrella_ref_is_still_ours__(tmp_path):
+    """Umbrella ids are conditional-hash strings, which have no cross-day reuse
+    class, so the day-scoping that protects NORMAL ids must NOT drop them — a
+    multi-day GTD bracket is still our protection. Same rule the existing
+    string-id path already follows."""
+    import time
+    old_ms = int((time.time() - 26 * 3600) * 1000)
+    db = _store_with_refs(tmp_path, [
+        (1, "umbrella_order_id", "damadq2vfqkc7397o0tg", "coid-ours", old_ms)])
+    assert "damadq2vfqkc7397o0tg" in tool.owned_live_ids(db, "ACC001")
+
+
+def __test_a_store_with_no_order_refs_table_still_answers__(tmp_path):
+    """Back-compat: an older store predating order_refs must not turn
+    attribution into UNAVAILABLE and thereby make every flatten exit 2."""
+    import time
+    db = tmp_path / "old.sqlite"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE orders (exchange_order_id TEXT, symbol TEXT,"
+                 " closed_ts_ms INTEGER, created_ts_ms INTEGER,"
+                 " updated_ts_ms INTEGER, run_instance_id INTEGER)")
+    conn.execute("CREATE TABLE runs (run_instance_id INTEGER,"
+                 " account_id TEXT, plugin_name TEXT)")
+    now_ms = int(time.time() * 1000)
+    conn.execute("INSERT INTO orders VALUES (?,?,?,?,?,?)",
+                 ("39356", "41I1GA000", None, now_ms, now_ms, 1))
+    conn.execute("INSERT INTO runs VALUES (?,?,?)", (1, "ACC001", "DNSE Broker"))
+    conn.commit(); conn.close()
+    assert tool.owned_live_ids(db, "ACC001") == {"39356"}
