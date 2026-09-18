@@ -102,28 +102,36 @@ from bar data, so only a RECORDED day can answer questions about the order trade
 testable without the venue. Joining a session late marks the day PARTIAL and records where it
 joined, so a late start is never read as a whole session.
 
+## The replay is re-stamped onto the wall clock
+
+The day is served SHIFTED so the first live bar lands on the current minute, with one offset
+applied to bars, derived prints, the history endpoint and the catalogue's final trade date. The
+day file keeps its recorded timestamps; the shift happens at serve time, and every run logs
+`replay offset = +N s (day YYYY-MM-DD served as today)`.
+
+This is not cosmetic. The engine anchors its live path to the wall clock in TWO independent
+places — a feed-staleness watchdog and a synthesiser that emits one bar per MISSED timeframe
+boundary — so a day stamped in the past misses a boundary every real minute and the engine
+substitutes its own flat bars forever. Measured before the shift: 65 synthetic bars, no fills,
+nothing to compare. After it: zero synthetic bars and a real trade list.
+
+**Consequence for any vehicle with an absolute time window.** Those windows are wall-clock
+milliseconds, so they must be set around NOW, not around the recorded day's dates. A window on
+the recorded dates never opens. That was the real cause of the staged no-fill probe appearing to
+place nothing: its window kept opening inside a warmup that never ended. Re-measured after the
+shift, with the window set around now, it dispatches.
+
+## Trade-list parity
+
+Run the parity script under `fixtures/offline/`. It runs the parity vehicle twice over the same
+day — once as a file-mode backtest, once through the fake — and compares the closed-trade lists.
+Four known differences are stated beside the assertion, including the one that matters most:
+trade TIMES are not comparable, because a backtest stamps bar time and a live run stamps wall
+clock, so trades are matched by ORDER. A mismatch is a finding about the fake or the plugin,
+never an accepted difference.
+
 ## Known gaps
 
-- **The L1 staged no-fill probe runs but places no orders**, and the remaining cause is
-  engine-side bar accounting rather than the probe or the venue. What is ruled out, each by
-  measurement: the probe's gate is purely `time >= winStart and time <= winEnd` with no
-  realtime condition, and the window was re-dated onto the replayed day; the bar store no
-  longer accumulates across runs (that WAS a real cause, now fixed — warmup fell from 704 bars
-  to 561); and the history endpoint is now clamped to the replay cursor so it cannot serve
-  bars the replay has not reached.
-
-  What remains unexplained: the broker hands `download_ohlcv` exactly 639 warmup bars ending
-  around 13:06, yet the engine reports "warmup phase complete — 561 bar(s)" with its last
-  warmup bar stamped 14:07, the day's final bar. So warmup is both TRIMMED (561 of 639) and
-  extends PAST the slice it was given. Until that is understood the probe's window keeps
-  opening inside warmup, where orders route to the backtest engine and never reach the venue.
-
-  Start here: instrument what `download_ohlcv` actually persists versus what the warmup replay
-  reads back, and confirm whether the engine's per-bar log prefix is the bar's timestamp or
-  something else — the 14:07 reading assumes it is the bar time, and that assumption has not
-  been checked. The `l2b` vehicle places, fills and flattens correctly against the same fake,
-  so nothing here blocks the fill path.
-- **The #162 park replay is not built yet.**
 - **The WebSocket half is not served over the socket.** The vendored connection passes an SSL
   context unconditionally and the pinned websockets version refuses that against a `ws://`
   address, so no local plain-WS server can ever be reached by the real client. That is also why
