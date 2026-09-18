@@ -213,6 +213,16 @@ c64060fa54be36c1b355f60c430045989517bc41afc206b7277c4f032c23c1ef  plugins/dnse/t
 4b8c5bb2f0e3fd8ede4928a59ebaf19fb7b8d15cc4d5287935ca1f2aa74b92e1  plugins/dnse/tests/test_flatten_tool.py
 # 2026-09-18 #152 step 4 pins rev 2 (local time import; first red was a uniform NameError, non-discriminating) — reviewed by Fable
 cb9f3fe5fec0370efe549f31f15ae75b0a7278f1b0400c705f8ba83de9bee2ab  plugins/dnse/tests/test_flatten_tool.py
+# 2026-09-18 #152 sweep pins (25: cancel by CHILD id never the umbrella, SPENT left alone, foreign left alone, UNKNOWN -> exit 2 never cancelled, unreadable OCO book -> exit 2) — reviewed by Fable
+7df6e83ce04621af012bd04bf288745df42a9c18f9bc019921096af3658b756e  plugins/dnse/tests/test_flatten_tool.py
+# 2026-09-18 #152 sweep pins rev 2 (26: + venue import failure -> exit 2 naming OCO, zero cancels) — reviewed by Fable
+a5879e1332d8a9ef0a3894dfdf8574e1b361c90e8f318e98533c4ef287446544  plugins/dnse/tests/test_flatten_tool.py
+# 2026-09-18 #152 sweep impl (OCO block decides, never returns early; verdict ranked after the sweep) + flatten.py __main__ refusal exit 2 naming flatten_api.py; 27 pins — reviewed by Fable
+161cf6989bec94ef262b39335cc623560a54df07e23a43ae787ef6e157ac00f0  plugins/dnse/tools/flatten.py
+ce6f15c647738ca11e768195c24d190c81453b0daf8f668a3a1d242405fe3f31  plugins/dnse/tests/test_flatten_tool.py
+# 2026-09-18 #152 (c): conftest get_orders accepts a per-category dict (absent category -> empty; flat response unchanged); one pre-existing pin's own fixture models OCO disjoint (condition only, assertions untouched); 29 pins — reviewed by Fable
+a7fcdc10fd37c198b7450938328160965673098305c200ad82464ace94d88c6b  plugins/dnse/tests/conftest.py
+9ec0e7b3444c129c08ba5c979b8393314ef738158791cd58f3238f6be39c645e  plugins/dnse/tests/test_flatten_tool.py
 # 2026-09-18 L0 gate: part_limit — far NORMAL-book LO long/short place+cancel (operator request; pre-open behind the same flag) — Worker3, reviewed by Fable 08:22
 0f5bf6fa47f8e89b2abc0d6b147a624a0ef71d360d101141ed93aa4b585c1b9d  plugins/dnse/testing/live_test/level0_venue_semantics/l0_order_semantics.py
 # 2026-09-18 #151 stage 3 (i) step 1 — landing worktree land-694: restart test rewritten to preserve + four #151 pins (record mirrored into land-694's manifest by the landing session)

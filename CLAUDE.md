@@ -417,6 +417,15 @@ run**, and entering an OTP or any credential remains prohibited for every agent.
 supersedes the "never execute an order-placing command" line in earlier executor prompts
 for L0–L2 only.
 
+**A claim about a live event travels with the log line that shows it, or it is labelled
+UNVERIFIED** (rule adopted 2026-09-18 after two false claims crossed three sessions and reached
+a card body; trace in `docs/plan/false-claim-propagation-2026-09-18.md`). The line must show the
+claim itself, not its neighbourhood: a `[NAKED]` verdict shows detection, not an alarm; if the
+quoted line supports a weaker claim than the sentence, the weaker claim is the one you may make.
+When repeating a peer's claim about a live event, quote THEIR line or run the check yourself: a
+peer's claim about what THEY did is testimony; a peer's claim about what the SYSTEM did is a
+measurement, and measurements are checked no matter who took them.
+
 Test cases are named **`Live-L<level>-<case>`** (e.g. `Live-L1-T11-OcaCancelMember`,
 `Live-L3-F05-LongStopLimit`) — use ONLY these IDs in plans, cards and conversation;
 the canonical registry with live status is the first table in
