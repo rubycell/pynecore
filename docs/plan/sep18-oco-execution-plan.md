@@ -312,6 +312,52 @@ exits 0. Measured today: `flatten.py --help` returns exit 0 and zero bytes. A no
 exits 0 is indistinguishable from a tool that ran and found nothing to do, and this is the
 command reserved for when something has already gone wrong.
 
+## The two fill-tier vehicles added on the fake venue (F09, F12)
+
+Written 2026-09-18 against the offline fake (#157), not against production. Both are L3 by
+the retier criterion and neither has run live.
+
+**A THIRD pine2pyne trap, and the two checks I was asked to run could not see it.** The
+brief named two: dropped parentheses and lone apostrophes. Both were clean. The third was
+found only by executing the generated code:
+
+| Pine | generated Python | what it actually does |
+|---|---|---|
+| `var int placedBar = na` (declaration) | `placedBar: PersistentSeries[int] = na(int)` | correct |
+| `placedBar := na` (reassignment) | `placedBar = na` | assigns the imported FUNCTION `is_na` |
+
+Measured consequences, both silent: `na(placedBar)` then returns **False** forever, because
+a function is not NA — so a gate written as "no attempt outstanding" never reopens — and
+`placedBar + 1` raises **TypeError** on the next bar. The generated line reads
+`placedBar = na`, which looks exactly like the Pine it came from, so no amount of reading
+finds it; `na` in value position and `na` in call position are simply different objects.
+
+The fix is an integer sentinel (`-1`), which avoids the transpiler path rather than relying
+on it improving. The general rule this suggests: **a generated file is verified by running
+it, not by reading it** — the two traps that can be read for are the ones already known.
+
+**F09 trail step and F12 trigger are derived from the day, and both are stated here because
+the `.toml` cannot hold them.** Measured 2026-09-18: a hand-written comment appended to a
+vehicle's `.toml` was **gone after a single `pyne run`** (marker present 1 before, 0 after).
+The toml is regenerated per run, so any note there is lost; these live in the `.pine` header
+and in this document.
+
+From `DERIVED-FROM-1M_VN30F1M_2026-09-18` (241 bars, range 1970.0-1998.5):
+
+- **median bar range 1.2 points**, p90 2.1 — so F09's trail step of 0.8 points sits inside a
+  typical bar and the ratchet actually moves, instead of standing still and producing no
+  modify to measure.
+- **the next bar high clears `close + 0.2` on 83% of bars** in the 60-bar tail window. That
+  is F12's trigger, and the 17% is why the vehicle RETRIES with a cap of 6 attempts: one
+  attempt in six is a clean cancel that never reaches the condition under test. At 83% per
+  attempt the chance of exhausting the cap without ever racing is about 1 in 20,000 — small,
+  but a real outcome, and the vehicle logs `F12 NO RACE` so that it is never graded as "the
+  engine failed to adopt".
+
+**A retry after a clean cancel is not a re-entry.** No position ever existed, so the
+enter-once latch is untouched and the account never holds two. The latch still forbids a
+genuine second position, which is the thing it is for.
+
 ## Status
 
 Vehicle authored and transpiled clean. Offline proof (a plain `dnse:` backtest must place

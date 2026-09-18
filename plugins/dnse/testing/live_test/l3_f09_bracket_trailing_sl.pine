@@ -1,0 +1,163 @@
+//@version=6
+// Live-L3-F09-BracketTrailingSL — DOES A TRAILING STOP REACH THE VENUE AT ALL?
+//
+// WHY THIS EXISTS. The registry row (#93 post-fix grade) asks for one thing: enter 1 lot
+// with a TP+SL bracket, walk the SL up for two bars, and find out what the venue ends up
+// holding. The expected answer on DNSE is that it holds the ORIGINAL stop, because a
+// protective exit lives on the CONDITIONAL book and the conditional book answers HTTP 500
+// to every amend (Live-L1-T07-AmendConditional500, #18). The plugin therefore cannot PUT
+// the new level; post-#93 it must PARK the modify LOUDLY, once per episode, and must not
+// fabricate success. This vehicle produces that situation on demand.
+//
+// WHAT THE STRATEGY CAN AND CANNOT SEE — the load-bearing limitation of this file.
+// Pine has no venue feedback channel. strategy.exit returns nothing, there is no
+// was-it-accepted value to read, and the next bar looks identical whether the venue took
+// the new stop or refused it. So this vehicle CANNOT log whether the venue accepted
+// anything, and any line here claiming it did would be a fabrication of exactly the kind
+// #93 exists to prevent.
+//
+// What it logs instead is what the strategy BELIEVES is armed. The grade reads what is
+// ACTUALLY armed from the venue record file, and the finding is the difference between
+// the two columns. That split is the measurement:
+//
+//     believed SL (this log, walks up)   vs   armed SL (the record, expected to stand still)
+//
+// A run where those two agree means the venue accepted an amend the registry says it
+// refuses, which is a far more interesting result than the expected one and must be
+// re-measured before it is believed.
+//
+// THE TRAIL IS A RATCHET. The stop only ever moves in the protective direction: a step
+// behind the running high, never looser than where it already sits. A trail that can move
+// a stop AWAY from price is not a trailing stop, it is a widening one, and it would turn
+// a bounded-loss vehicle into an unbounded one the first time price pulled back.
+//
+// WHY TWO BARS. Bounded on purpose: the registry row says two, and a fixed small number
+// makes the grade readable. Two trail attempts means exactly two modify dispatches, so
+// one-park-per-attempt and one-park-per-episode are DISTINGUISHABLE in the record — which
+// is the post-#93 question (warn once per episode, not once per bar). A vehicle that
+// trailed for twenty bars could not tell those two behaviours apart.
+//
+// GUARDS, same as every fill-tier vehicle here: 1 lot, pyramiding=0, the enter-once latch
+// on opentrades > 0 or closedtrades > 0, barstate.isrealtime so warmup NEVER trades (a
+// plain file-mode backtest therefore places ZERO orders — that is the offline proof, not
+// a behavioural oracle), the pre-placed strategy.exit so #121 arms the bracket on the fill
+// bar, a bounded hold, and a loss-side backstop outside the stop.
+strategy("LIVE-L3-F09 bracket trailing SL", overlay=true, pyramiding=0,
+     initial_capital=500000000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     margin_long=18.48, margin_short=18.48,
+     slippage=1,
+     calc_on_every_tick=false, process_orders_on_close=false)
+
+// --- the bracket, as percentages off the entry TRIGGER ---------------------------------
+// Trigger-relative, never close-relative: measured 2026-09-11 over 275 VN30F1M 15m bars, a
+// close-derived TP sat BELOW the entry on 50.7% of bars.
+tpPct = input.float(0.5,  "TP % off trigger", minval=0.01, step=0.01)
+slPct = input.float(0.25, "SL % off trigger", minval=0.01, step=0.01)
+
+// The trail step is in INDEX POINTS, not percent, because it is compared against the bar
+// high directly. Measured on the derived 2026-09-18 VN30F1M day: median bar range 1.2
+// points, p90 2.1. A 0.8-point step therefore sits inside a typical bar, so the ratchet
+// actually moves on most bars instead of standing still and producing no modify at all.
+// One index point is 100,000 VND per contract, which matters only on a live run.
+trailStep = input.float(0.8, "SL trail step, index points behind the high",
+     minval=0.1, step=0.1)
+trailBars = input.int(2, "bars to trail after the fill", minval=1, maxval=10)
+holdBars  = input.int(6, "flatten after this many bars held", minval=2, maxval=60)
+
+// LOSS-SIDE BACKSTOP, bounded by the SL leg and never by the TP — a take-profit setting
+// must not be allowed to decide the loss limit.
+// WRITTEN WITH NO PARENTHESES ON PURPOSE (pine2pyne #26). Measured 2026-09-18: the
+// transpiler DROPS parentheses here. Negating a parenthesised sum became a negation of
+// only the first term, which is POSITIVE at ordinary settings, so the backstop fired on
+// the first bar of every position and destroyed the measurement it protects. The form
+// below reads the same left-to-right in both languages, so there is nothing to drop.
+// Verify against the GENERATED .py after any edit to this line, never against this .pine.
+DOUBLE_CHECK_PCT = -0.25 - slPct
+
+var float tpLevel    = na
+var float slBelieved = na     // what THIS STRATEGY thinks is armed. Not the venue truth.
+var bool  hasTraded  = false  // enter-once latch
+var int   fillBar    = na
+
+higherHigh2 = high > high[1] ? high : high[1]
+
+// ENTER-ONCE LATCH. Both arms are required. Measured live 2026-09-18 (#159): a round trip
+// completed INSIDE one bar, so strategy.opentrades read 0 at both surrounding bar closes,
+// the latch never fired, and the vehicle re-entered into an unprotected position.
+// closedtrades increments on the close and PERSISTS, so it survives that case; the
+// opentrades arm is kept for the ordinary multi-bar one.
+if strategy.opentrades > 0 or strategy.closedtrades > 0
+    hasTraded := true
+
+// (1) the chasing stop entry plus its PRE-PLACED bracket. Pre-placed so #121 arms it on
+//     the fill bar; a reactive exit gated on position_size arrives a bar late and would
+//     leave the fill naked for exactly the window this vehicle is supposed to protect.
+if barstate.isrealtime and strategy.opentrades == 0 and not hasTraded
+    tpLevel := higherHigh2 * (1.0 + tpPct / 100.0)
+    slBelieved := higherHigh2 * (1.0 - slPct / 100.0)
+    strategy.entry("E", strategy.long, stop=higherHigh2, comment="STOP 1-lot")
+    strategy.exit("X", from_entry="E", limit=tpLevel, stop=slBelieved, oca_name="f09",
+                  comment_profit="TP", comment_loss="SL")
+    log.info("F09 ENTRY dispatch trigger={0} tp={1} sl={2} slPct={3} tpPct={4}",
+             higherHigh2, tpLevel, slBelieved, slPct, tpPct)
+
+// (2) mark the fill bar, so the trail window is measured from the FILL and not from the
+//     dispatch. The entry rests and chases while unfilled, so those two can be many bars
+//     apart and a dispatch-anchored window would trail against no position at all.
+if strategy.opentrades > 0 and strategy.opentrades[1] == 0
+    fillBar := bar_index
+    log.info("F09 FILLED at bar {0} entry={1} believedSL={2}",
+             bar_index, strategy.opentrades.entry_price(strategy.opentrades - 1), slBelieved)
+
+barsHeld = not na(fillBar) ? bar_index - fillBar : -1
+
+// (3) THE TRAIL — the measurement. One modify dispatch per bar for trailBars bars after
+//     the fill bar. The step is a RATCHET: the candidate is taken only when it is tighter
+//     than what we believe is armed, so the stop never widens on a pullback.
+//
+//     The log line states the BELIEF and says so. It cannot state the venue answer: see
+//     the header. The grade pairs this line with the record file, and a believed SL that
+//     walks while the recorded SL stands still IS the expected post-#93 result.
+if strategy.opentrades > 0 and barsHeld >= 1 and barsHeld <= trailBars
+    trailCandidate = high - trailStep
+    slBelieved := trailCandidate > slBelieved ? trailCandidate : slBelieved
+    strategy.exit("X", from_entry="E", limit=tpLevel, stop=slBelieved, oca_name="f09",
+                  comment_profit="TP", comment_loss="SL")
+    log.info("F09 TRAIL barsHeld={0} high={1} step={2} believedSL={3} UNCONFIRMED at venue",
+             barsHeld, high, trailStep, slBelieved)
+
+// (4) which leg closed it, if one did. Index is closedtrades-1; the count is never valid.
+if strategy.position_size == 0 and strategy.position_size[1] != 0 and strategy.closedtrades > 0
+    log.info("F09 CLOSED by={0} entry={1} exit={2} pnl={3}",
+             strategy.closedtrades.exit_comment(strategy.closedtrades - 1),
+             strategy.closedtrades.entry_price(strategy.closedtrades - 1),
+             strategy.closedtrades.exit_price(strategy.closedtrades - 1),
+             strategy.closedtrades.profit(strategy.closedtrades - 1))
+
+// (5) BOUNDED HOLD. The measurement is complete once the trail window has passed, so the
+//     position is closed rather than left to run. Cancel first, then close, so no resting
+//     leg can re-open exposure after the flatten.
+if strategy.position_size != 0 and barsHeld >= holdBars
+    strategy.cancel_all()
+    strategy.close("E", comment="HOLDCAP")
+    log.info("F09 HOLDCAP flatten at barsHeld={0}", barsHeld)
+
+// (6) loss-side backstop, outermost. PnL% is computed MANUALLY because
+//     strategy.opentrades.profit_percent() reads 0.0 for an OPEN trade (measured
+//     2026-09-11: profit went 0 to -6 while profit_percent stayed 0.0000), which made this
+//     layer dead code. entry_price and size ARE live on an open trade. _bsDir inverts the
+//     sign for a short, without which a losing short would report a gain.
+_bsEntry = strategy.opentrades > 0 ? strategy.opentrades.entry_price(strategy.opentrades - 1) : 0.0
+_bsSize  = strategy.opentrades > 0 ? strategy.opentrades.size(strategy.opentrades - 1) : 0.0
+_bsDir   = _bsSize < 0 ? -1.0 : 1.0
+_bsLive  = strategy.position_size != 0 and not na(_bsEntry) and _bsEntry != 0.0
+openPnlPct = _bsLive ? (close - _bsEntry) / _bsEntry * 100.0 * _bsDir : 0.0
+if strategy.position_size != 0 and openPnlPct < DOUBLE_CHECK_PCT
+    strategy.cancel_all()
+    strategy.close_all(comment="DOUBLECHECK")
+    log.info("F09 BACKSTOP fired at {0} pct, threshold {1}", openPnlPct, DOUBLE_CHECK_PCT)
+
+plot(strategy.position_size, "pos", display=display.data_window)
+plot(tpLevel, "tp", display=display.data_window)
+plot(slBelieved, "slBelieved", display=display.data_window)

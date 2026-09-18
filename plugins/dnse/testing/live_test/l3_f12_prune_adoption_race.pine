@@ -1,0 +1,175 @@
+//@version=6
+// Live-L3-F12-PruneAdoptionRace — CANCEL AN ENTRY WHILE IT IS ACTIVATING
+//
+// WHY THIS EXISTS. The registry row (#95 post-fix) asks for the F3/F4 shape: a conditional
+// stop entry cancelled at the exact moment its trigger is being crossed. The venue wins
+// that race — it activates the conditional and spawns a NORMAL-book child, then answers
+// our cancel with "order is done" (CO-ORD-013). What the engine does next is the whole
+// question:
+//
+//   * the child must be ADOPTED into the key scope, because the fill lands on the CHILD
+//     and never on the string id we placed (CLAUDE.md, two order books). An engine that
+//     does not adopt believes it is flat while the account holds a contract.
+//   * a SECOND per-key ask must then answer ALREADY_FILLED, never UNKNOWN. UNKNOWN is the
+//     answer that parks an intent forever, and #162 exists because a park with no
+//     discharge route never clears.
+//
+// THE RACE HAS TO BE MANUFACTURED, AND IT CANNOT BE MANUFACTURED RELIABLY. That is a
+// property of the day, not a shortcoming of the vehicle, and it is why this file retries.
+//
+// Measured on DERIVED-FROM-1M_VN30F1M_2026-09-18 (241 bars, 1970.0 to 1998.5, median bar
+// range 1.2 points): the NEXT bar high clears close+0.2 on 83% of bars in the 60-bar tail
+// window. So placing at close+0.2 and cancelling one bar later produces the race about
+// five times in six. The remaining one in six is a CLEAN CANCEL — the venue had nothing to
+// activate, the cancel simply succeeds, and there is no adoption to grade. That is not a
+// failure of the run and must not be graded as one; it is an attempt that did not reach
+// the condition under test.
+//
+// So the vehicle places, cancels one bar later, and if that attempt produced no position
+// it places again, up to attemptCap. A RETRY AFTER A CLEAN CANCEL IS NOT A RE-ENTRY: no
+// position ever existed, so the enter-once latch is untouched and the account never holds
+// two. The latch still forbids a genuine second position, which is the thing it is for.
+// With the cap at 6 and an 83% per-attempt hit rate, the chance of reaching the cap
+// without ever racing is about one in 20,000 — small, but it is a real outcome and the
+// grade must read "never raced", not "the engine failed to adopt".
+//
+// WHAT HAPPENS AFTER THE RACE. The position the venue handed us is real and is held with
+// the PRE-PLACED bracket (placed on the entry bar so #121 arms it on the fill bar rather
+// than a bar late), and the two-candle rule closes it. Holding it briefly is deliberate:
+// the second per-key ask — the one that must answer ALREADY_FILLED rather than UNKNOWN —
+// happens while the position is open, so a vehicle that flattened instantly would cancel
+// the very interaction it exists to measure.
+//
+// GUARDS: 1 lot, pyramiding=0, the enter-once latch on opentrades > 0 or closedtrades > 0,
+// barstate.isrealtime so warmup NEVER trades (a file-mode backtest therefore places ZERO
+// orders — the offline proof, not a behavioural oracle), and a loss-side backstop.
+strategy("LIVE-L3-F12 prune adoption race", overlay=true, pyramiding=0,
+     initial_capital=500000000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     margin_long=18.48, margin_short=18.48,
+     slippage=1,
+     calc_on_every_tick=false, process_orders_on_close=false)
+
+// --- the race parameters ---------------------------------------------------------------
+// crossOffset is in INDEX POINTS above the close. It is the dial that sets how likely the
+// next bar is to cross: bigger is a rarer race, smaller risks the trigger being crossed
+// WITHIN the placement bar itself, which fills immediately and never races the cancel.
+// 0.2 measured 83% on the 2026-09-18 derived day; see the header.
+crossOffset = input.float(0.2, "entry trigger, index points above the close",
+     minval=0.1, step=0.1)
+attemptCap  = input.int(6, "give up after this many race attempts", minval=1, maxval=30)
+
+// The bracket, trigger-relative rather than close-relative: measured 2026-09-11 over 275
+// VN30F1M 15m bars, a close-derived TP sat BELOW the entry on 50.7% of bars.
+tpPct = input.float(0.5,  "TP % off trigger", minval=0.01, step=0.01)
+slPct = input.float(0.25, "SL % off trigger", minval=0.01, step=0.01)
+
+// LOSS-SIDE BACKSTOP, bounded by the SL leg, never by the TP.
+// NO PARENTHESES ON PURPOSE (pine2pyne #26): measured 2026-09-18, the transpiler drops
+// them here, turning a negated sum into a negation of the first term only — positive at
+// ordinary settings, so the backstop would fire on the first bar of every position.
+// This form reads the same left-to-right in both languages. Verify in the GENERATED .py.
+DOUBLE_CHECK_PCT = -0.25 - slPct
+
+var float tpLevel   = na
+var float slLevel   = na
+var float trigger   = na
+var bool  hasTraded = false   // enter-once latch
+var int   attempts  = 0
+var int   races     = 0       // attempts where the cancel found the entry already activated
+
+// NO OUTSTANDING ATTEMPT IS -1, NOT na. A THIRD pine2pyne trap, measured 2026-09-18 while
+// writing this file, and it is invisible to both of the checks this vehicle was required
+// to pass. The DECLARATION `var int placedBar = na` transpiles correctly to `na(int)`. The
+// REASSIGNMENT `placedBar := na` does NOT: it emits a bare `na`, which is the imported
+// FUNCTION object, not the NA value. Measured consequences, both silent:
+//
+//     na(placedBar)  -> False forever   (a function is not NA, so the place gate never
+//                                        reopens and the vehicle stops after one attempt)
+//     placedBar + 1  -> TypeError       (function + int, on the bar after the first cancel)
+//
+// The generated line reads `placedBar = na`, which looks exactly like the Pine it came
+// from, so reading it proves nothing — only executing it shows the two objects differ. An
+// integer sentinel avoids the transpiler path altogether rather than relying on it.
+var int placedBar = -1        // bar the live attempt was placed on; -1 means none outstanding
+
+// ENTER-ONCE LATCH. Both arms required. Measured live 2026-09-18 (#159): a round trip
+// completed INSIDE one bar, so strategy.opentrades read 0 at both surrounding bar closes
+// and a single-arm latch never fired, letting the vehicle re-enter unprotected.
+// closedtrades increments on the close and PERSISTS, so it survives that case.
+if strategy.opentrades > 0 or strategy.closedtrades > 0
+    hasTraded := true
+
+// (1) PLACE the conditional stop entry just above the close, with its bracket pre-placed.
+//     Only when flat, never traded, and with no attempt already outstanding.
+if barstate.isrealtime and strategy.opentrades == 0 and not hasTraded and placedBar < 0 and attempts < attemptCap
+    attempts := attempts + 1
+    trigger := close + crossOffset
+    tpLevel := trigger * (1.0 + tpPct / 100.0)
+    slLevel := trigger * (1.0 - slPct / 100.0)
+    placedBar := bar_index
+    strategy.entry("E", strategy.long, stop=trigger, comment="STOP 1-lot")
+    strategy.exit("X", from_entry="E", limit=tpLevel, stop=slLevel, oca_name="f12",
+                  comment_profit="TP", comment_loss="SL")
+    log.info("F12 PLACE attempt={0} of {1} trigger={2} close={3} tp={4} sl={5}",
+             attempts, attemptCap, trigger, close, tpLevel, slLevel)
+
+// (2) CANCEL one bar later — the race. On this bar the replayed prints are crossing the
+//     trigger, so the venue is activating the conditional while our cancel is in flight.
+//     The attempt is closed here whichever way it went: placedBar goes back to na, so a
+//     clean cancel frees the next bar to place again and a won race is stopped by the
+//     latch instead.
+if placedBar >= 0 and bar_index == placedBar + 1
+    placedBar := -1
+    strategy.cancel("E")
+    log.info("F12 CANCEL attempt={0} trigger={1} barHigh={2} crossed={3} posNow={4}",
+             attempts, trigger, high, high >= trigger, strategy.position_size)
+
+// (3) DID THE RACE HAPPEN? A position on the bar after the cancel means the venue
+//     activated first and the engine adopted the child — the condition under test. This
+//     counter is what separates "the engine failed to adopt" from "we never raced", and
+//     the two must never be graded as the same thing.
+if strategy.opentrades > 0 and strategy.opentrades[1] == 0
+    races := races + 1
+    log.info("F12 RACED — venue activated before the cancel landed. entry={0} pos={1} attempts={2}",
+             strategy.opentrades.entry_price(strategy.opentrades - 1),
+             strategy.position_size, attempts)
+
+// (4) gave up without ever racing. Stated loudly, because a silent quiet run looks exactly
+//     like a passing one and this is the outcome most likely to be misread.
+if barstate.isrealtime and attempts >= attemptCap and races == 0 and strategy.position_size == 0
+    log.info("F12 NO RACE after {0} attempts — the condition under test was never reached",
+             attempts)
+
+// (5) which leg closed it, if one did. Index is closedtrades-1; the count is never valid.
+if strategy.position_size == 0 and strategy.position_size[1] != 0 and strategy.closedtrades > 0
+    log.info("F12 CLOSED by={0} entry={1} exit={2} pnl={3}",
+             strategy.closedtrades.exit_comment(strategy.closedtrades - 1),
+             strategy.closedtrades.entry_price(strategy.closedtrades - 1),
+             strategy.closedtrades.exit_price(strategy.closedtrades - 1),
+             strategy.closedtrades.profit(strategy.closedtrades - 1))
+
+// (6) the two-candle rule closes whatever the race left open. Cancel first, then close, so
+//     no resting leg can re-open exposure after the flatten.
+if strategy.position_size != 0 and strategy.position_size[1] != 0
+    strategy.cancel_all()
+    strategy.close("E", comment="FLATTEN")
+    log.info("F12 FLATTEN at two candles held, pos={0}", strategy.position_size)
+
+// (7) loss-side backstop, outermost. PnL% computed MANUALLY because
+//     strategy.opentrades.profit_percent() reads 0.0 for an OPEN trade (measured
+//     2026-09-11: profit went 0 to -6 while profit_percent stayed 0.0000), which made this
+//     layer dead code. _bsDir inverts the sign for a short.
+_bsEntry = strategy.opentrades > 0 ? strategy.opentrades.entry_price(strategy.opentrades - 1) : 0.0
+_bsSize  = strategy.opentrades > 0 ? strategy.opentrades.size(strategy.opentrades - 1) : 0.0
+_bsDir   = _bsSize < 0 ? -1.0 : 1.0
+_bsLive  = strategy.position_size != 0 and not na(_bsEntry) and _bsEntry != 0.0
+openPnlPct = _bsLive ? (close - _bsEntry) / _bsEntry * 100.0 * _bsDir : 0.0
+if strategy.position_size != 0 and openPnlPct < DOUBLE_CHECK_PCT
+    strategy.cancel_all()
+    strategy.close_all(comment="DOUBLECHECK")
+    log.info("F12 BACKSTOP fired at {0} pct, threshold {1}", openPnlPct, DOUBLE_CHECK_PCT)
+
+plot(strategy.position_size, "pos", display=display.data_window)
+plot(trigger, "trigger", display=display.data_window)
+plot(slLevel, "sl", display=display.data_window)
